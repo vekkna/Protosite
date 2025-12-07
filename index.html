@@ -3,7 +3,7 @@
 
     <head>
         <meta charset="UTF-8">
-        <title>Wargame Prototype v2</title>
+        <title>Wargame Prototype v3</title>
         <style>
             body {
                 font-family: sans-serif;
@@ -96,7 +96,6 @@
                 box-sizing: border-box;
                 cursor: grab;
                 transition: transform 0.1s ease-out;
-                /* Smooth rotation */
             }
 
             .piece:active {
@@ -175,7 +174,6 @@
                 pointer-events: none;
                 z-index: 2;
                 transform: translate(-50%, -50%);
-                /* Center on coordinate */
             }
 
             /* --- UI LAYER --- */
@@ -297,16 +295,13 @@
             const textElement = document.getElementById('measure-text');
 
             // --- SERIALIZATION (SAVE/LOAD/UNDO) ---
-
             function getBoardState() {
-                // Scrape DOM to build a JSON object of the current game state
                 const pieces = [];
-                // Get Units
                 document.querySelectorAll('.unit').forEach(el => {
-                    if (el.classList.contains('ghost')) return; // Ignore ghosts
+                    if (el.classList.contains('ghost')) return;
                     pieces.push({
                         type: 'unit',
-                        name: el.innerText.replace(el.querySelector('.wound-marker').innerText, '').trim(), // clean text
+                        name: el.innerText.replace(el.querySelector('.wound-marker').innerText, '').trim(),
                         x: parseFloat(el.style.left),
                         y: parseFloat(el.style.top),
                         angle: el.dataset.angle,
@@ -314,7 +309,6 @@
                         color: el.style.backgroundColor
                     });
                 });
-                // Get Terrain
                 document.querySelectorAll('.terrain').forEach(el => {
                     pieces.push({
                         type: 'terrain',
@@ -333,7 +327,6 @@
             function restoreBoardState(jsonString) {
                 if (!jsonString) return;
 
-                // Clear Table (preserve SVG)
                 const pieces = table.querySelectorAll('.unit, .terrain, .ghost, .range-ring');
                 pieces.forEach(p => p.remove());
 
@@ -362,7 +355,7 @@
                 if (undoStack.length === 0) return;
                 const previousState = undoStack.pop();
                 restoreBoardState(previousState);
-                saveGame(); // Ensure local storage matches the undo
+                saveGame();
             };
 
             window.resetGame = function () {
@@ -381,7 +374,6 @@
             }
 
             // --- FACTORY FUNCTIONS ---
-
             function createUnitDOM(name, color, x, y, angle, wounds) {
                 const div = document.createElement('div');
                 div.classList.add('piece', 'unit');
@@ -405,11 +397,10 @@
 
                 attachListeners(div);
 
-                // Specific Hover tracking for logic
                 div.addEventListener('mouseenter', () => hoveredUnit = div);
                 div.addEventListener('mouseleave', () => {
                     hoveredUnit = null;
-                    removeRangeRing(); // Remove range ring if mouse leaves
+                    removeRangeRing();
                 });
 
                 table.appendChild(div);
@@ -442,6 +433,7 @@
                     restoreBoardState(saved);
                 } else {
                     createDefaultUnits();
+                    createDefaultTerrain();
                 }
             }
 
@@ -463,18 +455,45 @@
                 });
             }
 
-            // --- TERRAIN SPAWNER ---
+            function createDefaultTerrain() {
+                // Place terrain in the middle zone (y=12" to 24" approx) to avoid overlap
+                const terrainTypes = ['forest', 'forest', 'hills', 'hills', 'rough', 'rough'];
+
+                terrainTypes.forEach((type) => {
+                    const w = inchesToPx(TERRAIN_DEFAULT_W);
+                    const h = inchesToPx(TERRAIN_DEFAULT_H);
+
+                    // Random X: Keep somewhat inside the board
+                    const x = Math.random() * (tableWidthPx - w - 100) + 50;
+
+                    // Random Y: Keep in "No Man's Land" (Between 10 inches and 26 inches)
+                    const minY = inchesToPx(10);
+                    const maxY = inchesToPx(26);
+                    const y = Math.random() * (maxY - minY) + minY;
+
+                    const angle = Math.floor(Math.random() * 360);
+
+                    createTerrainDOM(type, x, y, w, h, angle);
+                });
+            }
+
+            // --- TERRAIN SPAWNER (Manual) ---
             window.spawnTerrain = function (type) {
-                pushUndo(); // Save before spawn
+                pushUndo();
                 const w = inchesToPx(TERRAIN_DEFAULT_W);
                 const h = inchesToPx(TERRAIN_DEFAULT_H);
 
-                // Spawn off-screen temporarily
+                // Spawn off-screen
                 const div = createTerrainDOM(type, -9999, -9999, w, h, 0);
 
                 activePiece = div;
                 ghostPiece = null;
-                anchorX = -1; // Skip line drawing until first move
+                anchorX = -1;
+
+                // BUG FIX: Set offsets immediately so onMouseMove works even before first move calc
+                div.dataset.offsetX = w / 2;
+                div.dataset.offsetY = h / 2;
+
                 saveGame();
             };
 
@@ -485,7 +504,6 @@
 
             // --- INPUT HANDLING ---
 
-            // Keyboard (Wounds, Resize, Undo, Range)
             window.addEventListener('keydown', (e) => {
                 // Undo
                 if ((e.ctrlKey || e.metaKey) && e.key === 'z') { e.preventDefault(); undo(); return; }
@@ -501,7 +519,7 @@
 
                 if (!isPlus && !isMinus) return;
 
-                pushUndo(); // Save before change
+                pushUndo();
 
                 if (hoveredUnit) {
                     let wounds = parseInt(hoveredUnit.dataset.wounds);
@@ -527,15 +545,13 @@
             });
 
             function showRangeRing(unit) {
-                if (unit.querySelector('.range-ring')) return; // already exists
+                if (unit.querySelector('.range-ring')) return;
                 const ring = document.createElement('div');
                 ring.classList.add('range-ring');
                 const diameterPx = inchesToPx(THREAT_RANGE_INCHES * 2);
                 ring.style.width = `${diameterPx}px`;
                 ring.style.height = `${diameterPx}px`;
 
-                // Position relative to the unit's center
-                // Since ring is absolute and translated -50%, we just stick it at 50% 50% of the unit
                 ring.style.left = '50%';
                 ring.style.top = '50%';
 
@@ -547,23 +563,21 @@
                 rings.forEach(r => r.remove());
             }
 
-            // --- DRAG LOGIC (GHOSTING) ---
+            // --- DRAG LOGIC ---
             function onPieceDragStart(e) {
                 if (e.button !== 0) return;
                 e.stopPropagation();
 
-                pushUndo(); // Save state before moving
+                pushUndo();
 
                 activePiece = e.currentTarget;
 
                 // Create Ghost
                 ghostPiece = activePiece.cloneNode(true);
                 ghostPiece.classList.add('ghost');
-                // Remove ID and listeners from clone
                 ghostPiece.removeAttribute('id');
-                ghostPiece.style.transform = activePiece.style.transform; // Copy rotation
+                ghostPiece.style.transform = activePiece.style.transform;
 
-                // Insert before active piece so active piece floats on top
                 table.insertBefore(ghostPiece, activePiece);
 
                 // Calc offset
@@ -580,7 +594,6 @@
                 showLine(anchorX, anchorY, anchorX, anchorY);
             }
 
-            // Measure Empty Ground
             table.addEventListener('mousedown', (e) => {
                 if (e.button !== 0) return;
                 if (e.target !== table && e.target !== document.getElementById('ui-layer')) return;
@@ -619,7 +632,6 @@
                     activePiece.style.left = `${newLeft}px`;
                     activePiece.style.top = `${newTop}px`;
 
-                    // Calculate Center of Moving Piece (using offsetWidth for unrotated dims)
                     targetX = newLeft + (activePiece.offsetWidth / 2);
                     targetY = newTop + (activePiece.offsetHeight / 2);
                 }
@@ -635,7 +647,6 @@
                     textElement.setAttribute('x', anchorX + (dx / 2) + 10);
                     textElement.setAttribute('y', anchorY + (dy / 2) - 10);
                 } else {
-                    // Initialize anchor for just-spawned terrain
                     const rect = activePiece.getBoundingClientRect();
                     anchorX = (rect.left - tableRect.left) + (rect.width / 2);
                     anchorY = (rect.top - tableRect.top) + (rect.height / 2);
@@ -644,7 +655,7 @@
 
             function onMouseUp(e) {
                 if (activePiece) {
-                    saveGame(); // Auto-save after drop
+                    saveGame();
                 }
 
                 activePiece = null;
@@ -663,7 +674,7 @@
                 e.preventDefault();
                 e.stopPropagation();
 
-                pushUndo(); // Save before rotate
+                pushUndo();
 
                 const piece = e.currentTarget;
                 let currentAngle = parseFloat(piece.dataset.angle) || 0;
@@ -680,7 +691,6 @@
             window.addEventListener('mousemove', onMouseMove);
             window.addEventListener('mouseup', onMouseUp);
 
-            // Run
             initGame();
 
         </script>
