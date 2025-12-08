@@ -3,7 +3,8 @@
 
     <head>
         <meta charset="UTF-8">
-        <title>Wargame Prototype v4</title>
+        <title>Wargame Prototype v5 (Multiplayer)</title>
+        <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
         <style>
             body {
                 font-family: sans-serif;
@@ -25,7 +26,8 @@
 
             /* --- SIDEBARS --- */
             .sidebar {
-                width: 150px;
+                width: 180px;
+                /* Widened for connection UI */
                 background-color: #444;
                 padding: 10px;
                 display: flex;
@@ -48,32 +50,65 @@
                 border-color: white;
             }
 
-            /* --- DICE --- */
-            #dice-btn {
-                padding: 20px;
-                background-color: #d32f2f;
-                color: white;
-                font-size: 1.2em;
-                font-weight: bold;
-                border: 2px solid white;
+            /* --- BUTTONS & INPUTS --- */
+            button {
+                padding: 10px;
                 cursor: pointer;
-                margin-top: 20px;
+                border: none;
+                color: white;
+                font-weight: bold;
             }
 
-            #dice-btn:active {
+            .btn-red {
+                background-color: #d32f2f;
+                border: 2px solid white;
+            }
+
+            .btn-red:active {
                 background-color: #b71c1c;
             }
 
-            #dice-result {
-                font-size: 3em;
-                font-weight: bold;
-                color: white;
-                margin: 10px 0 0 0;
+            .btn-grey {
+                background-color: #666;
+                color: #fff;
             }
 
-            #dice-detail {
-                font-size: 0.9em;
-                color: #aaa;
+            .btn-grey:active {
+                background-color: #444;
+            }
+
+            .btn-blue {
+                background-color: #1976d2;
+                border: 1px solid #63a4ff;
+            }
+
+            .btn-blue:active {
+                background-color: #0d47a1;
+            }
+
+            input[type="text"] {
+                width: 90%;
+                padding: 5px;
+                margin-bottom: 5px;
+                background: #222;
+                border: 1px solid #555;
+                color: white;
+                text-align: center;
+            }
+
+            /* --- CONNECTION STATUS --- */
+            #status-indicator {
+                padding: 5px;
+                font-size: 0.8em;
+                margin-bottom: 10px;
+                border-radius: 4px;
+                background-color: #333;
+                color: #888;
+            }
+
+            .status-connected {
+                background-color: #2e7d32 !important;
+                color: white !important;
             }
 
             /* --- TABLE --- */
@@ -102,7 +137,6 @@
                 cursor: grabbing;
             }
 
-            /* Unit Specifics */
             .unit {
                 font-weight: bold;
                 font-size: 12px;
@@ -132,14 +166,12 @@
                 display: none;
             }
 
-            /* Terrain Specifics */
             .terrain {
                 color: white;
                 font-weight: bold;
                 text-shadow: 1px 1px 2px black;
                 z-index: 5;
                 opacity: 0.9;
-                /* Fallback border in case specific style fails */
                 border: 1px solid rgba(255, 255, 255, 0.2);
             }
 
@@ -216,14 +248,22 @@
     <body>
         <div id="container">
             <div class="sidebar">
-                <h3 style="margin-top:0">Tools</h3>
-                <div id="dice-btn" onclick="rollDice()">Roll 2d6</div>
+                <h3 style="margin-top:0">Multiplayer</h3>
+                <div id="status-indicator">OFFLINE</div>
+                <button id="host-btn" class="btn-blue" onclick="hostGame()">Host Game</button>
+                <input type="text" id="my-id-display" placeholder="Your ID will appear here" readonly
+                    style="display:none;">
+                <button id="copy-btn" class="btn-grey" onclick="copyId()" style="display:none; margin-bottom:10px;">Copy
+                    ID</button>
+                <div style="border-top: 1px solid #666; margin: 5px 0;"></div>
+                <input type="text" id="join-input" placeholder="Enter Host ID">
+                <button id="join-btn" class="btn-blue" onclick="joinGame()">Join Game</button>
+                <h3 style="margin-top:20px">Tools</h3>
+                <button id="dice-btn" class="btn-red" onclick="rollDice()">Roll 2d6</button>
                 <div id="dice-result">-</div>
                 <div id="dice-detail"></div>
-                <button onclick="undo()" style="margin-top: 20px; padding: 10px; cursor: pointer;">Undo (Z)</button>
-                <button onclick="resetGame()"
-                    style="margin-top: 10px; padding: 10px; cursor: pointer; background:#555; color:#ccc;">Reset
-                    Board</button>
+                <button onclick="undo()" class="btn-grey" style="margin-top: 15px;">Undo (Z)</button>
+                <button onclick="resetGame()" class="btn-grey" style="margin-top: 5px;">Reset Board</button>
             </div>
             <div id="game-table">
                 <svg id="ui-layer">
@@ -262,9 +302,7 @@
             const TERRAIN_DEFAULT_W = 6;
             const TERRAIN_DEFAULT_H = 4;
             const THREAT_RANGE_INCHES = 12;
-
-            // Change this key to force a wipe of old buggy data
-            const SAVE_KEY = 'wargameSave_v1';
+            const SAVE_KEY = 'wargameSave_v5';
 
             // --- CONVERSIONS ---
             const mmToInches = (mm) => mm / 25.4;
@@ -281,25 +319,122 @@
             table.style.width = `${tableWidthPx}px`;
             table.style.height = `${tableHeightPx}px`;
 
-            // --- STATE MANAGEMENT ---
+            // --- PEERJS / NETWORK STATE ---
+            let peer = null;
+            let conn = null;
+            let isHost = false;
+
+            // --- GAME STATE ---
             let activePiece = null;
             let ghostPiece = null;
             let isMeasuring = false;
-
             let anchorX = 0;
             let anchorY = 0;
-
             let hoveredUnit = null;
             let hoveredTerrain = null;
-
-            // Undo Stack
             let undoStack = [];
             const MAX_UNDO = 20;
 
             const lineElement = document.getElementById('measure-line');
             const textElement = document.getElementById('measure-text');
 
-            // --- SERIALIZATION (SAVE/LOAD/UNDO) ---
+            // --- NETWORKING FUNCTIONS ---
+
+            function hostGame() {
+                if (peer) return; // Already initialized
+                updateStatus("Initializing...");
+
+                // Create Peer
+                peer = new Peer(); // Auto-generates ID
+
+                peer.on('open', (id) => {
+                    updateStatus("Hosting");
+                    document.getElementById('my-id-display').style.display = 'block';
+                    document.getElementById('my-id-display').value = id;
+                    document.getElementById('copy-btn').style.display = 'block';
+                    document.getElementById('host-btn').style.display = 'none';
+                    document.getElementById('join-input').style.display = 'none';
+                    document.getElementById('join-btn').style.display = 'none';
+                    isHost = true;
+                });
+
+                peer.on('connection', (c) => {
+                    conn = c;
+                    setupConnection();
+                    // Host sends initial state to Joiner immediately
+                    sendData({ type: 'SYNC_BOARD', payload: getBoardState() });
+                });
+
+                peer.on('error', (err) => console.error(err));
+            }
+
+            function joinGame() {
+                const hostId = document.getElementById('join-input').value.trim();
+                if (!hostId) return alert("Enter a Host ID");
+
+                updateStatus("Connecting...");
+                peer = new Peer();
+
+                peer.on('open', () => {
+                    conn = peer.connect(hostId);
+                    setupConnection();
+                });
+
+                peer.on('error', (err) => {
+                    updateStatus("Error");
+                    alert("Could not connect. Check ID.");
+                });
+            }
+
+            function setupConnection() {
+                if (!conn) return;
+
+                conn.on('open', () => {
+                    updateStatus("Connected!");
+                    document.getElementById('status-indicator').classList.add('status-connected');
+                });
+
+                conn.on('data', (data) => {
+                    handleIncomingData(data);
+                });
+
+                conn.on('close', () => {
+                    updateStatus("Disconnected");
+                    document.getElementById('status-indicator').classList.remove('status-connected');
+                    conn = null;
+                });
+            }
+
+            function handleIncomingData(data) {
+                // Prevent loops by not re-broadcasting what we just received
+                if (data.type === 'SYNC_BOARD') {
+                    restoreBoardState(data.payload, true); // true = suppress broadcast
+                }
+                else if (data.type === 'ROLL_DICE') {
+                    // Show opponent's roll
+                    document.getElementById('dice-result').innerText = data.result;
+                    document.getElementById('dice-detail').innerText = data.detail + " (Opponent)";
+                }
+            }
+
+            function sendData(dataObj) {
+                if (conn && conn.open) {
+                    conn.send(dataObj);
+                }
+            }
+
+            function updateStatus(msg) {
+                document.getElementById('status-indicator').innerText = msg;
+            }
+
+            function copyId() {
+                const copyText = document.getElementById("my-id-display");
+                copyText.select();
+                navigator.clipboard.writeText(copyText.value);
+                alert("ID Copied to Clipboard!");
+            }
+
+            // --- SERIALIZATION ---
             function getBoardState() {
                 const pieces = [];
                 document.querySelectorAll('.unit').forEach(el => {
@@ -317,7 +452,7 @@
                 document.querySelectorAll('.terrain').forEach(el => {
                     pieces.push({
                         type: 'terrain',
-                        subType: el.classList[1], // forest, hills, etc
+                        subType: el.classList[1],
                         text: el.innerText,
                         x: parseFloat(el.style.left),
                         y: parseFloat(el.style.top),
@@ -329,14 +464,13 @@
                 return JSON.stringify(pieces);
             }
 
-            function restoreBoardState(jsonString) {
+            function restoreBoardState(jsonString, suppressBroadcast = false) {
                 if (!jsonString) return;
 
-                const pieces = table.querySelectorAll('.unit, .terrain, .ghost, .range-ring');
-                pieces.forEach(p => p.remove());
+                // Remove existing pieces
+                table.querySelectorAll('.unit, .terrain, .ghost, .range-ring').forEach(p => p.remove());
 
                 const data = JSON.parse(jsonString);
-
                 data.forEach(obj => {
                     if (obj.type === 'unit') {
                         createUnitDOM(obj.name, obj.color, obj.x, obj.y, obj.angle, obj.wounds);
@@ -344,12 +478,21 @@
                         createTerrainDOM(obj.subType, obj.x, obj.y, obj.w, obj.h, obj.angle);
                     }
                 });
+
+                // Save locally, but optionally suppress network broadcast to avoid loops
+                saveGame(suppressBroadcast);
             }
 
-            function saveGame() {
+            function saveGame(suppressBroadcast = false) {
                 const state = getBoardState();
                 localStorage.setItem(SAVE_KEY, state);
+
+                if (!suppressBroadcast) {
+                    sendData({ type: 'SYNC_BOARD', payload: state });
+                }
             }
+
+            // --- GAME LOGIC ---
 
             function pushUndo() {
                 if (undoStack.length >= MAX_UNDO) undoStack.shift();
@@ -359,26 +502,29 @@
             window.undo = function () {
                 if (undoStack.length === 0) return;
                 const previousState = undoStack.pop();
-                restoreBoardState(previousState);
-                saveGame();
+                restoreBoardState(previousState); // This triggers saveGame(false) -> broadcasts undo
             };
 
             window.resetGame = function () {
-                if (confirm("Reset board to start?")) {
+                if (confirm("Reset board?")) {
                     localStorage.removeItem(SAVE_KEY);
                     location.reload();
                 }
             };
 
-            // --- DICE ROLLER ---
             function rollDice() {
                 const d1 = Math.floor(Math.random() * 6) + 1;
                 const d2 = Math.floor(Math.random() * 6) + 1;
-                document.getElementById('dice-result').innerText = d1 + d2;
-                document.getElementById('dice-detail').innerText = `(${d1} + ${d2})`;
+                const total = d1 + d2;
+                const detail = `(${d1} + ${d2})`;
+
+                document.getElementById('dice-result').innerText = total;
+                document.getElementById('dice-detail').innerText = detail;
+
+                sendData({ type: 'ROLL_DICE', result: total, detail: detail });
             }
 
-            // --- FACTORY FUNCTIONS ---
+            // --- DOM FACTORIES ---
             function createUnitDOM(name, color, x, y, angle, wounds) {
                 const div = document.createElement('div');
                 div.classList.add('piece', 'unit');
@@ -388,10 +534,8 @@
                 div.style.left = `${x}px`;
                 div.style.top = `${y}px`;
                 div.innerText = name;
-
                 div.dataset.angle = angle || 0;
                 div.style.transform = `rotate(${angle}deg)`;
-
                 div.dataset.wounds = wounds || 0;
 
                 const marker = document.createElement('div');
@@ -401,19 +545,14 @@
                 div.appendChild(marker);
 
                 attachListeners(div);
-
                 div.addEventListener('mouseenter', () => hoveredUnit = div);
-                div.addEventListener('mouseleave', () => {
-                    hoveredUnit = null;
-                    removeRangeRing();
-                });
+                div.addEventListener('mouseleave', () => { hoveredUnit = null; removeRangeRing(); });
 
                 table.appendChild(div);
                 return div;
             }
 
             function createTerrainDOM(subType, x, y, w, h, angle) {
-                // DEFENSIVE CHECK: If w or h are missing (from old save), default them
                 const finalW = w || inchesToPx(TERRAIN_DEFAULT_W);
                 const finalH = h || inchesToPx(TERRAIN_DEFAULT_H);
 
@@ -439,10 +578,11 @@
             function initGame() {
                 const saved = localStorage.getItem(SAVE_KEY);
                 if (saved) {
-                    restoreBoardState(saved);
+                    restoreBoardState(saved, true); // Don't broadcast on load
                 } else {
                     createDefaultUnits();
                     createDefaultTerrain();
+                    saveGame(true);
                 }
             }
 
@@ -466,36 +606,25 @@
 
             function createDefaultTerrain() {
                 const terrainTypes = ['forest', 'forest', 'hills', 'hills', 'rough', 'rough'];
-
                 terrainTypes.forEach((type) => {
                     const w = inchesToPx(TERRAIN_DEFAULT_W);
                     const h = inchesToPx(TERRAIN_DEFAULT_H);
-
-                    // Random placement in middle zone
                     const x = Math.random() * (tableWidthPx - w - 100) + 50;
-                    const minY = inchesToPx(10);
-                    const maxY = inchesToPx(26);
-                    const y = Math.random() * (maxY - minY) + minY;
-
+                    const y = Math.random() * (inchesToPx(26) - inchesToPx(10)) + inchesToPx(10);
                     const angle = Math.floor(Math.random() * 360);
-
                     createTerrainDOM(type, x, y, w, h, angle);
                 });
             }
 
-            // --- TERRAIN SPAWNER (Manual) ---
             window.spawnTerrain = function (type) {
                 pushUndo();
                 const w = inchesToPx(TERRAIN_DEFAULT_W);
                 const h = inchesToPx(TERRAIN_DEFAULT_H);
-
-                // Spawn off-screen
                 const div = createTerrainDOM(type, -9999, -9999, w, h, 0);
 
                 activePiece = div;
                 ghostPiece = null;
                 anchorX = -1;
-
                 div.dataset.offsetX = w / 2;
                 div.dataset.offsetY = h / 2;
 
@@ -508,16 +637,11 @@
             }
 
             // --- INPUT HANDLING ---
-
             window.addEventListener('keydown', (e) => {
-                // Undo
                 if ((e.ctrlKey || e.metaKey) && e.key === 'z') { e.preventDefault(); undo(); return; }
                 if (e.key === 'z') { undo(); return; }
 
-                // Threat Range
-                if (e.key.toLowerCase() === 'r' && hoveredUnit) {
-                    showRangeRing(hoveredUnit);
-                }
+                if (e.key.toLowerCase() === 'r' && hoveredUnit) showRangeRing(hoveredUnit);
 
                 const isPlus = (e.key === '+' || e.key === '=' || e.code === 'NumpadAdd');
                 const isMinus = (e.key === '-' || e.key === '_' || e.code === 'NumpadSubtract');
@@ -556,53 +680,41 @@
                 const diameterPx = inchesToPx(THREAT_RANGE_INCHES * 2);
                 ring.style.width = `${diameterPx}px`;
                 ring.style.height = `${diameterPx}px`;
-
                 ring.style.left = '50%';
                 ring.style.top = '50%';
-
                 unit.appendChild(ring);
             }
-
             function removeRangeRing() {
-                const rings = document.querySelectorAll('.range-ring');
-                rings.forEach(r => r.remove());
+                document.querySelectorAll('.range-ring').forEach(r => r.remove());
             }
 
             // --- DRAG LOGIC ---
             function onPieceDragStart(e) {
                 if (e.button !== 0) return;
                 e.stopPropagation();
-
                 pushUndo();
 
                 activePiece = e.currentTarget;
-
-                // Create Ghost
                 ghostPiece = activePiece.cloneNode(true);
                 ghostPiece.classList.add('ghost');
                 ghostPiece.removeAttribute('id');
                 ghostPiece.style.transform = activePiece.style.transform;
-
                 table.insertBefore(ghostPiece, activePiece);
 
-                // Calc offset
                 const rect = activePiece.getBoundingClientRect();
                 const tableRect = table.getBoundingClientRect();
 
                 activePiece.dataset.offsetX = e.clientX - rect.left;
                 activePiece.dataset.offsetY = e.clientY - rect.top;
 
-                // Anchor is Ghost Center
                 anchorX = (rect.left - tableRect.left) + (rect.width / 2);
                 anchorY = (rect.top - tableRect.top) + (rect.height / 2);
-
                 showLine(anchorX, anchorY, anchorX, anchorY);
             }
 
             table.addEventListener('mousedown', (e) => {
                 if (e.button !== 0) return;
                 if (e.target !== table && e.target !== document.getElementById('ui-layer')) return;
-
                 isMeasuring = true;
                 const tableRect = table.getBoundingClientRect();
                 anchorX = e.clientX - tableRect.left;
@@ -659,37 +771,24 @@
             }
 
             function onMouseUp(e) {
-                if (activePiece) {
-                    saveGame();
-                }
+                if (activePiece) saveGame();
 
                 activePiece = null;
                 isMeasuring = false;
-
-                if (ghostPiece) {
-                    ghostPiece.remove();
-                    ghostPiece = null;
-                }
-
+                if (ghostPiece) { ghostPiece.remove(); ghostPiece = null; }
                 lineElement.style.opacity = 0;
                 textElement.style.opacity = 0;
             }
 
             function onWheel(e) {
-                e.preventDefault();
-                e.stopPropagation();
-
+                e.preventDefault(); e.stopPropagation();
                 pushUndo();
-
                 const piece = e.currentTarget;
                 let currentAngle = parseFloat(piece.dataset.angle) || 0;
-
                 if (e.deltaY > 0) currentAngle += 15;
                 else currentAngle -= 15;
-
                 piece.dataset.angle = currentAngle;
                 piece.style.transform = `rotate(${currentAngle}deg)`;
-
                 saveGame();
             }
 
