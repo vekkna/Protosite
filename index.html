@@ -1,9 +1,16 @@
+This was a serialization error. When the game tried to "read" the board to send it to the other player, it was guessing
+the terrain type based on the order of CSS classes, which is unreliable. It was also trying to extract the Unit Name by
+deleting the wound number from the text, which is messy and prone to breaking. **The Fix:** I have updated the code to
+be "Data-Driven". 1. **Terrain:** Now stores its type (Forest/Hills) in a hidden data attribute (`data-subtype`). 2.
+**Units:** Now store their clean name in a hidden data attribute (`data-name`). 3. **Sync:** The game now reads these
+clean attributes instead of trying to guess based on visual text or CSS classes. This guarantees that what you see on
+the Host screen is exactly what appears on the Joiner screen. ### The Code (v6) Save this as your `.html` file. ```html
 <!DOCTYPE html>
 <html lang="en">
 
     <head>
         <meta charset="UTF-8">
-        <title>Wargame Prototype v5 (Multiplayer)</title>
+        <title>Wargame Prototype v6 (Synced)</title>
         <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
         <style>
             body {
@@ -27,7 +34,6 @@
             /* --- SIDEBARS --- */
             .sidebar {
                 width: 180px;
-                /* Widened for connection UI */
                 background-color: #444;
                 padding: 10px;
                 display: flex;
@@ -50,7 +56,7 @@
                 border-color: white;
             }
 
-            /* --- BUTTONS & INPUTS --- */
+            /* --- BUTTONS --- */
             button {
                 padding: 10px;
                 cursor: pointer;
@@ -302,7 +308,8 @@
             const TERRAIN_DEFAULT_W = 6;
             const TERRAIN_DEFAULT_H = 4;
             const THREAT_RANGE_INCHES = 12;
-            const SAVE_KEY = 'wargameSave_v5';
+            // New Version Key to wipe old bad data
+            const SAVE_KEY = 'wargameSave_v6';
 
             // --- CONVERSIONS ---
             const mmToInches = (mm) => mm / 25.4;
@@ -336,17 +343,13 @@
             const MAX_UNDO = 20;
 
             const lineElement = document.getElementById('measure-line');
-            const textElement = document.getElementById('measure-text');
 
             // --- NETWORKING FUNCTIONS ---
 
             function hostGame() {
-                if (peer) return; // Already initialized
+                if (peer) return;
                 updateStatus("Initializing...");
-
-                // Create Peer
-                peer = new Peer(); // Auto-generates ID
-
+                peer = new Peer();
                 peer.on('open', (id) => {
                     updateStatus("Hosting");
                     document.getElementById('my-id-display').style.display = 'block';
@@ -357,29 +360,23 @@
                     document.getElementById('join-btn').style.display = 'none';
                     isHost = true;
                 });
-
                 peer.on('connection', (c) => {
                     conn = c;
                     setupConnection();
-                    // Host sends initial state to Joiner immediately
-                    sendData({ type: 'SYNC_BOARD', payload: getBoardState() });
+                    setTimeout(() => sendData({ type: 'SYNC_BOARD', payload: getBoardState() }), 500);
                 });
-
                 peer.on('error', (err) => console.error(err));
             }
 
             function joinGame() {
                 const hostId = document.getElementById('join-input').value.trim();
                 if (!hostId) return alert("Enter a Host ID");
-
                 updateStatus("Connecting...");
                 peer = new Peer();
-
                 peer.on('open', () => {
                     conn = peer.connect(hostId);
                     setupConnection();
                 });
-
                 peer.on('error', (err) => {
                     updateStatus("Error");
                     alert("Could not connect. Check ID.");
@@ -388,16 +385,13 @@
 
             function setupConnection() {
                 if (!conn) return;
-
                 conn.on('open', () => {
                     updateStatus("Connected!");
                     document.getElementById('status-indicator').classList.add('status-connected');
                 });
-
                 conn.on('data', (data) => {
                     handleIncomingData(data);
                 });
-
                 conn.on('close', () => {
                     updateStatus("Disconnected");
                     document.getElementById('status-indicator').classList.remove('status-connected');
@@ -406,12 +400,10 @@
             }
 
             function handleIncomingData(data) {
-                // Prevent loops by not re-broadcasting what we just received
                 if (data.type === 'SYNC_BOARD') {
-                    restoreBoardState(data.payload, true); // true = suppress broadcast
+                    restoreBoardState(data.payload, true);
                 }
                 else if (data.type === 'ROLL_DICE') {
-                    // Show opponent's roll
                     document.getElementById('dice-result').innerText = data.result;
                     document.getElementById('dice-detail').innerText = data.detail + " (Opponent)";
                 }
@@ -434,14 +426,17 @@
                 alert("ID Copied to Clipboard!");
             }
 
-            // --- SERIALIZATION ---
+            // --- SERIALIZATION (THE FIX) ---
+            // Now reads explicit data attributes rather than extracting from messy DOM text
             function getBoardState() {
                 const pieces = [];
+
+                // Serialize Units
                 document.querySelectorAll('.unit').forEach(el => {
                     if (el.classList.contains('ghost')) return;
                     pieces.push({
                         type: 'unit',
-                        name: el.innerText.replace(el.querySelector('.wound-marker').innerText, '').trim(),
+                        name: el.dataset.name, // Read clean name from dataset
                         x: parseFloat(el.style.left),
                         y: parseFloat(el.style.top),
                         angle: el.dataset.angle,
@@ -449,11 +444,12 @@
                         color: el.style.backgroundColor
                     });
                 });
+
+                // Serialize Terrain
                 document.querySelectorAll('.terrain').forEach(el => {
                     pieces.push({
                         type: 'terrain',
-                        subType: el.classList[1],
-                        text: el.innerText,
+                        subType: el.dataset.subType, // Read clean subtype from dataset
                         x: parseFloat(el.style.left),
                         y: parseFloat(el.style.top),
                         w: parseFloat(el.style.width),
@@ -461,13 +457,13 @@
                         angle: el.dataset.angle
                     });
                 });
+
                 return JSON.stringify(pieces);
             }
 
             function restoreBoardState(jsonString, suppressBroadcast = false) {
                 if (!jsonString) return;
 
-                // Remove existing pieces
                 table.querySelectorAll('.unit, .terrain, .ghost, .range-ring').forEach(p => p.remove());
 
                 const data = JSON.parse(jsonString);
@@ -479,21 +475,78 @@
                     }
                 });
 
-                // Save locally, but optionally suppress network broadcast to avoid loops
                 saveGame(suppressBroadcast);
             }
 
             function saveGame(suppressBroadcast = false) {
                 const state = getBoardState();
                 localStorage.setItem(SAVE_KEY, state);
-
                 if (!suppressBroadcast) {
                     sendData({ type: 'SYNC_BOARD', payload: state });
                 }
             }
 
-            // --- GAME LOGIC ---
+            // --- DOM FACTORIES ---
+            function createUnitDOM(name, color, x, y, angle, wounds) {
+                const div = document.createElement('div');
+                div.classList.add('piece', 'unit');
+                div.style.backgroundColor = color;
+                div.style.width = `${unitWidthPx}px`;
+                div.style.height = `${unitHeightPx}px`;
+                div.style.left = `${x}px`;
+                div.style.top = `${y}px`;
+                div.innerText = name;
 
+                // STORE DATA EXPLICITLY
+                div.dataset.name = name;
+                div.dataset.angle = angle || 0;
+                div.style.transform = `rotate(${angle}deg)`;
+                div.dataset.wounds = wounds || 0;
+
+                const marker = document.createElement('div');
+                marker.classList.add('wound-marker');
+                marker.innerText = wounds;
+                // Fix for wound visibility
+                marker.style.display = (parseInt(wounds) > 0) ? 'flex' : 'none';
+                div.appendChild(marker);
+
+                attachListeners(div);
+                div.addEventListener('mouseenter', () => hoveredUnit = div);
+                div.addEventListener('mouseleave', () => { hoveredUnit = null; removeRangeRing(); });
+
+                table.appendChild(div);
+                return div;
+            }
+
+            function createTerrainDOM(subType, x, y, w, h, angle) {
+                // Fallback for missing data
+                if (!subType || subType === "undefined") subType = "rough";
+                const finalW = w || inchesToPx(TERRAIN_DEFAULT_W);
+                const finalH = h || inchesToPx(TERRAIN_DEFAULT_H);
+
+                const div = document.createElement('div');
+                // Add specific class based on subType
+                div.classList.add('piece', 'terrain', subType);
+                div.innerText = subType.charAt(0).toUpperCase() + subType.slice(1);
+                div.style.left = `${x}px`;
+                div.style.top = `${y}px`;
+                div.style.width = `${finalW}px`;
+                div.style.height = `${finalH}px`;
+
+                // STORE DATA EXPLICITLY
+                div.dataset.subType = subType;
+                div.dataset.angle = angle || 0;
+                div.style.transform = `rotate(${angle}deg)`;
+
+                attachListeners(div);
+                div.addEventListener('mouseenter', () => hoveredTerrain = div);
+                div.addEventListener('mouseleave', () => hoveredTerrain = null);
+
+                table.appendChild(div);
+                return div;
+            }
+
+            // --- GAME LOGIC ---
             function pushUndo() {
                 if (undoStack.length >= MAX_UNDO) undoStack.shift();
                 undoStack.push(getBoardState());
@@ -502,7 +555,7 @@
             window.undo = function () {
                 if (undoStack.length === 0) return;
                 const previousState = undoStack.pop();
-                restoreBoardState(previousState); // This triggers saveGame(false) -> broadcasts undo
+                restoreBoardState(previousState);
             };
 
             window.resetGame = function () {
@@ -517,68 +570,16 @@
                 const d2 = Math.floor(Math.random() * 6) + 1;
                 const total = d1 + d2;
                 const detail = `(${d1} + ${d2})`;
-
                 document.getElementById('dice-result').innerText = total;
                 document.getElementById('dice-detail').innerText = detail;
-
                 sendData({ type: 'ROLL_DICE', result: total, detail: detail });
-            }
-
-            // --- DOM FACTORIES ---
-            function createUnitDOM(name, color, x, y, angle, wounds) {
-                const div = document.createElement('div');
-                div.classList.add('piece', 'unit');
-                div.style.backgroundColor = color;
-                div.style.width = `${unitWidthPx}px`;
-                div.style.height = `${unitHeightPx}px`;
-                div.style.left = `${x}px`;
-                div.style.top = `${y}px`;
-                div.innerText = name;
-                div.dataset.angle = angle || 0;
-                div.style.transform = `rotate(${angle}deg)`;
-                div.dataset.wounds = wounds || 0;
-
-                const marker = document.createElement('div');
-                marker.classList.add('wound-marker');
-                marker.innerText = wounds;
-                marker.style.display = (parseInt(wounds) > 0) ? 'flex' : 'none';
-                div.appendChild(marker);
-
-                attachListeners(div);
-                div.addEventListener('mouseenter', () => hoveredUnit = div);
-                div.addEventListener('mouseleave', () => { hoveredUnit = null; removeRangeRing(); });
-
-                table.appendChild(div);
-                return div;
-            }
-
-            function createTerrainDOM(subType, x, y, w, h, angle) {
-                const finalW = w || inchesToPx(TERRAIN_DEFAULT_W);
-                const finalH = h || inchesToPx(TERRAIN_DEFAULT_H);
-
-                const div = document.createElement('div');
-                div.classList.add('piece', 'terrain', subType);
-                div.innerText = subType.charAt(0).toUpperCase() + subType.slice(1);
-                div.style.left = `${x}px`;
-                div.style.top = `${y}px`;
-                div.style.width = `${finalW}px`;
-                div.style.height = `${finalH}px`;
-                div.dataset.angle = angle || 0;
-                div.style.transform = `rotate(${angle}deg)`;
-
-                attachListeners(div);
-                div.addEventListener('mouseenter', () => hoveredTerrain = div);
-                div.addEventListener('mouseleave', () => hoveredTerrain = null);
-
-                table.appendChild(div);
-                return div;
             }
 
             // --- INITIALIZATION ---
             function initGame() {
                 const saved = localStorage.getItem(SAVE_KEY);
                 if (saved) {
-                    restoreBoardState(saved, true); // Don't broadcast on load
+                    restoreBoardState(saved, true);
                 } else {
                     createDefaultUnits();
                     createDefaultTerrain();
@@ -723,13 +724,14 @@
             });
 
             function showLine(x1, y1, x2, y2) {
+                const textEl = document.getElementById('measure-text');
                 lineElement.style.opacity = 1;
-                textElement.style.opacity = 1;
+                textEl.style.opacity = 1;
                 lineElement.setAttribute('x1', x1);
                 lineElement.setAttribute('y1', y1);
                 lineElement.setAttribute('x2', x2);
                 lineElement.setAttribute('y2', y2);
-                textElement.innerHTML = '0"';
+                textEl.innerHTML = '0"';
             }
 
             function onMouseMove(e) {
@@ -760,9 +762,10 @@
                     const dy = targetY - anchorY;
                     const distancePx = Math.sqrt(dx * dx + dy * dy);
 
-                    textElement.innerHTML = `${pxToInches(distancePx)}"`;
-                    textElement.setAttribute('x', anchorX + (dx / 2) + 10);
-                    textElement.setAttribute('y', anchorY + (dy / 2) - 10);
+                    const textEl = document.getElementById('measure-text');
+                    textEl.innerHTML = `${pxToInches(distancePx)}"`;
+                    textEl.setAttribute('x', anchorX + (dx / 2) + 10);
+                    textEl.setAttribute('y', anchorY + (dy / 2) - 10);
                 } else {
                     const rect = activePiece.getBoundingClientRect();
                     anchorX = (rect.left - tableRect.left) + (rect.width / 2);
@@ -777,7 +780,7 @@
                 isMeasuring = false;
                 if (ghostPiece) { ghostPiece.remove(); ghostPiece = null; }
                 lineElement.style.opacity = 0;
-                textElement.style.opacity = 0;
+                document.getElementById('measure-text').style.opacity = 0;
             }
 
             function onWheel(e) {
@@ -800,4 +803,4 @@
         </script>
     </body>
 
-</html>
+</html> ```
