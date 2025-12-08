@@ -1,10 +1,3 @@
-This was a serialization error. When the game tried to "read" the board to send it to the other player, it was guessing
-the terrain type based on the order of CSS classes, which is unreliable. It was also trying to extract the Unit Name by
-deleting the wound number from the text, which is messy and prone to breaking. **The Fix:** I have updated the code to
-be "Data-Driven". 1. **Terrain:** Now stores its type (Forest/Hills) in a hidden data attribute (`data-subtype`). 2.
-**Units:** Now store their clean name in a hidden data attribute (`data-name`). 3. **Sync:** The game now reads these
-clean attributes instead of trying to guess based on visual text or CSS classes. This guarantees that what you see on
-the Host screen is exactly what appears on the Joiner screen. ### The Code (v6) Save this as your `.html` file. ```html
 <!DOCTYPE html>
 <html lang="en">
 
@@ -803,4 +796,4 @@ the Host screen is exactly what appears on the Joiner screen. ### The Code (v6) 
         </script>
     </body>
 
-</html> ```
+</html>
