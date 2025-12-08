@@ -283,6 +283,7 @@
                     <p>Drag: Move (Ghost)</p>
                     <p>Click Empty: Measure</p>
                     <p>Wheel: Rotate</p>
+                    <p>Double Click: Rename Unit</p>
                     <p>Hover+R: Range (12")</p>
                     <p>Hover Unit: +/- Wounds</p>
                     <p>Hover Terrain: +/- Size</p>
@@ -489,23 +490,44 @@
                 div.style.left = `${x}px`;
                 div.style.top = `${y}px`;
                 div.innerText = name;
-
-                // STORE DATA EXPLICITLY
                 div.dataset.name = name;
                 div.dataset.angle = angle || 0;
                 div.style.transform = `rotate(${angle}deg)`;
                 div.dataset.wounds = wounds || 0;
 
-                const marker = document.createElement('div');
-                marker.classList.add('wound-marker');
-                marker.innerText = wounds;
-                // Fix for wound visibility
-                marker.style.display = (parseInt(wounds) > 0) ? 'flex' : 'none';
-                div.appendChild(marker);
+                // Helper to ensure marker exists after renaming
+                const appendMarker = () => {
+                    let marker = div.querySelector('.wound-marker');
+                    if (!marker) {
+                        marker = document.createElement('div');
+                        marker.classList.add('wound-marker');
+                        div.appendChild(marker);
+                    }
+                    const w = div.dataset.wounds;
+                    marker.innerText = w;
+                    marker.style.display = (parseInt(w) > 0) ? 'flex' : 'none';
+                };
+
+                appendMarker(); // Add initial marker
 
                 attachListeners(div);
                 div.addEventListener('mouseenter', () => hoveredUnit = div);
                 div.addEventListener('mouseleave', () => { hoveredUnit = null; removeRangeRing(); });
+
+                // --- NEW: Double Click to Rename ---
+                div.addEventListener('dblclick', (e) => {
+                    e.stopPropagation(); // Prevent measuring tape trigger
+                    const currentName = div.dataset.name;
+                    const newName = prompt("Rename Unit:", currentName);
+
+                    if (newName !== null && newName.trim() !== "") {
+                        pushUndo();
+                        div.innerText = newName; // This wipes children (the marker)
+                        div.dataset.name = newName;
+                        appendMarker(); // Put the marker back
+                        saveGame();
+                    }
+                });
 
                 table.appendChild(div);
                 return div;
