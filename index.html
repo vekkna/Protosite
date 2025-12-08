@@ -3,7 +3,7 @@
 
     <head>
         <meta charset="UTF-8">
-        <title>Wargame Prototype v3</title>
+        <title>Wargame Prototype v4</title>
         <style>
             body {
                 font-family: sans-serif;
@@ -139,6 +139,8 @@
                 text-shadow: 1px 1px 2px black;
                 z-index: 5;
                 opacity: 0.9;
+                /* Fallback border in case specific style fails */
+                border: 1px solid rgba(255, 255, 255, 0.2);
             }
 
             .terrain.forest {
@@ -261,6 +263,9 @@
             const TERRAIN_DEFAULT_H = 4;
             const THREAT_RANGE_INCHES = 12;
 
+            // Change this key to force a wipe of old buggy data
+            const SAVE_KEY = 'wargameSave_v1';
+
             // --- CONVERSIONS ---
             const mmToInches = (mm) => mm / 25.4;
             const inchesToPx = (inch) => inch * SCALE;
@@ -343,7 +348,7 @@
 
             function saveGame() {
                 const state = getBoardState();
-                localStorage.setItem('wargameSave', state);
+                localStorage.setItem(SAVE_KEY, state);
             }
 
             function pushUndo() {
@@ -360,7 +365,7 @@
 
             window.resetGame = function () {
                 if (confirm("Reset board to start?")) {
-                    localStorage.removeItem('wargameSave');
+                    localStorage.removeItem(SAVE_KEY);
                     location.reload();
                 }
             };
@@ -408,13 +413,17 @@
             }
 
             function createTerrainDOM(subType, x, y, w, h, angle) {
+                // DEFENSIVE CHECK: If w or h are missing (from old save), default them
+                const finalW = w || inchesToPx(TERRAIN_DEFAULT_W);
+                const finalH = h || inchesToPx(TERRAIN_DEFAULT_H);
+
                 const div = document.createElement('div');
                 div.classList.add('piece', 'terrain', subType);
                 div.innerText = subType.charAt(0).toUpperCase() + subType.slice(1);
                 div.style.left = `${x}px`;
                 div.style.top = `${y}px`;
-                div.style.width = `${w}px`;
-                div.style.height = `${h}px`;
+                div.style.width = `${finalW}px`;
+                div.style.height = `${finalH}px`;
                 div.dataset.angle = angle || 0;
                 div.style.transform = `rotate(${angle}deg)`;
 
@@ -428,7 +437,7 @@
 
             // --- INITIALIZATION ---
             function initGame() {
-                const saved = localStorage.getItem('wargameSave');
+                const saved = localStorage.getItem(SAVE_KEY);
                 if (saved) {
                     restoreBoardState(saved);
                 } else {
@@ -456,17 +465,14 @@
             }
 
             function createDefaultTerrain() {
-                // Place terrain in the middle zone (y=12" to 24" approx) to avoid overlap
                 const terrainTypes = ['forest', 'forest', 'hills', 'hills', 'rough', 'rough'];
 
                 terrainTypes.forEach((type) => {
                     const w = inchesToPx(TERRAIN_DEFAULT_W);
                     const h = inchesToPx(TERRAIN_DEFAULT_H);
 
-                    // Random X: Keep somewhat inside the board
+                    // Random placement in middle zone
                     const x = Math.random() * (tableWidthPx - w - 100) + 50;
-
-                    // Random Y: Keep in "No Man's Land" (Between 10 inches and 26 inches)
                     const minY = inchesToPx(10);
                     const maxY = inchesToPx(26);
                     const y = Math.random() * (maxY - minY) + minY;
@@ -490,7 +496,6 @@
                 ghostPiece = null;
                 anchorX = -1;
 
-                // BUG FIX: Set offsets immediately so onMouseMove works even before first move calc
                 div.dataset.offsetX = w / 2;
                 div.dataset.offsetY = h / 2;
 
