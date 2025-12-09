@@ -340,26 +340,51 @@
 
             // --- NETWORKING FUNCTIONS ---
 
+            // Helper to make the short ID
+            function generateShortId() {
+                const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+                let result = '';
+                for (let i = 0; i < 4; i++) { // Change 4 to 5 if you want more security
+                    result += chars.charAt(Math.floor(Math.random() * chars.length));
+                }
+                return result;
+            }
+
             function hostGame() {
                 if (peer) return;
                 updateStatus("Initializing...");
-                peer = new Peer();
+
+                // Generate the custom short ID
+                const shortId = generateShortId();
+
+                // Pass the ID into the Peer constructor
+                peer = new Peer(shortId);
+
                 peer.on('open', (id) => {
                     updateStatus("Hosting");
                     document.getElementById('my-id-display').style.display = 'block';
-                    document.getElementById('my-id-display').value = id;
+                    document.getElementById('my-id-display').value = id; // Will show the 4-char ID
                     document.getElementById('copy-btn').style.display = 'block';
                     document.getElementById('host-btn').style.display = 'none';
                     document.getElementById('join-input').style.display = 'none';
                     document.getElementById('join-btn').style.display = 'none';
                     isHost = true;
                 });
+
+                // Rest of the error handling remains the same...
                 peer.on('connection', (c) => {
                     conn = c;
                     setupConnection();
                     setTimeout(() => sendData({ type: 'SYNC_BOARD', payload: getBoardState() }), 500);
                 });
-                peer.on('error', (err) => console.error(err));
+                peer.on('error', (err) => {
+                    console.error(err);
+                    // Retry logic if by random chance the ID is taken (very rare)
+                    if (err.type === 'unavailable-id') {
+                        peer = null;
+                        hostGame();
+                    }
+                });
             }
 
             function joinGame() {
