@@ -5,6 +5,7 @@
         <meta charset="UTF-8">
         <title>Wargame Prototype v6 (Synced)</title>
         <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
+        <script src="https://unpkg.com/papaparse@5.4.1/papaparse.min.js"></script>
         <style>
             body {
                 font-family: sans-serif;
@@ -278,6 +279,22 @@
                 </div>
                 <div class="palette-item" style="background-color: #9e9d24;" onmousedown="spawnTerrain('rough')">Rough
                 </div>
+                <div id="stats-panel" style="
+    width: 100%; 
+    background: #222; 
+    border: 1px solid #555; 
+    margin-top: 10px; 
+    padding: 10px;
+    box-sizing: border-box; /* Prevents padding from causing overflow */
+    display: flex; 
+    flex-direction: column; /* Vertical stacking */
+    gap: 8px;
+    color: #ccc; 
+    font-family: monospace; 
+    font-size: 13px;
+    text-align: left;">
+                    <span style="color: #666; text-align: center;">Hover unit for stats</span>
+                </div>
                 <div id="controls-hint">
                     <p><strong>Controls:</strong></p>
                     <p>Drag: Move (Ghost)</p>
@@ -337,6 +354,121 @@
             const MAX_UNDO = 20;
 
             const lineElement = document.getElementById('measure-line');
+
+            // Add your NEW CSV link here
+            const RULES_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vQXT5eF4DzRhJokOVdTb5g1Lnt6_gFkeh7oEdg2DLYAtY98FxybE-ijwA8uoWDiYtiBb0a3BM-ukWx9/pub?gid=2000929092&single=true&output=csv';
+
+            let globalRulesDB = []; // Stores the keyword rules
+
+            function loadRules() {
+                Papa.parse(RULES_URL, {
+                    download: true,
+                    header: false, // Assuming no headers, just like your main sheet
+                    skipEmptyLines: true,
+                    complete: function (results) {
+                        // Store as an array of objects: [{keyword: "Elf", effect: "..."}]
+                        globalRulesDB = results.data.map(row => ({
+                            keyword: row[0].trim(), // Column A
+                            effect: row[1].trim()   // Column B
+                        }));
+                        console.log("Rules loaded:", globalRulesDB.length);
+                    }
+                });
+            }
+
+            // Call this at the bottom of your script, near loadStats()
+            loadRules();
+
+            // --- STATS INTEGRATION ---
+            const SHEET_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vQXT5eF4DzRhJokOVdTb5g1Lnt6_gFkeh7oEdg2DLYAtY98FxybE-ijwA8uoWDiYtiBb0a3BM-ukWx9/pub?output=csv';
+
+            let unitStatsDB = {};
+
+            function loadStats() {
+                Papa.parse(SHEET_URL, {
+                    download: true,
+                    header: true,
+                    skipEmptyLines: true,
+                    // 1. This strips whitespace from headers (e.g. "Unit " becomes "Unit")
+                    transformHeader: function (header) {
+                        return header.trim();
+                    },
+                    complete: function (results) {
+                        // 2. Debugging: Check the first row to see valid keys
+                        if (results.data.length > 0) {
+                            console.log("CSV Headers Detected:", Object.keys(results.data[0]));
+                        }
+
+                        results.data.forEach(row => {
+                            // 3. Robust check: Ensure row.Unit exists before trying to trim it
+                            if (row.Unit) {
+                                unitStatsDB[row.Unit.trim()] = row;
+                            } else {
+                                // Optional: Log rows that failed to parse (helps find typos)
+                                console.warn("Skipped row (Missing 'Unit' column):", row);
+                            }
+                        });
+                        console.log("Stats loaded:", Object.keys(unitStatsDB).length, "units found.");
+                        console.log("Available Units:", Object.keys(unitStatsDB));
+                    },
+                    error: function (err) {
+                        console.error("Error loading stats:", err);
+                    }
+                });
+            }
+            function updateStatsPanel(unitName) {
+                const panel = document.getElementById('stats-panel');
+                if (!unitName) {
+                    panel.innerHTML = '<span style="color: #666; text-align: center;">Hover unit for stats</span>';
+                    return;
+                }
+
+                const cleanName = unitName.trim();
+                const stats = unitStatsDB[cleanName];
+
+                // 1. Find all matching rules based on the name
+                let activeRules = [];
+
+                // Check our new Global Rules DB
+                globalRulesDB.forEach(rule => {
+                    if (cleanName.includes(rule.keyword)) {
+                        activeRules.push(rule.effect);
+                    }
+                });
+
+                // Also include any specific "Special" text from the main stats sheet (Column G) if you have it
+                if (stats && stats.Special) {
+                    activeRules.push(stats.Special);
+                }
+
+                if (stats) {
+                    // Create HTML for rules
+                    const rulesHtml = activeRules.length > 0
+                        ? `<div style="margin-top:8px; padding-top:8px; border-top:1px solid #444;">
+                 ${activeRules.map(r => `<div style="margin-bottom:4px; font-size:0.9em; color:#ddd;">• ${r}</div>`).join('')}
+               </div>`
+                        : "";
+
+                    panel.innerHTML = `
+            <div style="font-weight:bold; color:white; border-bottom:1px solid #444; padding-bottom:4px; margin-bottom:4px;">
+                ${stats.Unit}
+            </div>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 5px;">
+                <span>M: <b style="color:#fff">${stats.Move}</b></span>
+                <span>R: <b style="color:#fff">${stats.Range}"</b></span>
+                <span>S: <b style="color:#fff">${stats.Shoot}</b></span>
+                <span>Str: <b style="color:#fff">${stats.Strike}</b></span>
+                <span>Def: <b style="color:#fff">${stats.Defence}</b></span>
+            </div>
+            ${rulesHtml}
+        `;
+                } else {
+                    panel.innerHTML = `<span style="color: #d32f2f;">Stats not found</span>`;
+                }
+            }
+
+            // Initialize
+            loadStats();
 
             // --- NETWORKING FUNCTIONS ---
 
@@ -533,6 +665,17 @@
                     marker.style.display = (parseInt(w) > 0) ? 'flex' : 'none';
                 };
 
+                div.addEventListener('mouseenter', () => {
+                    hoveredUnit = div;
+                    updateStatsPanel(div.dataset.name); // <--- Add this
+                });
+
+                div.addEventListener('mouseleave', () => {
+                    hoveredUnit = null;
+                    removeRangeRing();
+                    updateStatsPanel(null); // <--- Add this
+                });
+
                 appendMarker(); // Add initial marker
 
                 attachListeners(div);
@@ -629,7 +772,7 @@
 
             function createDefaultUnits() {
                 const sides = ['red', 'blue'];
-                const unitNames = ["Cavalry", "Mounted Archers", "Archers", "Swords", "Spears", "Skirmishers"];
+                const unitNames = ["Elf Cavalry", "Human Mounted Archers", "Orc Archers", "Dwarf Swords", "Undead Spears", "Elf Skirmishers"];
                 const deployYPositions = [inchesToPx(DEPLOY_INCHES), tableHeightPx - inchesToPx(DEPLOY_INCHES)];
 
                 sides.forEach((color, sideIndex) => {
@@ -715,18 +858,18 @@
             });
 
             function showRangeRing(unit) {
-                if (unit.querySelector('.range-ring')) return;
-                const ring = document.createElement('div');
-                ring.classList.add('range-ring');
-                const diameterPx = inchesToPx(THREAT_RANGE_INCHES * 2);
-                ring.style.width = `${diameterPx}px`;
-                ring.style.height = `${diameterPx}px`;
-                ring.style.left = '50%';
-                ring.style.top = '50%';
-                unit.appendChild(ring);
+                // if (unit.querySelector('.range-ring')) return;
+                // const ring = document.createElement('div');
+                // ring.classList.add('range-ring');
+                // const diameterPx = inchesToPx(THREAT_RANGE_INCHES * 2);
+                // ring.style.width = `${diameterPx}px`;
+                // ring.style.height = `${diameterPx}px`;
+                // ring.style.left = '50%';
+                // ring.style.top = '50%';
+                // unit.appendChild(ring);
             }
             function removeRangeRing() {
-                document.querySelectorAll('.range-ring').forEach(r => r.remove());
+                // document.querySelectorAll('.range-ring').forEach(r => r.remove());
             }
 
             // --- DRAG LOGIC ---
