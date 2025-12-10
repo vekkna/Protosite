@@ -445,11 +445,33 @@
         // FIXED: Defined this variable so the stats panel doesn't crash
         let globalRulesDB = [];
 
-        // If you have a separate CSV for rules (Step 3 in previous chat), 
-        // you can load it here. For now, it's empty so the code doesn't break.
+        // --- RULES DATA LOADER ---
+        // Replace this URL with the CSV link for your "Rules" tab
+        const RULES_CSV_URL = 'YOUR_RULES_CSV_URL_HERE';
+
         function loadRules() {
-            // Papa.parse(YOUR_RULES_URL, ... )
+            Papa.parse("https://docs.google.com/spreadsheets/d/e/2PACX-1vQXT5eF4DzRhJokOVdTb5g1Lnt6_gFkeh7oEdg2DLYAtY98FxybE-ijwA8uoWDiYtiBb0a3BM-ukWx9/pub?gid=2000929092&single=true&output=csv", {
+                download: true,
+                header: false, // Set to false if you didn't add headers like "Rule, Description"
+                skipEmptyLines: true,
+                complete: function (results) {
+                    // Map the CSV rows to our database
+                    // Assuming Column A is Keyword, Column B is Rule Text
+                    globalRulesDB = results.data.map(row => ({
+                        keyword: row[0] ? row[0].trim() : "",
+                        effect: row[1] ? row[1].trim() : ""
+                    })).filter(r => r.keyword); // Remove empty rows
+
+                    console.log("Rules loaded:", globalRulesDB.length);
+                },
+                error: function (err) {
+                    console.log("No Rules CSV found (or error loading). Only manual 'Special' column will show.");
+                }
+            });
         }
+
+        // Ensure this is called at startup
+        loadRules();
 
         // --- STATS INTEGRATION ---
         const SHEET_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vQXT5eF4DzRhJokOVdTb5g1Lnt6_gFkeh7oEdg2DLYAtY98FxybE-ijwA8uoWDiYtiBb0a3BM-ukWx9/pub?output=csv';
