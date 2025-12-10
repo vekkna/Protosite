@@ -20,6 +20,66 @@
                 user-select: none;
             }
 
+            /* --- RULES MODAL --- */
+            .modal-overlay {
+                display: none;
+                /* Hidden by default */
+                position: fixed;
+                top: 0;
+                left: 0;
+                width: 100%;
+                height: 100%;
+                background: rgba(0, 0, 0, 0.7);
+                z-index: 100;
+                /* Sit on top of everything */
+                align-items: center;
+                justify-content: center;
+            }
+
+            .modal-content {
+                background: #333;
+                width: 800px;
+                /* Made slightly wider for the doc */
+                max-width: 90%;
+                height: 80vh;
+                /* Fixed height */
+                border: 2px solid #666;
+                box-shadow: 0 0 20px black;
+                display: flex;
+                flex-direction: column;
+            }
+
+            .modal-header {
+                padding: 10px 15px;
+                background: #222;
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                border-bottom: 1px solid #444;
+            }
+
+            /* Update this specific class */
+            .modal-body {
+                padding: 0;
+                /* Remove padding so iframe fills space */
+                overflow: hidden;
+                /* Hide scrollbar on container, let iframe scroll */
+                flex-grow: 1;
+                background: white;
+                /* Google Docs are white, this prevents dark flashes */
+            }
+
+            .close-btn {
+                color: #aaa;
+                font-size: 24px;
+                font-weight: bold;
+                cursor: pointer;
+            }
+
+            .close-btn:hover {
+                color: white;
+            }
+
             #container {
                 display: flex;
                 gap: 20px;
@@ -262,6 +322,7 @@
                 <button id="dice-btn" class="btn-red" onclick="rollDice()">Roll 2d6</button>
                 <div id="dice-result">-</div>
                 <div id="dice-detail"></div>
+                <button class="btn-grey" onclick="openRulebook()" style="margin-top: 10px;">📖 Rulebook</button>
                 <button onclick="undo()" class="btn-grey" style="margin-top: 15px;">Undo (Z)</button>
                 <button onclick="resetGame()" class="btn-grey" style="margin-top: 5px;">Reset Board</button>
             </div>
@@ -280,19 +341,19 @@
                 <div class="palette-item" style="background-color: #9e9d24;" onmousedown="spawnTerrain('rough')">Rough
                 </div>
                 <div id="stats-panel" style="
-    width: 100%; 
-    background: #222; 
-    border: 1px solid #555; 
-    margin-top: 10px; 
-    padding: 10px;
-    box-sizing: border-box; /* Prevents padding from causing overflow */
-    display: flex; 
-    flex-direction: column; /* Vertical stacking */
-    gap: 8px;
-    color: #ccc; 
-    font-family: monospace; 
-    font-size: 13px;
-    text-align: left;">
+                    width: 100%; 
+                    background: #222; 
+                    border: 1px solid #555; 
+                    margin-top: 10px; 
+                    padding: 10px;
+                    box-sizing: border-box; 
+                    display: flex; 
+                    flex-direction: column; 
+                    gap: 8px;
+                    color: #ccc; 
+                    font-family: monospace; 
+                    font-size: 13px;
+                    text-align: left;">
                     <span style="color: #666; text-align: center;">Hover unit for stats</span>
                 </div>
                 <div id="controls-hint">
@@ -308,6 +369,20 @@
                 </div>
             </div>
         </div>
+        <div id="rulebook-modal" class="modal-overlay" onclick="closeRulebook()">
+            <div class="modal-content" onclick="event.stopPropagation()">
+                <div class="modal-header">
+                    <h2 style="margin:0; color:#fff;">Battlefield Rules</h2>
+                    <button class="btn-red" onclick="closeRulebook()" style="padding: 5px 10px;">X</button>
+                </div>
+                <div class="modal-body">
+                    <iframe id="rulebook-frame"
+                        src="https://docs.google.com/document/d/e/2PACX-1vSET76CoLzTj6rVKhUUvukB41HHq0UD6K7QOIA_fNbdXbYRoelmxZQomHMqhIuGFlu-5TWF3_KOpjb7/pub?embedded=true"
+                        style="width:100%; height:100%; border:none;">
+                    </iframe>
+                </div>
+            </div>
+        </div>
         <script>
             // --- CONFIGURATION ---
             const SCALE = 20;
@@ -319,7 +394,6 @@
             const TERRAIN_DEFAULT_W = 6;
             const TERRAIN_DEFAULT_H = 4;
             const THREAT_RANGE_INCHES = 12;
-            // New Version Key to wipe old bad data
             const SAVE_KEY = 'wargameSave_v6';
 
             // --- CONVERSIONS ---
@@ -355,29 +429,28 @@
 
             const lineElement = document.getElementById('measure-line');
 
-            // Add your NEW CSV link here
-            const RULES_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vQXT5eF4DzRhJokOVdTb5g1Lnt6_gFkeh7oEdg2DLYAtY98FxybE-ijwA8uoWDiYtiBb0a3BM-ukWx9/pub?gid=2000929092&single=true&output=csv';
+            // --- RULES LOGIC (IFRAME & TOOLTIPS) ---
 
-            let globalRulesDB = []; // Stores the keyword rules
-
-            function loadRules() {
-                Papa.parse(RULES_URL, {
-                    download: true,
-                    header: false, // Assuming no headers, just like your main sheet
-                    skipEmptyLines: true,
-                    complete: function (results) {
-                        // Store as an array of objects: [{keyword: "Elf", effect: "..."}]
-                        globalRulesDB = results.data.map(row => ({
-                            keyword: row[0].trim(), // Column A
-                            effect: row[1].trim()   // Column B
-                        }));
-                        console.log("Rules loaded:", globalRulesDB.length);
-                    }
-                });
+            function openRulebook() {
+                document.getElementById('rulebook-modal').style.display = 'flex';
             }
 
-            // Call this at the bottom of your script, near loadStats()
-            loadRules();
+            function closeRulebook() {
+                document.getElementById('rulebook-modal').style.display = 'none';
+            }
+
+            window.addEventListener('keydown', (e) => {
+                if (e.key === 'Escape') closeRulebook();
+            });
+
+            // FIXED: Defined this variable so the stats panel doesn't crash
+            let globalRulesDB = [];
+
+            // If you have a separate CSV for rules (Step 3 in previous chat), 
+            // you can load it here. For now, it's empty so the code doesn't break.
+            function loadRules() {
+                // Papa.parse(YOUR_RULES_URL, ... )
+            }
 
             // --- STATS INTEGRATION ---
             const SHEET_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vQXT5eF4DzRhJokOVdTb5g1Lnt6_gFkeh7oEdg2DLYAtY98FxybE-ijwA8uoWDiYtiBb0a3BM-ukWx9/pub?output=csv';
@@ -389,33 +462,28 @@
                     download: true,
                     header: true,
                     skipEmptyLines: true,
-                    // 1. This strips whitespace from headers (e.g. "Unit " becomes "Unit")
                     transformHeader: function (header) {
                         return header.trim();
                     },
                     complete: function (results) {
-                        // 2. Debugging: Check the first row to see valid keys
                         if (results.data.length > 0) {
                             console.log("CSV Headers Detected:", Object.keys(results.data[0]));
                         }
-
                         results.data.forEach(row => {
-                            // 3. Robust check: Ensure row.Unit exists before trying to trim it
                             if (row.Unit) {
                                 unitStatsDB[row.Unit.trim()] = row;
                             } else {
-                                // Optional: Log rows that failed to parse (helps find typos)
                                 console.warn("Skipped row (Missing 'Unit' column):", row);
                             }
                         });
                         console.log("Stats loaded:", Object.keys(unitStatsDB).length, "units found.");
-                        console.log("Available Units:", Object.keys(unitStatsDB));
                     },
                     error: function (err) {
                         console.error("Error loading stats:", err);
                     }
                 });
             }
+
             function updateStatsPanel(unitName) {
                 const panel = document.getElementById('stats-panel');
                 if (!unitName) {
@@ -426,57 +494,55 @@
                 const cleanName = unitName.trim();
                 const stats = unitStatsDB[cleanName];
 
-                // 1. Find all matching rules based on the name
                 let activeRules = [];
 
-                // Check our new Global Rules DB
-                globalRulesDB.forEach(rule => {
-                    if (cleanName.includes(rule.keyword)) {
-                        activeRules.push(rule.effect);
-                    }
-                });
+                // Check Global Rules DB (Safety check added so it doesn't crash if empty)
+                if (globalRulesDB.length > 0) {
+                    globalRulesDB.forEach(rule => {
+                        if (cleanName.includes(rule.keyword)) {
+                            activeRules.push(rule.effect);
+                        }
+                    });
+                }
 
-                // Also include any specific "Special" text from the main stats sheet (Column G) if you have it
+                // Include "Special" column from main stats
                 if (stats && stats.Special) {
                     activeRules.push(stats.Special);
                 }
 
                 if (stats) {
-                    // Create HTML for rules
                     const rulesHtml = activeRules.length > 0
                         ? `<div style="margin-top:8px; padding-top:8px; border-top:1px solid #444;">
-                 ${activeRules.map(r => `<div style="margin-bottom:4px; font-size:0.9em; color:#ddd;">• ${r}</div>`).join('')}
-               </div>`
+                             ${activeRules.map(r => `<div style="margin-bottom:4px; font-size:0.9em; color:#ddd;">• ${r}</div>`).join('')}
+                           </div>`
                         : "";
 
                     panel.innerHTML = `
-            <div style="font-weight:bold; color:white; border-bottom:1px solid #444; padding-bottom:4px; margin-bottom:4px;">
-                ${stats.Unit}
-            </div>
-            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 5px;">
-                <span>M: <b style="color:#fff">${stats.Move}</b></span>
-                <span>R: <b style="color:#fff">${stats.Range}"</b></span>
-                <span>S: <b style="color:#fff">${stats.Shoot}</b></span>
-                <span>Str: <b style="color:#fff">${stats.Strike}</b></span>
-                <span>Def: <b style="color:#fff">${stats.Defence}</b></span>
-            </div>
-            ${rulesHtml}
-        `;
+                        <div style="font-weight:bold; color:white; border-bottom:1px solid #444; padding-bottom:4px; margin-bottom:4px;">
+                            ${stats.Unit}
+                        </div>
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 5px;">
+                            <span>M: <b style="color:#fff">${stats.Move}</b></span>
+                            <span>R: <b style="color:#fff">${stats.Range}"</b></span>
+                            <span>S: <b style="color:#fff">${stats.Shoot}</b></span>
+                            <span>Str: <b style="color:#fff">${stats.Strike}</b></span>
+                            <span>Def: <b style="color:#fff">${stats.Defence}</b></span>
+                        </div>
+                        ${rulesHtml}
+                    `;
                 } else {
                     panel.innerHTML = `<span style="color: #d32f2f;">Stats not found</span>`;
                 }
             }
 
-            // Initialize
             loadStats();
 
             // --- NETWORKING FUNCTIONS ---
 
-            // Helper to make the short ID
             function generateShortId() {
                 const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
                 let result = '';
-                for (let i = 0; i < 4; i++) { // Change 4 to 5 if you want more security
+                for (let i = 0; i < 4; i++) {
                     result += chars.charAt(Math.floor(Math.random() * chars.length));
                 }
                 return result;
@@ -485,17 +551,13 @@
             function hostGame() {
                 if (peer) return;
                 updateStatus("Initializing...");
-
-                // Generate the custom short ID
                 const shortId = generateShortId();
-
-                // Pass the ID into the Peer constructor
                 peer = new Peer(shortId);
 
                 peer.on('open', (id) => {
                     updateStatus("Hosting");
                     document.getElementById('my-id-display').style.display = 'block';
-                    document.getElementById('my-id-display').value = id; // Will show the 4-char ID
+                    document.getElementById('my-id-display').value = id;
                     document.getElementById('copy-btn').style.display = 'block';
                     document.getElementById('host-btn').style.display = 'none';
                     document.getElementById('join-input').style.display = 'none';
@@ -503,7 +565,6 @@
                     isHost = true;
                 });
 
-                // Rest of the error handling remains the same...
                 peer.on('connection', (c) => {
                     conn = c;
                     setupConnection();
@@ -511,7 +572,6 @@
                 });
                 peer.on('error', (err) => {
                     console.error(err);
-                    // Retry logic if by random chance the ID is taken (very rare)
                     if (err.type === 'unavailable-id') {
                         peer = null;
                         hostGame();
@@ -577,17 +637,14 @@
                 alert("ID Copied to Clipboard!");
             }
 
-            // --- SERIALIZATION (THE FIX) ---
-            // Now reads explicit data attributes rather than extracting from messy DOM text
+            // --- SERIALIZATION ---
             function getBoardState() {
                 const pieces = [];
-
-                // Serialize Units
                 document.querySelectorAll('.unit').forEach(el => {
                     if (el.classList.contains('ghost')) return;
                     pieces.push({
                         type: 'unit',
-                        name: el.dataset.name, // Read clean name from dataset
+                        name: el.dataset.name,
                         x: parseFloat(el.style.left),
                         y: parseFloat(el.style.top),
                         angle: el.dataset.angle,
@@ -595,12 +652,10 @@
                         color: el.style.backgroundColor
                     });
                 });
-
-                // Serialize Terrain
                 document.querySelectorAll('.terrain').forEach(el => {
                     pieces.push({
                         type: 'terrain',
-                        subType: el.dataset.subType, // Read clean subtype from dataset
+                        subType: el.dataset.subType,
                         x: parseFloat(el.style.left),
                         y: parseFloat(el.style.top),
                         w: parseFloat(el.style.width),
@@ -608,15 +663,12 @@
                         angle: el.dataset.angle
                     });
                 });
-
                 return JSON.stringify(pieces);
             }
 
             function restoreBoardState(jsonString, suppressBroadcast = false) {
                 if (!jsonString) return;
-
                 table.querySelectorAll('.unit, .terrain, .ghost, .range-ring').forEach(p => p.remove());
-
                 const data = JSON.parse(jsonString);
                 data.forEach(obj => {
                     if (obj.type === 'unit') {
@@ -625,7 +677,6 @@
                         createTerrainDOM(obj.subType, obj.x, obj.y, obj.w, obj.h, obj.angle);
                     }
                 });
-
                 saveGame(suppressBroadcast);
             }
 
@@ -652,7 +703,6 @@
                 div.style.transform = `rotate(${angle}deg)`;
                 div.dataset.wounds = wounds || 0;
 
-                // Helper to ensure marker exists after renaming
                 const appendMarker = () => {
                     let marker = div.querySelector('.wound-marker');
                     if (!marker) {
@@ -667,32 +717,29 @@
 
                 div.addEventListener('mouseenter', () => {
                     hoveredUnit = div;
-                    updateStatsPanel(div.dataset.name); // <--- Add this
+                    updateStatsPanel(div.dataset.name);
                 });
 
                 div.addEventListener('mouseleave', () => {
                     hoveredUnit = null;
                     removeRangeRing();
-                    updateStatsPanel(null); // <--- Add this
+                    updateStatsPanel(null);
                 });
 
-                appendMarker(); // Add initial marker
-
+                appendMarker();
                 attachListeners(div);
                 div.addEventListener('mouseenter', () => hoveredUnit = div);
                 div.addEventListener('mouseleave', () => { hoveredUnit = null; removeRangeRing(); });
 
-                // --- NEW: Double Click to Rename ---
                 div.addEventListener('dblclick', (e) => {
-                    e.stopPropagation(); // Prevent measuring tape trigger
+                    e.stopPropagation();
                     const currentName = div.dataset.name;
                     const newName = prompt("Rename Unit:", currentName);
-
                     if (newName !== null && newName.trim() !== "") {
                         pushUndo();
-                        div.innerText = newName; // This wipes children (the marker)
+                        div.innerText = newName;
                         div.dataset.name = newName;
-                        appendMarker(); // Put the marker back
+                        appendMarker();
                         saveGame();
                     }
                 });
@@ -702,21 +749,17 @@
             }
 
             function createTerrainDOM(subType, x, y, w, h, angle) {
-                // Fallback for missing data
                 if (!subType || subType === "undefined") subType = "rough";
                 const finalW = w || inchesToPx(TERRAIN_DEFAULT_W);
                 const finalH = h || inchesToPx(TERRAIN_DEFAULT_H);
 
                 const div = document.createElement('div');
-                // Add specific class based on subType
                 div.classList.add('piece', 'terrain', subType);
                 div.innerText = subType.charAt(0).toUpperCase() + subType.slice(1);
                 div.style.left = `${x}px`;
                 div.style.top = `${y}px`;
                 div.style.width = `${finalW}px`;
                 div.style.height = `${finalH}px`;
-
-                // STORE DATA EXPLICITLY
                 div.dataset.subType = subType;
                 div.dataset.angle = angle || 0;
                 div.style.transform = `rotate(${angle}deg)`;
@@ -758,7 +801,6 @@
                 sendData({ type: 'ROLL_DICE', result: total, detail: detail });
             }
 
-            // --- INITIALIZATION ---
             function initGame() {
                 const saved = localStorage.getItem(SAVE_KEY);
                 if (saved) {
@@ -772,6 +814,7 @@
 
             function createDefaultUnits() {
                 const sides = ['red', 'blue'];
+                // These names should match your CSV
                 const unitNames = ["Elf Mounted", "Human Mounted Missile", "Orc Missile", "Dwarf Swords", "Undead Spears", "Elf Skirmishers"];
                 const deployYPositions = [inchesToPx(DEPLOY_INCHES), tableHeightPx - inchesToPx(DEPLOY_INCHES)];
 
@@ -779,7 +822,6 @@
                     const yPos = deployYPositions[sideIndex];
                     const spacing = tableWidthPx / 7;
                     const initialAngle = (sideIndex === 0) ? 180 : 0;
-
                     unitNames.forEach((name, i) => {
                         const x = (spacing * (i + 1)) - (unitWidthPx / 2);
                         const y = yPos - (unitHeightPx / 2);
@@ -805,13 +847,11 @@
                 const w = inchesToPx(TERRAIN_DEFAULT_W);
                 const h = inchesToPx(TERRAIN_DEFAULT_H);
                 const div = createTerrainDOM(type, -9999, -9999, w, h, 0);
-
                 activePiece = div;
                 ghostPiece = null;
                 anchorX = -1;
                 div.dataset.offsetX = w / 2;
                 div.dataset.offsetY = h / 2;
-
                 saveGame();
             };
 
@@ -824,12 +864,10 @@
             window.addEventListener('keydown', (e) => {
                 if ((e.ctrlKey || e.metaKey) && e.key === 'z') { e.preventDefault(); undo(); return; }
                 if (e.key === 'z') { undo(); return; }
-
                 if (e.key.toLowerCase() === 'r' && hoveredUnit) showRangeRing(hoveredUnit);
 
                 const isPlus = (e.key === '+' || e.key === '=' || e.code === 'NumpadAdd');
                 const isMinus = (e.key === '-' || e.key === '_' || e.code === 'NumpadSubtract');
-
                 if (!isPlus && !isMinus) return;
 
                 pushUndo();
@@ -858,18 +896,18 @@
             });
 
             function showRangeRing(unit) {
-                // if (unit.querySelector('.range-ring')) return;
-                // const ring = document.createElement('div');
-                // ring.classList.add('range-ring');
-                // const diameterPx = inchesToPx(THREAT_RANGE_INCHES * 2);
-                // ring.style.width = `${diameterPx}px`;
-                // ring.style.height = `${diameterPx}px`;
-                // ring.style.left = '50%';
-                // ring.style.top = '50%';
-                // unit.appendChild(ring);
+                if (unit.querySelector('.range-ring')) return;
+                const ring = document.createElement('div');
+                ring.classList.add('range-ring');
+                const diameterPx = inchesToPx(THREAT_RANGE_INCHES * 2);
+                ring.style.width = `${diameterPx}px`;
+                ring.style.height = `${diameterPx}px`;
+                ring.style.left = '50%';
+                ring.style.top = '50%';
+                unit.appendChild(ring);
             }
             function removeRangeRing() {
-                // document.querySelectorAll('.range-ring').forEach(r => r.remove());
+                document.querySelectorAll('.range-ring').forEach(r => r.remove());
             }
 
             // --- DRAG LOGIC ---
@@ -877,20 +915,16 @@
                 if (e.button !== 0) return;
                 e.stopPropagation();
                 pushUndo();
-
                 activePiece = e.currentTarget;
                 ghostPiece = activePiece.cloneNode(true);
                 ghostPiece.classList.add('ghost');
                 ghostPiece.removeAttribute('id');
                 ghostPiece.style.transform = activePiece.style.transform;
                 table.insertBefore(ghostPiece, activePiece);
-
                 const rect = activePiece.getBoundingClientRect();
                 const tableRect = table.getBoundingClientRect();
-
                 activePiece.dataset.offsetX = e.clientX - rect.left;
                 activePiece.dataset.offsetY = e.clientY - rect.top;
-
                 anchorX = (rect.left - tableRect.left) + (rect.width / 2);
                 anchorY = (rect.top - tableRect.top) + (rect.height / 2);
                 showLine(anchorX, anchorY, anchorX, anchorY);
@@ -919,7 +953,6 @@
 
             function onMouseMove(e) {
                 if (!activePiece && !isMeasuring) return;
-
                 const tableRect = table.getBoundingClientRect();
                 let mouseX = e.clientX - tableRect.left;
                 let mouseY = e.clientY - tableRect.top;
@@ -933,7 +966,6 @@
                     const newTop = mouseY - offY;
                     activePiece.style.left = `${newLeft}px`;
                     activePiece.style.top = `${newTop}px`;
-
                     targetX = newLeft + (activePiece.offsetWidth / 2);
                     targetY = newTop + (activePiece.offsetHeight / 2);
                 }
@@ -944,7 +976,6 @@
                     const dx = targetX - anchorX;
                     const dy = targetY - anchorY;
                     const distancePx = Math.sqrt(dx * dx + dy * dy);
-
                     const textEl = document.getElementById('measure-text');
                     textEl.innerHTML = `${pxToInches(distancePx)}"`;
                     textEl.setAttribute('x', anchorX + (dx / 2) + 10);
@@ -958,7 +989,6 @@
 
             function onMouseUp(e) {
                 if (activePiece) saveGame();
-
                 activePiece = null;
                 isMeasuring = false;
                 if (ghostPiece) { ghostPiece.remove(); ghostPiece = null; }
