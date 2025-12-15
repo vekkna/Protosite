@@ -339,17 +339,21 @@
 
         .rotate-handle {
             position: absolute;
-            top: -15px;
-            /* stick out top */
+            top: -50px;
+            /* stick out top further */
             left: 50%;
-            width: 20px;
-            height: 20px;
+            width: 30px;
+            /* Larger target */
+            height: 30px;
             background: #00ffff;
+            border: 2px solid white;
+            /* Visibility */
             border-radius: 50%;
             transform: translateX(-50%);
             cursor: grab;
             pointer-events: auto;
             /* Handle needs to be clickable */
+            box-shadow: 0 0 5px black;
         }
 
         /* Wound Buttons */
@@ -357,8 +361,8 @@
             position: absolute;
             top: 50%;
             left: 50%;
-            width: 140%;
-            /* wider than unit */
+            width: 180%;
+            /* Much wider than unit to push buttons outs */
             height: 40px;
             transform: translate(-50%, -50%);
             display: flex;
@@ -369,19 +373,21 @@
         }
 
         .wound-btn {
-            background: rgba(0, 0, 0, 0.7);
+            background: rgba(0, 0, 0, 0.8);
             color: white;
-            border: 1px solid white;
+            border: 2px solid white;
             border-radius: 50%;
-            width: 30px;
-            height: 30px;
+            width: 40px;
+            /* Larger */
+            height: 40px;
             display: flex;
             justify-content: center;
             align-items: center;
-            font-size: 20px;
+            font-size: 24px;
             font-weight: bold;
             pointer-events: auto;
             cursor: pointer;
+            box-shadow: 0 0 5px black;
         }
 
         /* Stats Popover */
@@ -495,8 +501,8 @@
     <script>
         // --- CONFIGURATION ---
         const SCALE = 20;
-        const TABLE_WIDTH_FT = 4;
-        const TABLE_DEPTH_FT = 3;
+        const TABLE_WIDTH_FT = 3;
+        const TABLE_DEPTH_FT = 4;
         const UNIT_WIDTH_MM = 88;
         const UNIT_DEPTH_MM = 63;
         const DEPLOY_INCHES = 6;
@@ -1315,8 +1321,14 @@
 
         // --- DRAG LOGIC ---
         function onPieceDown(e) {
+            // Handle both Mouse(0) and Touch
             if (e.type === 'mousedown' && e.button !== 0) return;
-            // e.preventDefault(); // allow focus?
+
+            // Prevent Multi-Touch drag (Pinch protection)
+            if (e.touches && e.touches.length > 1) return;
+
+            // Prevent default to stop scrolling if touching a piece
+            // e.preventDefault(); // CAREFUL: might block click?
             e.stopPropagation();
 
             // If we hit a UI element (that didn't stop prop), ignore unit drag
@@ -1417,10 +1429,21 @@
         }
 
         function onMouseMove(e) {
-            // Cancel Long Press on move
             if (longPressTimer) {
                 clearTimeout(longPressTimer);
                 longPressTimer = null;
+            }
+
+            // Pinch Protection during move
+            if (e.touches && e.touches.length > 1) {
+                // If we were dragging, cancel it?
+                if (activePiece) {
+                    // Maybe we should just let onMouseUp/TouchEnd handle cleanup or just ignore input?
+                    // If we return here, the piece stays where it was last frame.
+                    // But if panning happens, camera moves, piece stays relative to table. 
+                    // This is desired.
+                    return;
+                }
             }
 
             if (!activePiece && !isMeasuring) return;
