@@ -3,7 +3,7 @@
 
 <head>
     <meta charset="UTF-8">
-    <title>Wargame Prototype v6 (Synced)</title>
+    <title>Wargame Prototype 0,1</title>
     <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
     <script src="https://unpkg.com/papaparse@5.4.1/papaparse.min.js"></script>
     <style>
@@ -296,6 +296,103 @@
             opacity: 0;
         }
 
+        /* --- WOUND BUTTONS (ABSOLUTE) --- */
+        .wound-controls {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 0;
+            /* No interactions in middle */
+            height: 0;
+            transform: translate(-50%, -50%);
+            overflow: visible;
+            /* Show buttons outside */
+            pointer-events: none;
+        }
+
+        .wound-btn {
+            position: absolute;
+            top: 50%;
+            transform: translateY(-50%);
+            background: rgba(0, 0, 0, 0.8);
+            color: white;
+            border: 2px solid white;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            font-size: 24px;
+            font-weight: bold;
+            pointer-events: auto;
+            cursor: pointer;
+            box-shadow: 0 0 5px black;
+        }
+
+        #btn-minus {
+            right: 60px;
+            /* Offset from center 0 */
+        }
+
+        #btn-plus {
+            left: 60px;
+        }
+
+        /* --- MOBILE SIDEBARS --- */
+        #mobile-menu-btn {
+            display: none;
+            position: fixed;
+            top: 10px;
+            left: 10px;
+            z-index: 2000;
+            background: #333;
+            border: 1px solid #666;
+            padding: 10px;
+            color: white;
+            font-weight: bold;
+            border-radius: 5px;
+        }
+
+        /* Responsive: Tablet/Mobile Landscape */
+        @media (max-width: 1024px) {
+            #mobile-menu-btn {
+                display: block;
+            }
+
+            .sidebar {
+                display: none;
+                /* Hidden by default */
+                position: fixed;
+                top: 0;
+                bottom: 0;
+                z-index: 1500;
+                background: rgba(0, 0, 0, 0.95);
+                overflow-y: auto;
+                height: 100vh;
+                box-shadow: 0 0 20px black;
+            }
+
+            .sidebar.left-sidebar {
+                left: 0;
+                border-right: 1px solid #555;
+            }
+
+            .sidebar.right-sidebar {
+                right: 0;
+                border-left: 1px solid #555;
+            }
+
+            .sidebar.active {
+                display: flex;
+            }
+
+            #game-table {
+                /* Ensure table gets full width */
+                width: 100%;
+            }
+        }
+
         #controls-hint {
             margin-top: auto;
             font-size: 0.8em;
@@ -455,8 +552,9 @@
 </head>
 
 <body>
+    <button id="mobile-menu-btn" onclick="toggleSidebars()">☰ Menu</button>
     <div id="container">
-        <div class="sidebar">
+        <div class="sidebar left-sidebar" id="left-sidebar">
             <h3 style="margin-top:0">Multiplayer</h3>
             <div id="status-indicator">OFFLINE</div>
             <button id="host-btn" class="btn-blue" onclick="hostGame()">Host Game</button>
@@ -576,7 +674,10 @@
         let conn = null;
         let isHost = false;
 
-        // --- GAME STATE ---
+        // --- MOBILE SIDEBARS ---
+        function toggleSidebars() {
+            document.querySelectorAll('.sidebar').forEach(s => s.classList.toggle('active'));
+        }
         let activePiece = null;
         let ghostPiece = null;
         let isMeasuring = false;
@@ -1393,9 +1494,12 @@
 
             const targetUnit = e.currentTarget;
 
-            // Fix Terrain Selection: If we touch terrain, deselect any unit so buttons don't float.
+            // Fix Terrain Selection: Only select if it is a unit
             if (!targetUnit.classList.contains('unit')) {
                 if (selectedUnit) deselectUnit();
+                // Do NOT call selectUnit for terrain
+            } else {
+                selectUnit(targetUnit);
             }
 
             // Long Press Logic
@@ -1421,7 +1525,9 @@
             pushUndo();
             activePiece = targetUnit;
             interactionMode = 'move';
-            selectUnit(activePiece);
+
+            // Logic moved below for selection
+
 
             // Init Drag Vars
             const pos = getPointerPos(e);
