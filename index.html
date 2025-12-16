@@ -361,7 +361,7 @@
             position: absolute;
             top: 50%;
             left: 50%;
-            width: 180%;
+            width: 250%;
             /* Much wider than unit to push buttons outs */
             height: 40px;
             transform: translate(-50%, -50%);
@@ -405,6 +405,51 @@
             max-width: 200px;
             font-size: 14px;
             text-align: left;
+        }
+
+        .dice-popup {
+            position: fixed;
+            /* Fixed to viewport usually, or absolute to body if we use page coords */
+            transform: translate(-50%, -100%);
+            /* Center horizontally, sit above tap */
+            background: white;
+            color: black;
+            padding: 10px 20px;
+            border-radius: 20px;
+            font-size: 24px;
+            font-weight: bold;
+            border: 3px solid #333;
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.5);
+            opacity: 0;
+            pointer-events: none;
+            z-index: 9999;
+            animation: floatUp 2s forwards;
+        }
+
+        @keyframes floatUp {
+            0% {
+                opacity: 0;
+                transform: translate(-50%, -50%) scale(0.5);
+            }
+
+            15% {
+                opacity: 1;
+                transform: translate(-50%, -120%) scale(1.2);
+            }
+
+            30% {
+                transform: translate(-50%, -150%) scale(1);
+            }
+
+            80% {
+                opacity: 1;
+                transform: translate(-50%, -200%);
+            }
+
+            100% {
+                opacity: 0;
+                transform: translate(-50%, -250%);
+            }
         }
     </style>
 </head>
@@ -501,8 +546,8 @@
     <script>
         // --- CONFIGURATION ---
         const SCALE = 20;
-        const TABLE_WIDTH_FT = 3;
-        const TABLE_DEPTH_FT = 4;
+        const TABLE_WIDTH_FT = 4;
+        const TABLE_DEPTH_FT = 3;
         const UNIT_WIDTH_MM = 88;
         const UNIT_DEPTH_MM = 63;
         const DEPLOY_INCHES = 6;
@@ -956,7 +1001,7 @@
             }
         };
 
-        function rollDice() {
+        function rollDice(coords) {
             const d1 = Math.floor(Math.random() * 6) + 1;
             const d2 = Math.floor(Math.random() * 6) + 1;
             const total = d1 + d2;
@@ -964,6 +1009,16 @@
             document.getElementById('dice-result').innerText = total;
             document.getElementById('dice-detail').innerText = detail;
             sendData({ type: 'ROLL_DICE', result: total, detail: detail });
+
+            if (coords) {
+                const popup = document.createElement('div');
+                popup.classList.add('dice-popup');
+                popup.innerHTML = `🎲 ${total} <span style="font-size:0.6em; color:#666;">${detail}</span>`;
+                popup.style.left = coords.x + 'px';
+                popup.style.top = coords.y + 'px';
+                document.body.appendChild(popup);
+                setTimeout(() => popup.remove(), 2000);
+            }
         }
 
         function initGame() {
@@ -1172,7 +1227,9 @@
                         const now = Date.now();
                         if (now - lastTapTime < 300) {
                             // Double Tap
-                            rollDice();
+                            // Use e.changedTouches for position
+                            const t = e.changedTouches[0];
+                            rollDice({ x: t.clientX, y: t.clientY });
                             lastTapTime = 0;
                         } else {
                             // Single Tap
@@ -1335,6 +1392,11 @@
             if (e.target.closest('.wound-btn') || e.target.closest('.rotate-handle')) return;
 
             const targetUnit = e.currentTarget;
+
+            // Fix Terrain Selection: If we touch terrain, deselect any unit so buttons don't float.
+            if (!targetUnit.classList.contains('unit')) {
+                if (selectedUnit) deselectUnit();
+            }
 
             // Long Press Logic
             longPressTimer = setTimeout(() => {
