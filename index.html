@@ -83,6 +83,22 @@
         #container {
             display: flex;
             gap: 20px;
+            width: 100%;
+            /* Take full width */
+            justify-content: center;
+            /* Center initially, but let sidebars stay */
+        }
+
+        /* Landscape Tweak */
+        @media screen and (orientation: landscape) {
+            body {
+                padding: 10px;
+            }
+
+            .sidebar {
+                width: 140px;
+                font-size: 0.9em;
+            }
         }
 
         /* --- SIDEBARS --- */
@@ -95,6 +111,10 @@
             gap: 10px;
             border: 2px solid #555;
             text-align: center;
+            z-index: 50;
+            /* Ensure active above table if zoomed */
+            flex-shrink: 0;
+            /* Don't shrink them */
         }
 
         .palette-item {
@@ -1226,11 +1246,21 @@
                     // Removed table.appendChild - we append to piece
 
                     // Button Logic
-                    document.getElementById('btn-minus').addEventListener('mousedown', (e) => adjustWounds(-1, e));
-                    document.getElementById('btn-minus').addEventListener('touchstart', (e) => adjustWounds(-1, e));
+                    const minusBtn = document.getElementById('btn-minus');
+                    const plusBtn = document.getElementById('btn-plus');
 
-                    document.getElementById('btn-plus').addEventListener('mousedown', (e) => adjustWounds(1, e));
-                    document.getElementById('btn-plus').addEventListener('touchstart', (e) => adjustWounds(1, e));
+                    // Helper to prevent drag start on button tap
+                    const stopProp = (e) => { e.stopPropagation(); };
+
+                    minusBtn.addEventListener('mousedown', (e) => adjustWounds(-1, e));
+                    minusBtn.addEventListener('touchstart', (e) => adjustWounds(-1, e), { passive: false });
+                    minusBtn.addEventListener('mousedown', stopProp); // Stop drag
+                    minusBtn.addEventListener('touchstart', stopProp, { passive: false });
+
+                    plusBtn.addEventListener('mousedown', (e) => adjustWounds(1, e));
+                    plusBtn.addEventListener('touchstart', (e) => adjustWounds(1, e), { passive: false });
+                    plusBtn.addEventListener('mousedown', stopProp);
+                    plusBtn.addEventListener('touchstart', stopProp, { passive: false });
                 }
 
                 piece.appendChild(woundControls);
@@ -1439,10 +1469,17 @@
                 const newLeft = mouseX - offX;
                 const newTop = mouseY - offY;
 
-                activePiece.style.left = `${newLeft}px`;
-                activePiece.style.top = `${newTop}px`;
-                targetX = newLeft + (activePiece.offsetWidth / 2);
-                targetY = newTop + (activePiece.offsetHeight / 2);
+                // Bounds Checking
+                const maxLeft = tableWidthPx - activePiece.offsetWidth;
+                const maxTop = tableHeightPx - activePiece.offsetHeight;
+
+                const clampedLeft = Math.max(0, Math.min(newLeft, maxLeft));
+                const clampedTop = Math.max(0, Math.min(newTop, maxTop));
+
+                activePiece.style.left = `${clampedLeft}px`;
+                activePiece.style.top = `${clampedTop}px`;
+                targetX = clampedLeft + (activePiece.offsetWidth / 2);
+                targetY = clampedTop + (activePiece.offsetHeight / 2);
 
                 // If dragging Selected Unit, move the UI with it
                 if (activePiece === selectedUnit) {
