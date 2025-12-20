@@ -3,7 +3,7 @@
 
 <head>
     <meta charset="UTF-8">
-    <title>Wargame Prototype v6 (Synced)</title>
+    <title>Wargame Prototype 0.1</title>
     <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
     <script src="https://unpkg.com/papaparse@5.4.1/papaparse.min.js"></script>
     <style>
@@ -333,18 +333,47 @@
 
         .wound-controls {
             position: absolute;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-            width: 180px;
-            height: 60px;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
             display: none;
             /* Hidden by default */
-            justify-content: space-between;
-            align-items: center;
             pointer-events: none;
             z-index: 25;
-            /* Above everything */
+            /* Inside unit context */
+        }
+
+        .wound-btn {
+            position: absolute;
+            width: 40px;
+            height: 40px;
+            top: 50%;
+            transform: translateY(-50%);
+            border-radius: 50%;
+            background: white;
+            color: black;
+            font-weight: bold;
+            font-size: 24px;
+            border: 2px solid black;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            pointer-events: auto;
+            cursor: pointer;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.5);
+        }
+
+        #btn-minus {
+            left: -50px;
+        }
+
+        #btn-plus {
+            right: -50px;
+        }
+
+        .wound-btn:active {
+            background: #ccc;
         }
 
         .wound-btn {
@@ -502,6 +531,9 @@
         let tapStartTime = 0;
         let tapStartX = 0;
         let tapStartY = 0;
+        let boardScale = 1.0;
+        let initialPinchDist = null;
+        let initialScale = 1.0;
 
         // --- LANDSCAPE ---
         function toggleLandscape() {
@@ -1015,7 +1047,32 @@
 
         // Global Touch Wrappers
         window.addEventListener('touchmove', (e) => {
+            if (e.touches.length === 2) {
+                // PINCH ZOOM
+                e.preventDefault();
+                const dist = Math.hypot(
+                    e.touches[0].clientX - e.touches[1].clientX,
+                    e.touches[0].clientY - e.touches[1].clientY
+                );
+
+                if (initialPinchDist === null) {
+                    initialPinchDist = dist;
+                    initialScale = boardScale;
+                } else {
+                    const scaleFactor = dist / initialPinchDist;
+                    boardScale = Math.min(Math.max(initialScale * scaleFactor, 0.5), 3.0);
+                    table.style.transform = `scale(${boardScale})`;
+                    table.style.transformOrigin = '0 0'; // Zoom from top-left? simple implementation. 
+                    // Better interaction would zoom towards center, but let's stick to simple first or user will complain about panning.
+                    // Actually, portrait zoom pans too. 
+                }
+                return;
+            }
+
             if (e.touches.length > 1) return;
+
+            initialPinchDist = null; // Reset if fingers change
+
             // e.preventDefault(); // CAREFUL: Doing this globally might break scrolling sidebar. 
             // We should only prevent default if we are "active"
             if (activePiece || isRotating || isMeasuring) {
@@ -1028,6 +1085,7 @@
         }, { passive: false });
 
         window.addEventListener('touchend', (e) => {
+            initialPinchDist = null;
             // Check for Tap
             const duration = Date.now() - tapStartTime;
             // We need the last known position? Or just assume if activePiece didn't move much
@@ -1107,7 +1165,7 @@
                         <div class="wound-btn" id="btn-minus">-</div>
                         <div class="wound-btn" id="btn-plus">+</div>
                     `;
-                    table.appendChild(woundControls);
+                    // Removed table.appendChild - we append to piece
 
                     // Button Logic
                     document.getElementById('btn-minus').addEventListener('mousedown', (e) => adjustWounds(-1, e));
@@ -1116,9 +1174,9 @@
                     document.getElementById('btn-plus').addEventListener('mousedown', (e) => adjustWounds(1, e));
                     document.getElementById('btn-plus').addEventListener('touchstart', (e) => adjustWounds(1, e));
                 }
-                woundControls.style.left = `${x}px`;
-                woundControls.style.top = `${y}px`;
-                woundControls.style.display = 'flex';
+
+                piece.appendChild(woundControls);
+                woundControls.style.display = 'block';
             }
         }
 
@@ -1231,10 +1289,19 @@
             table.insertBefore(ghostPiece, activePiece);
             const rect = activePiece.getBoundingClientRect();
             const tableRect = table.getBoundingClientRect();
-            activePiece.dataset.offsetX = e.clientX - rect.left;
-            activePiece.dataset.offsetY = e.clientY - rect.top;
-            anchorX = (rect.left - tableRect.left) + (rect.width / 2);
-            anchorY = (rect.top - tableRect.top) + (rect.height / 2);
+
+            // e.clientX is screen, rect.left is screen. 
+            // The difference (e.clientX - rect.left) is the distance in SCREEN PIXELS.
+            // We need UNSCALED pixels for offset, because mouseX (in onMouseMove) will be unscaled.
+            // So we divide by boardScale.
+            activePiece.dataset.offsetX = (e.clientX - rect.left) / boardScale;
+            activePiece.dataset.offsetY = (e.clientY - rect.top) / boardScale;
+
+            // anchorX/Y are for the measure line.
+            // (rect.left - tableRect.left) is screen distance from table edge.
+            // Divide by boardScale to get internal CSS pixels.
+            anchorX = ((rect.left - tableRect.left) + (rect.width / 2)) / boardScale;
+            anchorY = ((rect.top - tableRect.top) + (rect.height / 2)) / boardScale;
             showLine(anchorX, anchorY, anchorX, anchorY);
         }
 
@@ -1243,8 +1310,8 @@
             if (e.target !== table && e.target !== document.getElementById('ui-layer')) return;
             isMeasuring = true;
             const tableRect = table.getBoundingClientRect();
-            anchorX = e.clientX - tableRect.left;
-            anchorY = e.clientY - tableRect.top;
+            anchorX = (e.clientX - tableRect.left) / boardScale;
+            anchorY = (e.clientY - tableRect.top) / boardScale;
             showLine(anchorX, anchorY, anchorX, anchorY);
         });
 
