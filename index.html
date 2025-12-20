@@ -1103,6 +1103,19 @@
                     clientX: e.touches[0].clientX,
                     clientY: e.touches[0].clientY
                 });
+
+                // Check for Drag Separation to Deselect other units
+                if (activePiece && activePiece !== selectedUnit) {
+                    const dragDist = Math.hypot(
+                        e.touches[0].clientX - tapStartX,
+                        e.touches[0].clientY - tapStartY
+                    );
+                    // If we dragged a decent amount, assume we are moving this new piece
+                    // and deselect the old one.
+                    if (dragDist > 30) {
+                        deselectPiece();
+                    }
+                }
             }
         }, { passive: false });
 
@@ -1151,7 +1164,8 @@
                 );
 
                 // If it was a short tap on a Unit/Terrain (not just table)
-                if (duration < 250 && dist < 10) {
+                // Relaxed thresholds: 500ms duration, 30px movement
+                if (duration < 500 && dist < 30) {
                     // It's a TAP!
                     const target = activePiece; // The piece we "started" dragging
                     activePiece = null; // Cancel drag
