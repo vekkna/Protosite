@@ -321,7 +321,7 @@
 
         .rotation-handle {
             position: absolute;
-            top: -10px;
+            bottom: -10px;
             left: 50%;
             transform: translateX(-50%);
             width: 20px;
@@ -531,9 +531,19 @@
         let tapStartTime = 0;
         let tapStartX = 0;
         let tapStartY = 0;
-        let boardScale = 1.0;
         let initialPinchDist = null;
         let initialScale = 1.0;
+        let panX = 0;
+        let panY = 0;
+        let isPanning = false;
+        let panStartClientX = 0;
+        let panStartClientY = 0;
+        let startPanX = 0;
+        let startPanY = 0;
+
+        function updateTransform() {
+            table.style.transform = `translate(${panX}px, ${panY}px) scale(${boardScale})`;
+        }
 
         // --- LANDSCAPE ---
         function toggleLandscape() {
@@ -1034,6 +1044,7 @@
             tapStartX = touch.clientX;
             tapStartY = touch.clientY;
 
+
             // Trigger drag logic using the first touch
             onPieceDragStart({
                 currentTarget: e.currentTarget,
@@ -1061,10 +1072,7 @@
                 } else {
                     const scaleFactor = dist / initialPinchDist;
                     boardScale = Math.min(Math.max(initialScale * scaleFactor, 0.5), 3.0);
-                    table.style.transform = `scale(${boardScale})`;
-                    table.style.transformOrigin = '0 0'; // Zoom from top-left? simple implementation. 
-                    // Better interaction would zoom towards center, but let's stick to simple first or user will complain about panning.
-                    // Actually, portrait zoom pans too. 
+                    updateTransform();
                 }
                 return;
             }
@@ -1073,10 +1081,24 @@
 
             initialPinchDist = null; // Reset if fingers change
 
-            // e.preventDefault(); // CAREFUL: Doing this globally might break scrolling sidebar. 
-            // We should only prevent default if we are "active"
-            if (activePiece || isRotating || isMeasuring) {
-                e.preventDefault();
+            if (activePiece || isRotating || isMeasuring || isPanning) {
+                // e.preventDefault(); // Prevent scroll
+                // Only prevent default if we are specifically handling it
+                // Allow sidebar scroll if not doing anything (handled by target check usually?)
+                // But touchmove on table area should prevent scroll.
+                if (e.target.closest('#game-table') || activePiece) {
+                    e.preventDefault();
+                }
+
+                if (isPanning) {
+                    const dx = e.touches[0].clientX - panStartClientX;
+                    const dy = e.touches[0].clientY - panStartClientY;
+                    panX = startPanX + dx;
+                    panY = startPanY + dy;
+                    updateTransform();
+                    return;
+                }
+
                 onMouseMove({
                     clientX: e.touches[0].clientX,
                     clientY: e.touches[0].clientY
@@ -1084,8 +1106,30 @@
             }
         }, { passive: false });
 
+        // Handle Background Pan Start (using mousedown on table)
+        // We need to distinguish between Measure and Pan.
+        // User asked for "drag finger on empty board" -> Pan.
+        // I will override the measure logic for Touch, or add Pan logic.
+        // Let's modify table.addEventListener('touchstart') if not exists, or hook 'mousedown' if mapped.
+        // Currently table has 'mousedown'.
+
+        table.addEventListener('touchstart', (e) => {
+            if (e.touches.length > 1) return;
+            if (activePiece || isRotating) return;
+            if (e.target !== table && e.target !== document.getElementById('ui-layer')) return;
+
+            // Start Pan
+            isPanning = true;
+            panStartClientX = e.touches[0].clientX;
+            panStartClientY = e.touches[0].clientY;
+            startPanX = panX;
+            startPanY = panY;
+        }, { passive: false });
+
         window.addEventListener('touchend', (e) => {
             initialPinchDist = null;
+            isPanning = false;
+
             // Check for Tap
             const duration = Date.now() - tapStartTime;
             // We need the last known position? Or just assume if activePiece didn't move much
@@ -1290,18 +1334,23 @@
             const rect = activePiece.getBoundingClientRect();
             const tableRect = table.getBoundingClientRect();
 
-            // e.clientX is screen, rect.left is screen. 
-            // The difference (e.clientX - rect.left) is the distance in SCREEN PIXELS.
-            // We need UNSCALED pixels for offset, because mouseX (in onMouseMove) will be unscaled.
-            // So we divide by boardScale.
-            activePiece.dataset.offsetX = (e.clientX - rect.left) / boardScale;
-            activePiece.dataset.offsetY = (e.clientY - rect.top) / boardScale;
+            // Fix Jump Bug: Use Style-based offset
+            // Calculate Mouse Pos in internal pixels relative to table top-left (excluding pan/scale)
+            // Wait, mouseX is calculated using tableRect.left. tableRect.left INCLUDES pan.
+            // So mouseX is internal.
+            const mouseX = (e.clientX - tableRect.left) / boardScale;
+            const mouseY = (e.clientY - tableRect.top) / boardScale;
 
-            // anchorX/Y are for the measure line.
-            // (rect.left - tableRect.left) is screen distance from table edge.
-            // Divide by boardScale to get internal CSS pixels.
-            anchorX = ((rect.left - tableRect.left) + (rect.width / 2)) / boardScale;
-            anchorY = ((rect.top - tableRect.top) + (rect.height / 2)) / boardScale;
+            // Calculate Offset relative to style.left
+            activePiece.dataset.offsetX = mouseX - parseFloat(activePiece.style.left);
+            activePiece.dataset.offsetY = mouseY - parseFloat(activePiece.style.top);
+
+            // Anchor Logic (Center of unit)
+            const unitCenterX = parseFloat(activePiece.style.left) + (activePiece.offsetWidth / 2);
+            const unitCenterY = parseFloat(activePiece.style.top) + (activePiece.offsetHeight / 2);
+            anchorX = unitCenterX;
+            anchorY = unitCenterY;
+
             showLine(anchorX, anchorY, anchorX, anchorY);
         }
 
@@ -1331,8 +1380,9 @@
             let clientX = e.clientX;
             let clientY = e.clientY;
 
-            let mouseX = clientX - tableRect.left;
-            let mouseY = clientY - tableRect.top;
+            // REMOVED old mouseX calculation here to avoid conflict
+            // let mouseX = clientX - tableRect.left;
+            // let mouseY = clientY - tableRect.top;
 
             // --- ROTATION LOGIC ---
             if (isRotating && selectedUnit) {
@@ -1340,20 +1390,26 @@
                 const centerX = rect.left + rect.width / 2;
                 const centerY = rect.top + rect.height / 2;
                 const rad = Math.atan2(clientY - centerY, clientX - centerX);
-                const deg = rad * (180 / Math.PI) + 90; // +90 to align handle correctly?
+                const deg = rad * (180 / Math.PI) + 90;
 
                 selectedUnit.dataset.angle = deg;
                 selectedUnit.style.transform = `rotate(${deg}deg)`;
 
-                // Also rotate existing ring? No, ring stays upright usually? 
-                // Wait, if "Moving this circle should rotate the element", usually the handle rotates WITH it.
-                // Or acts as a dial. Let's rotate the unit.
+                // Sync Ring Rotation so "Behind" stays behind
+                if (rotationRing) {
+                    rotationRing.style.transform = `translate(-50%, -50%) rotate(${deg}deg)`;
+                }
 
-                return; // Skip drag logic
+                return;
             }
+
+            // Calculate Mouse Pos in internal pixels relative to table top-left (excluding pan/scale)
+            const mouseX = (e.clientX - tableRect.left) / boardScale;
+            const mouseY = (e.clientY - tableRect.top) / boardScale;
 
             if (!activePiece && !isMeasuring) return;
 
+            // TargetX is the center of the unit being dragged (or mouse pos)
             let targetX = mouseX;
             let targetY = mouseY;
 
@@ -1364,8 +1420,11 @@
 
                 const offX = parseFloat(activePiece.dataset.offsetX);
                 const offY = parseFloat(activePiece.dataset.offsetY);
+
+                // New Logic: mouseX (internal) - dragStartOffset (internal)
                 const newLeft = mouseX - offX;
                 const newTop = mouseY - offY;
+
                 activePiece.style.left = `${newLeft}px`;
                 activePiece.style.top = `${newTop}px`;
                 targetX = newLeft + (activePiece.offsetWidth / 2);
@@ -1377,10 +1436,7 @@
                         rotationRing.style.left = `${targetX}px`;
                         rotationRing.style.top = `${targetY}px`;
                     }
-                    if (woundControls) {
-                        woundControls.style.left = `${targetX}px`;
-                        woundControls.style.top = `${targetY}px`;
-                    }
+                    // woundControls moves with unit
                 }
             }
 
