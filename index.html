@@ -302,6 +302,71 @@
             color: #888;
             text-align: left;
         }
+
+        /* --- MOBILE UI --- */
+        .rotation-ring {
+            position: absolute;
+            width: 160px;
+            height: 160px;
+            border: 4px dashed rgba(255, 255, 0, 0.6);
+            border-radius: 50%;
+            transform: translate(-50%, -50%);
+            pointer-events: auto;
+            z-index: 8;
+            /* Below unit (10) */
+            cursor: grab;
+            display: none;
+            /* Hidden by default */
+        }
+
+        .rotation-handle {
+            position: absolute;
+            top: -10px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 20px;
+            height: 20px;
+            background: yellow;
+            border-radius: 50%;
+            box-shadow: 0 0 5px black;
+        }
+
+        .wound-controls {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 180px;
+            height: 60px;
+            display: none;
+            /* Hidden by default */
+            justify-content: space-between;
+            align-items: center;
+            pointer-events: none;
+            z-index: 25;
+            /* Above everything */
+        }
+
+        .wound-btn {
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            background: white;
+            color: black;
+            font-weight: bold;
+            font-size: 24px;
+            border: 2px solid black;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            pointer-events: auto;
+            cursor: pointer;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.5);
+        }
+
+        .wound-btn:active {
+            background: #ccc;
+        }
     </style>
 </head>
 
@@ -324,6 +389,7 @@
             <button class="btn-grey" onclick="openRulebook()" style="margin-top: 10px;">📖 Rulebook</button>
             <button onclick="undo()" class="btn-grey" style="margin-top: 15px;">Undo (Z)</button>
             <button onclick="resetGame()" class="btn-grey" style="margin-top: 5px;">Reset Board</button>
+            <button onclick="toggleLandscape()" class="btn-grey" style="margin-top: 5px;">📱 Landscape</button>
         </div>
         <div id="game-table">
             <svg id="ui-layer">
@@ -427,6 +493,30 @@
         const MAX_UNDO = 20;
 
         const lineElement = document.getElementById('measure-line');
+
+        // --- MOBILE STATE ---
+        let selectedUnit = null;
+        let rotationRing = null;
+        let woundControls = null;
+        let isRotating = false;
+        let tapStartTime = 0;
+        let tapStartX = 0;
+        let tapStartY = 0;
+
+        // --- LANDSCAPE ---
+        function toggleLandscape() {
+            if (!document.fullscreenElement) {
+                document.documentElement.requestFullscreen().then(() => {
+                    if (screen.orientation && screen.orientation.lock) {
+                        screen.orientation.lock('landscape').catch(err => console.log("Orientation lock failed:", err));
+                    }
+                }).catch(err => {
+                    console.log("Fullscreen failed:", err);
+                });
+            } else {
+                document.exitFullscreen();
+            }
+        }
 
         // --- RULES LOGIC (IFRAME & TOOLTIPS) ---
 
@@ -897,8 +987,168 @@
 
         function attachListeners(element) {
             element.addEventListener('mousedown', onPieceDragStart);
+            element.addEventListener('touchstart', onPieceTouchStart, { passive: false });
             element.addEventListener('wheel', onWheel);
         }
+
+        // --- TOUCH / MOBILE LOGIC ---
+        function onPieceTouchStart(e) {
+            if (e.touches.length > 1) return; // Ignore multi-touch
+            e.preventDefault(); // Prevent scroll
+            e.stopPropagation();
+
+            const touch = e.touches[0];
+            tapStartTime = Date.now();
+            tapStartX = touch.clientX;
+            tapStartY = touch.clientY;
+
+            // Trigger drag logic using the first touch
+            onPieceDragStart({
+                currentTarget: e.currentTarget,
+                clientX: touch.clientX,
+                clientY: touch.clientY,
+                button: 0,
+                stopPropagation: () => { },
+                preventDefault: () => { }
+            });
+        }
+
+        // Global Touch Wrappers
+        window.addEventListener('touchmove', (e) => {
+            if (e.touches.length > 1) return;
+            // e.preventDefault(); // CAREFUL: Doing this globally might break scrolling sidebar. 
+            // We should only prevent default if we are "active"
+            if (activePiece || isRotating || isMeasuring) {
+                e.preventDefault();
+                onMouseMove({
+                    clientX: e.touches[0].clientX,
+                    clientY: e.touches[0].clientY
+                });
+            }
+        }, { passive: false });
+
+        window.addEventListener('touchend', (e) => {
+            // Check for Tap
+            const duration = Date.now() - tapStartTime;
+            // We need the last known position? Or just assume if activePiece didn't move much
+            // But touchEnd doesn't have coordinates.
+            // "onMouseUp" clears activePiece.
+
+            // If we are rotating, stop
+            if (isRotating) {
+                isRotating = false;
+                saveGame();
+                return;
+            }
+
+            // Normal Drag End
+            if (activePiece) {
+                const dist = Math.hypot(
+                    (activePiece.dataset.lastX || tapStartX) - tapStartX,
+                    (activePiece.dataset.lastY || tapStartY) - tapStartY
+                );
+
+                // If it was a short tap on a Unit/Terrain (not just table)
+                if (duration < 250 && dist < 10) {
+                    // It's a TAP!
+                    const target = activePiece; // The piece we "started" dragging
+                    activePiece = null; // Cancel drag
+                    // Revert position? (Visual snap back happens if we didn't saveGame yet?)
+                    // If drag moves, it updates style. We might need to undo that movement if we mistakenly dragged a tiny bit.
+                    // But <10px is negligible.
+
+                    if (target.classList.contains('unit') || target.classList.contains('terrain')) {
+                        selectPiece(target);
+                    }
+                }
+            }
+            onMouseUp();
+        });
+
+
+        // --- SELECTION UI ---
+        function selectPiece(piece) {
+            deselectPiece();
+            selectedUnit = piece;
+
+            // Create Ring
+            if (!rotationRing) {
+                rotationRing = document.createElement('div');
+                rotationRing.classList.add('rotation-ring');
+                rotationRing.innerHTML = '<div class="rotation-handle"></div>';
+
+                // Ring Logic
+                rotationRing.addEventListener('touchstart', (e) => {
+                    e.preventDefault(); e.stopPropagation();
+                    isRotating = true;
+                }, { passive: false });
+
+                rotationRing.addEventListener('mousedown', (e) => {
+                    e.preventDefault(); e.stopPropagation();
+                    isRotating = true;
+                });
+
+                table.appendChild(rotationRing);
+            }
+
+            // Position Ring
+            const x = parseFloat(piece.style.left) + (piece.offsetWidth / 2);
+            const y = parseFloat(piece.style.top) + (piece.offsetHeight / 2);
+            rotationRing.style.left = `${x}px`;
+            rotationRing.style.top = `${y}px`;
+            rotationRing.style.display = 'block';
+
+            // Create Buttons (Only for Units)
+            if (piece.classList.contains('unit')) {
+                if (!woundControls) {
+                    woundControls = document.createElement('div');
+                    woundControls.classList.add('wound-controls');
+                    woundControls.innerHTML = `
+                        <div class="wound-btn" id="btn-minus">-</div>
+                        <div class="wound-btn" id="btn-plus">+</div>
+                    `;
+                    table.appendChild(woundControls);
+
+                    // Button Logic
+                    document.getElementById('btn-minus').addEventListener('mousedown', (e) => adjustWounds(-1, e));
+                    document.getElementById('btn-minus').addEventListener('touchstart', (e) => adjustWounds(-1, e));
+
+                    document.getElementById('btn-plus').addEventListener('mousedown', (e) => adjustWounds(1, e));
+                    document.getElementById('btn-plus').addEventListener('touchstart', (e) => adjustWounds(1, e));
+                }
+                woundControls.style.left = `${x}px`;
+                woundControls.style.top = `${y}px`;
+                woundControls.style.display = 'flex';
+            }
+        }
+
+        function deselectPiece() {
+            if (rotationRing) rotationRing.style.display = 'none';
+            if (woundControls) woundControls.style.display = 'none';
+            selectedUnit = null;
+        }
+
+        function adjustWounds(delta, e) {
+            e.preventDefault(); e.stopPropagation();
+            if (!selectedUnit) return;
+            pushUndo();
+            let w = parseInt(selectedUnit.dataset.wounds) || 0;
+            w += delta;
+            if (w < 0) w = 0;
+            selectedUnit.dataset.wounds = w;
+
+            const marker = selectedUnit.querySelector('.wound-marker');
+            if (marker) {
+                marker.innerText = w;
+                marker.style.display = w > 0 ? 'flex' : 'none';
+            }
+            saveGame();
+        }
+
+        // Hook into Main Move Loop for Rotation and UI Following
+        const originalOnMouseMove = window.onMouseMove; // Ref to existing function if needed? No, we redefined it inside.
+        // We will modify the existing onMouseMove instead of wrapping it, to be cleaner.
+
 
         // --- INPUT HANDLING ---
         window.addEventListener('keydown', (e) => {
@@ -1010,14 +1260,41 @@
         }
 
         function onMouseMove(e) {
-            if (!activePiece && !isMeasuring) return;
             const tableRect = table.getBoundingClientRect();
-            let mouseX = e.clientX - tableRect.left;
-            let mouseY = e.clientY - tableRect.top;
+            let clientX = e.clientX;
+            let clientY = e.clientY;
+
+            let mouseX = clientX - tableRect.left;
+            let mouseY = clientY - tableRect.top;
+
+            // --- ROTATION LOGIC ---
+            if (isRotating && selectedUnit) {
+                const rect = selectedUnit.getBoundingClientRect();
+                const centerX = rect.left + rect.width / 2;
+                const centerY = rect.top + rect.height / 2;
+                const rad = Math.atan2(clientY - centerY, clientX - centerX);
+                const deg = rad * (180 / Math.PI) + 90; // +90 to align handle correctly?
+
+                selectedUnit.dataset.angle = deg;
+                selectedUnit.style.transform = `rotate(${deg}deg)`;
+
+                // Also rotate existing ring? No, ring stays upright usually? 
+                // Wait, if "Moving this circle should rotate the element", usually the handle rotates WITH it.
+                // Or acts as a dial. Let's rotate the unit.
+
+                return; // Skip drag logic
+            }
+
+            if (!activePiece && !isMeasuring) return;
+
             let targetX = mouseX;
             let targetY = mouseY;
 
             if (activePiece) {
+                // Track for Tap Detection
+                activePiece.dataset.lastX = clientX;
+                activePiece.dataset.lastY = clientY;
+
                 const offX = parseFloat(activePiece.dataset.offsetX);
                 const offY = parseFloat(activePiece.dataset.offsetY);
                 const newLeft = mouseX - offX;
@@ -1026,9 +1303,24 @@
                 activePiece.style.top = `${newTop}px`;
                 targetX = newLeft + (activePiece.offsetWidth / 2);
                 targetY = newTop + (activePiece.offsetHeight / 2);
+
+                // If dragging Selected Unit, move the UI with it
+                if (activePiece === selectedUnit) {
+                    if (rotationRing) {
+                        rotationRing.style.left = `${targetX}px`;
+                        rotationRing.style.top = `${targetY}px`;
+                    }
+                    if (woundControls) {
+                        woundControls.style.left = `${targetX}px`;
+                        woundControls.style.top = `${targetY}px`;
+                    }
+                }
             }
 
             if (anchorX > -1) {
+                // Draw Line Logic
+
+                // ... (Existing Line Logic) -> Copied below to ensure it works
                 lineElement.setAttribute('x2', targetX);
                 lineElement.setAttribute('y2', targetY);
                 const dx = targetX - anchorX;
@@ -1038,14 +1330,23 @@
                 textEl.innerHTML = `${pxToInches(distancePx)}"`;
                 textEl.setAttribute('x', anchorX + (dx / 2) + 10);
                 textEl.setAttribute('y', anchorY + (dy / 2) - 10);
-            } else {
-                const rect = activePiece.getBoundingClientRect();
-                anchorX = (rect.left - tableRect.left) + (rect.width / 2);
-                anchorY = (rect.top - tableRect.top) + (rect.height / 2);
+            } else if (activePiece) {
+                // Update Anchor if just started? (Already done in startDrag)
             }
         }
 
         function onMouseUp(e) {
+            // Check for background tap to deselect
+            if (isMeasuring && !activePiece) {
+                const x1 = parseFloat(lineElement.getAttribute('x1'));
+                const x2 = parseFloat(lineElement.getAttribute('x2'));
+                const y1 = parseFloat(lineElement.getAttribute('y1'));
+                const y2 = parseFloat(lineElement.getAttribute('y2'));
+                const dist = Math.hypot(x2 - x1, y2 - y1);
+
+                if (dist < 5) deselectPiece();
+            }
+
             if (activePiece) saveGame();
             activePiece = null;
             isMeasuring = false;
