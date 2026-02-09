@@ -960,7 +960,7 @@
                         e.preventDefault();
                         pushUndo();
                         let currentAngle = parseFloat(target.dataset.angle) || 0;
-                        const step = e.shiftKey ? 1 : 15;
+                        const step = e.shiftKey ? 1 : 2;
                         if (e.key === 'ArrowRight') currentAngle += step;
                         else currentAngle -= step;
                         target.dataset.angle = currentAngle;
@@ -1103,8 +1103,8 @@
                 pushUndo();
                 const piece = e.currentTarget;
                 let currentAngle = parseFloat(piece.dataset.angle) || 0;
-                if (e.deltaY > 0) currentAngle += 15;
-                else currentAngle -= 15;
+                if (e.deltaY > 0) currentAngle += 2;
+                else currentAngle -= 2;
                 piece.dataset.angle = currentAngle;
                 piece.style.transform = `rotate(${currentAngle}deg)`;
                 saveGame();
