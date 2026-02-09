@@ -878,39 +878,48 @@
             }
 
             function createDefaultUnits() {
-                const sides = ['red', 'blue'];
-                const deployYPositions = [inchesToPx(DEPLOY_INCHES), tableHeightPx - inchesToPx(DEPLOY_INCHES)];
-
                 const races = ["Elf", "Human", "Orc", "Dwarf", "Undead"];
                 const types = ["Archers", "Swords", "Spears", "Cavalry", "Skirmishers", "Mounted Bowmen"];
 
-                sides.forEach((color, sideIndex) => {
-                    const yPos = deployYPositions[sideIndex];
-                    const spacing = tableWidthPx / 7;
-                    const initialAngle = (sideIndex === 0) ? 180 : 0;
-
-                    // Generate all possible combinations
-                    let deck = [];
-                    races.forEach(race => {
-                        types.forEach(type => {
-                            deck.push(`${race} ${type}`);
-                        });
+                // 1. Generate all possible unique combinations
+                let deck = [];
+                races.forEach(race => {
+                    types.forEach(type => {
+                        deck.push(`${race} ${type}`);
                     });
+                });
 
-                    // Shuffle deck (Fisher-Yates)
-                    for (let i = deck.length - 1; i > 0; i--) {
-                        const j = Math.floor(Math.random() * (i + 1));
-                        [deck[i], deck[j]] = [deck[j], deck[i]];
-                    }
+                // 2. Shuffle deck (Fisher-Yates)
+                for (let i = deck.length - 1; i > 0; i--) {
+                    const j = Math.floor(Math.random() * (i + 1));
+                    [deck[i], deck[j]] = [deck[j], deck[i]];
+                }
 
-                    // Slice the first 6 unique units
-                    const unitNames = deck.slice(0, 6);
+                // 3. Select 12 unique units for the draft pool
+                const draftPool = deck.slice(0, 12);
 
-                    unitNames.forEach((name, i) => {
-                        const x = (spacing * (i + 1)) - (unitWidthPx / 2);
-                        const y = yPos - (unitHeightPx / 2);
-                        createUnitDOM(name, color, x, y, initialAngle, 0);
-                    });
+                // 4. Grid Configuration (3 rows, 4 columns)
+                const cols = 4;
+                const rows = 3;
+                const padding = 20; // Space between units
+
+                // Calculate total grid dimensions to center it
+                const gridWidth = (cols * unitWidthPx) + ((cols - 1) * padding);
+                const gridHeight = (rows * unitHeightPx) + ((rows - 1) * padding);
+
+                const startX = (tableWidthPx - gridWidth) / 2;
+                const startY = (tableHeightPx - gridHeight) / 2;
+
+                // 5. Spawn units in the grid
+                draftPool.forEach((name, i) => {
+                    const col = i % cols;
+                    const row = Math.floor(i / cols);
+
+                    const x = startX + (col * (unitWidthPx + padding));
+                    const y = startY + (row * (unitHeightPx + padding));
+
+                    // Spawn as neutral (grey) for drafting
+                    createUnitDOM(name, "#666", x, y, 0, 0);
                 });
             }
 
