@@ -177,6 +177,11 @@
                 margin-bottom: 2px;
             }
 
+            .hide-p1 #cp1,
+            .hide-p2 #cp2 {
+                visibility: hidden;
+            }
+
             /* --- CONNECTION STATUS --- */
             #status-indicator {
                 padding: 5px;
@@ -350,6 +355,8 @@
                         <input type="number" id="cp2" value="1" min="0" max="7" onchange="saveGame()">
                     </div>
                 </div>
+                <button id="toggle-bids-btn" class="btn-grey" onclick="toggleBidVisibility()"
+                    style="margin-top: -5px; margin-bottom: 10px;">Hide Bids</button>
                 <button id="dice-btn" class="btn-red" onclick="rollDice()">Roll 2d6</button>
                 <div id="dice-result">-</div>
                 <div id="dice-detail"></div>
@@ -431,6 +438,35 @@
             const mmToInches = (mm) => mm / 25.4;
             const inchesToPx = (inch) => inch * SCALE;
             const pxToInches = (px) => (px / SCALE).toFixed(1);
+
+            let bidsHidden = false;
+            function toggleBidVisibility() {
+                bidsHidden = !bidsHidden;
+                updateBidUI();
+                sendData({ type: 'TOGGLE_BIDS', payload: bidsHidden });
+            }
+
+            function updateBidUI() {
+                const btn = document.getElementById('toggle-bids-btn');
+                const container = document.querySelector('.cp-container');
+                if (!btn || !container) return;
+
+                btn.innerText = bidsHidden ? "Show Bids" : "Hide Bids";
+                container.classList.remove('hide-p1', 'hide-p2');
+
+                if (bidsHidden) {
+                    if (peer && conn) {
+                        if (isHost) {
+                            container.classList.add('hide-p2');
+                        } else {
+                            container.classList.add('hide-p1');
+                        }
+                    } else {
+                        // Local play: hide both for fairness
+                        container.classList.add('hide-p1', 'hide-p2');
+                    }
+                }
+            }
 
             const tableWidthPx = inchesToPx(TABLE_WIDTH_FT * 12);
             const tableHeightPx = inchesToPx(TABLE_DEPTH_FT * 12);
@@ -671,6 +707,10 @@
                     document.getElementById('dice-result').innerText = data.result;
                     document.getElementById('dice-detail').innerText = data.detail + " (Opponent)";
                 }
+                else if (data.type === 'TOGGLE_BIDS') {
+                    bidsHidden = data.payload;
+                    updateBidUI();
+                }
             }
 
             function sendData(dataObj) {
@@ -695,7 +735,8 @@
                 const state = {
                     pieces: [],
                     cp1: document.getElementById('cp1').value,
-                    cp2: document.getElementById('cp2').value
+                    cp2: document.getElementById('cp2').value,
+                    bidsHidden: bidsHidden
                 };
                 document.querySelectorAll('.unit').forEach(el => {
                     if (el.classList.contains('ghost')) return;
@@ -733,6 +774,10 @@
                 if (!Array.isArray(state)) {
                     if (state.cp1 !== undefined) document.getElementById('cp1').value = state.cp1;
                     if (state.cp2 !== undefined) document.getElementById('cp2').value = state.cp2;
+                    if (state.bidsHidden !== undefined) {
+                        bidsHidden = state.bidsHidden;
+                        updateBidUI();
+                    }
                 }
 
                 data.forEach(obj => {
