@@ -12,12 +12,13 @@
                 background-color: #222;
                 color: #ccc;
                 margin: 0;
-                padding: 20px;
+                padding: 10px;
                 display: flex;
                 justify-content: center;
                 height: 100vh;
                 overflow: hidden;
                 user-select: none;
+                box-sizing: border-box;
             }
 
             /* --- RULES MODAL --- */
@@ -82,12 +83,16 @@
 
             #container {
                 display: flex;
-                gap: 20px;
+                gap: 15px;
+                height: 100%;
+                width: 100%;
+                max-width: 1600px;
+                align-items: stretch;
             }
 
             /* --- SIDEBARS --- */
             .sidebar {
-                width: 180px;
+                width: 200px;
                 background-color: #444;
                 padding: 10px;
                 display: flex;
@@ -95,6 +100,10 @@
                 gap: 10px;
                 border: 2px solid #555;
                 text-align: center;
+                height: 100%;
+                overflow-y: auto;
+                box-sizing: border-box;
+                flex-shrink: 0;
             }
 
             .palette-item {
@@ -360,15 +369,16 @@
                 <button id="dice-btn" class="btn-red" onclick="rollDice()">Roll 2d6</button>
                 <div id="dice-result">-</div>
                 <div id="dice-detail"></div>
-                <button class="btn-grey" onclick="openRulebook()" style="margin-top: 10px;">📖 Rulebook</button>
-                <button onclick="undo()" class="btn-grey" style="margin-top: 15px;">Undo (Z)</button>
-                <button onclick="resetGame()" class="btn-grey" style="margin-top: 5px;">Reset Board</button>
+                <button onclick="resetGame()" class="btn-grey" style="margin-top: 15px;">Reset Board</button>
             </div>
-            <div id="game-table">
-                <svg id="ui-layer">
-                    <line id="measure-line" x1="0" y1="0" x2="0" y2="0" />
-                    <text id="measure-text" x="0" y="0">0"</text>
-                </svg>
+            <div id="table-container"
+                style="flex-grow: 1; display: flex; align-items: center; justify-content: center; overflow: hidden; background: #1a1a1a; position: relative;">
+                <div id="game-table" style="transform-origin: center center; flex-shrink: 0;">
+                    <svg id="ui-layer">
+                        <line id="measure-line" x1="0" y1="0" x2="0" y2="0" />
+                        <text id="measure-text" x="0" y="0">0"</text>
+                    </svg>
+                </div>
             </div>
             <div class="sidebar">
                 <h3 style="margin-top:0">Terrain</h3>
@@ -392,6 +402,7 @@
                     font-family: monospace; 
                     font-size: 13px;
                     text-align: left;">
+                    <button class="btn-grey" onclick="openRulebook()" style="margin-bottom: 5px;">📖 Rulebook</button>
                     <span style="color: #666; text-align: center;">Hover unit for stats</span>
                 </div>
                 <div id="controls-hint">
@@ -415,7 +426,7 @@
                 </div>
                 <div class="modal-body">
                     <iframe id="rulebook-frame"
-                        src="https://docs.google.com/document/d/e/2PACX-1vSET76CoLzTj6rVKhUUvukB41HHq0UD6K7QOIA_fNbdXbYRoelmxZQomHMqhIuGFlu-5TWF3_KOpjb7/pub?embedded=true"
+                        src="https://docs.google.com/document/d/e/2PACX-1vTRSgtpXlAAWVsZpXgfL9X6E-Smri7lUB2VhoTDGZUuu7uhCde3qw9NaCu9aIxK8iYXzWLUp72zdd3f/pub?embedded=true"
                         style="width:100%; height:100%; border:none;">
                     </iframe>
                 </div>
@@ -439,7 +450,7 @@
             const inchesToPx = (inch) => inch * SCALE;
             const pxToInches = (px) => (px / SCALE).toFixed(1);
 
-            let bidsHidden = false;
+            let bidsHidden = false; // Default to false (visible)
             function toggleBidVisibility() {
                 bidsHidden = !bidsHidden;
                 updateBidUI();
@@ -774,10 +785,9 @@
                 if (!Array.isArray(state)) {
                     if (state.cp1 !== undefined) document.getElementById('cp1').value = state.cp1;
                     if (state.cp2 !== undefined) document.getElementById('cp2').value = state.cp2;
-                    if (state.bidsHidden !== undefined) {
-                        bidsHidden = state.bidsHidden;
-                        updateBidUI();
-                    }
+                    // Always show bids by default on load, ignoring saved hidden state
+                    bidsHidden = false;
+                    updateBidUI();
                 }
 
                 data.forEach(obj => {
@@ -895,10 +905,8 @@
             };
 
             window.resetGame = function () {
-                if (confirm("Reset board?")) {
-                    localStorage.removeItem(SAVE_KEY);
-                    location.reload();
-                }
+                localStorage.removeItem(SAVE_KEY);
+                location.reload();
             };
 
             function rollDice() {
@@ -1079,10 +1087,10 @@
                 table.insertBefore(ghostPiece, activePiece);
                 const rect = activePiece.getBoundingClientRect();
                 const tableRect = table.getBoundingClientRect();
-                activePiece.dataset.offsetX = e.clientX - rect.left;
-                activePiece.dataset.offsetY = e.clientY - rect.top;
-                anchorX = (rect.left - tableRect.left) + (rect.width / 2);
-                anchorY = (rect.top - tableRect.top) + (rect.height / 2);
+                activePiece.dataset.offsetX = (e.clientX - rect.left) / currentScale;
+                activePiece.dataset.offsetY = (e.clientY - rect.top) / currentScale;
+                anchorX = ((rect.left - tableRect.left) + (rect.width / 2)) / currentScale;
+                anchorY = ((rect.top - tableRect.top) + (rect.height / 2)) / currentScale;
                 showLine(anchorX, anchorY, anchorX, anchorY);
             }
 
@@ -1091,8 +1099,8 @@
                 if (e.target !== table && e.target !== document.getElementById('ui-layer')) return;
                 isMeasuring = true;
                 const tableRect = table.getBoundingClientRect();
-                anchorX = e.clientX - tableRect.left;
-                anchorY = e.clientY - tableRect.top;
+                anchorX = (e.clientX - tableRect.left) / currentScale;
+                anchorY = (e.clientY - tableRect.top) / currentScale;
                 showLine(anchorX, anchorY, anchorX, anchorY);
             });
 
@@ -1110,8 +1118,8 @@
             function onMouseMove(e) {
                 if (!activePiece && !isMeasuring) return;
                 const tableRect = table.getBoundingClientRect();
-                let mouseX = e.clientX - tableRect.left;
-                let mouseY = e.clientY - tableRect.top;
+                let mouseX = (e.clientX - tableRect.left) / currentScale;
+                let mouseY = (e.clientY - tableRect.top) / currentScale;
                 let targetX = mouseX;
                 let targetY = mouseY;
 
@@ -1166,6 +1174,43 @@
 
             window.addEventListener('mousemove', onMouseMove);
             window.addEventListener('mouseup', onMouseUp);
+
+            let currentScale = 1;
+            function fitTableToScreen() {
+                const container = document.getElementById('table-container');
+                const table = document.getElementById('game-table');
+                if (!container || !table) return;
+
+                const availableWidth = container.clientWidth - 20;
+                const availableHeight = container.clientHeight - 20;
+                const tableWidth = tableWidthPx;
+                const tableHeight = tableHeightPx;
+
+                const scaleX = availableWidth / tableWidth;
+                const scaleY = availableHeight / tableHeight;
+
+                // Use unified scale to prevent skewing
+                currentScale = Math.min(scaleX, scaleY, 1);
+
+                table.style.transform = `scale(${currentScale})`;
+            }
+
+            window.addEventListener('resize', fitTableToScreen);
+
+            // Wrap functions to ensure scaling is updated
+            const originalRestoreBoardState = restoreBoardState;
+            restoreBoardState = function (jsonString, suppressBroadcast = false) {
+                originalRestoreBoardState(jsonString, suppressBroadcast);
+                fitTableToScreen();
+            };
+
+            const originalInitGame = initGame;
+            initGame = function () {
+                originalInitGame();
+                fitTableToScreen();
+                // Second call to ensure layout is settled
+                setTimeout(fitTableToScreen, 100);
+            };
 
             initGame();
 
