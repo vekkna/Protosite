@@ -409,12 +409,10 @@
                 </div>
                 <div id="controls-hint">
                     <p><strong>Controls:</strong></p>
-                    <p>Drag to move</p>
-                    <p>Click Empty: Measure</p>
-                    <p>Mouse wheel to rotate unit or terrain</p>
-                    <p>Double click to rename unit</p>
-                    <!-- <p>Hover+R: Range (12")</p> -->
-                    <p>+/- over a unit to change wounds</p>
+                    <p>Drag unit to move</p>
+                    <p>Drag battlefield to measure</p>
+                    <p>Mouse wheel/arrows to rotate unit or terrain</p>
+                    <p>+/- over a unit to change strain</p>
                     <p>+/- over terrain to change size</p>
                     <p>Z / Ctrl+Z: Undo</p>
                 </div>
@@ -613,9 +611,10 @@
                 }
 
                 if (stats) {
-                    const rulesHtml = activeRules.length > 0
+                    const filteredRules = activeRules.filter(r => r && r.trim() !== "");
+                    const rulesHtml = filteredRules.length > 0
                         ? `<div style="margin-top:8px; padding-top:8px; border-top:1px solid #444;">
-                             ${activeRules.map(r => `<div style="margin-bottom:4px; font-size:0.9em; color:#ddd;">• ${r}</div>`).join('')}
+                             ${filteredRules.map(r => `<div style="margin-bottom:4px; font-size:0.9em; color:#ddd;">• ${r}</div>`).join('')}
                            </div>`
                         : "";
 
@@ -931,7 +930,7 @@
             }
 
             function createDefaultUnits() {
-                const races = ["Elf", "Human", "Orc", "Dwarf", "Undead"];
+                const races = ["Elf", "Human", "Orc", "Dwarf"];
                 const types = ["Archers", "Swords", "Spears", "Cavalry", "Skirmishers", "Mounted Bowmen"];
 
                 // 1. Generate all possible unique combinations
