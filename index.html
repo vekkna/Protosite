@@ -403,7 +403,9 @@
                     font-size: 13px;
                     text-align: left;">
                     <button class="btn-grey" onclick="openRulebook()" style="margin-bottom: 5px;">📖 Rulebook</button>
-                    <span style="color: #666; text-align: center;">Hover unit for stats</span>
+                    <div id="stats-content" style="display: flex; flex-direction: column; gap: 8px;">
+                        <span style="color: #666; text-align: center;">Hover unit for stats</span>
+                    </div>
                 </div>
                 <div id="controls-hint">
                     <p><strong>Controls:</strong></p>
@@ -585,7 +587,7 @@
             }
 
             function updateStatsPanel(unitName) {
-                const panel = document.getElementById('stats-panel');
+                const panel = document.getElementById('stats-content');
                 if (!unitName) {
                     panel.innerHTML = '<span style="color: #666; text-align: center;">Hover unit for stats</span>';
                     return;
@@ -848,8 +850,6 @@
 
                 appendMarker();
                 attachListeners(div);
-                div.addEventListener('mouseenter', () => hoveredUnit = div);
-                div.addEventListener('mouseleave', () => { hoveredUnit = null; removeRangeRing(); });
 
                 div.addEventListener('dblclick', (e) => {
                     e.stopPropagation();
