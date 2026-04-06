@@ -323,34 +323,6 @@
             text-align: left;
         }
 
-        /* --- MOBILE UI --- */
-        .rotation-ring {
-            position: absolute;
-            width: 160px;
-            height: 160px;
-            border: 4px dashed rgba(255, 255, 0, 0.6);
-            border-radius: 50%;
-            transform: translate(-50%, -50%);
-            pointer-events: auto;
-            z-index: 8;
-            /* Below unit (10) */
-            cursor: grab;
-            display: none;
-            /* Hidden by default */
-        }
-
-        .rotation-handle {
-            position: absolute;
-            bottom: -10px;
-            left: 50%;
-            transform: translateX(-50%);
-            width: 20px;
-            height: 20px;
-            background: yellow;
-            border-radius: 50%;
-            box-shadow: 0 0 5px black;
-        }
-
         .wound-controls {
             position: absolute;
             top: 0;
@@ -545,14 +517,13 @@
 
         // --- MOBILE STATE ---
         let selectedUnit = null;
-        let rotationRing = null;
         let woundControls = null;
-        let isRotating = false;
         let tapStartTime = 0;
         let tapStartX = 0;
         let tapStartY = 0;
         let initialPinchDist = null;
         let initialScale = 1.0;
+        let boardScale = 1.0;
         let panX = 0;
         let panY = 0;
         let isPanning = false;
@@ -666,6 +637,13 @@
 
             const cleanName = unitName.trim();
             const stats = unitStatsDB[cleanName];
+            const normalizeRules = (value) => {
+                if (value == null) return [];
+                return String(value)
+                    .split(/\r?\n|,/)
+                    .map(rule => rule.trim())
+                    .filter(rule => rule && rule.toLowerCase() !== 'null' && rule.toLowerCase() !== 'undefined');
+            };
 
             let activeRules = [];
 
@@ -680,8 +658,12 @@
 
             // Include "Special" column from main stats
             if (stats && stats.Special) {
-                activeRules.push(stats.Special);
+                activeRules.push(...normalizeRules(stats.Special));
             }
+
+            activeRules = activeRules
+                .map(rule => rule && rule.trim())
+                .filter(rule => rule && rule.toLowerCase() !== 'null' && rule.toLowerCase() !== 'undefined');
 
             if (stats) {
                 const rulesHtml = activeRules.length > 0
@@ -696,7 +678,6 @@
                         </div>
                         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 5px;">
                             <span>Mv: <b style="color:#fff">${stats.Move}</b></span>
-                            <span>Ra: <b style="color:#fff">${stats.Range}</b></span>
                             <span>Sh: <b style="color:#fff">${stats.Shoot}</b></span>
                             <span>St: <b style="color:#fff">${stats.Strike}</b></span>
                             <span>D: <b style="color:#fff">${stats.Defence}</b></span>
@@ -1051,6 +1032,15 @@
             element.addEventListener('mousedown', onPieceDragStart);
             element.addEventListener('touchstart', onPieceTouchStart, { passive: false });
             element.addEventListener('wheel', onWheel);
+            element.addEventListener('click', onPieceClick);
+        }
+
+        function onPieceClick(e) {
+            e.stopPropagation();
+            const piece = e.currentTarget;
+            if (piece.classList.contains('unit') || piece.classList.contains('terrain')) {
+                selectPiece(piece);
+            }
         }
 
         // --- TOUCH / MOBILE LOGIC ---
@@ -1101,7 +1091,7 @@
 
             initialPinchDist = null; // Reset if fingers change
 
-            if (activePiece || isRotating || isMeasuring || isPanning) {
+            if (activePiece || isMeasuring || isPanning) {
                 // e.preventDefault(); // Prevent scroll
                 // Only prevent default if we are specifically handling it
                 // Allow sidebar scroll if not doing anything (handled by target check usually?)
@@ -1148,7 +1138,7 @@
 
         table.addEventListener('touchstart', (e) => {
             if (e.touches.length > 1) return;
-            if (activePiece || isRotating) return;
+            if (activePiece) return;
             if (e.target !== table && e.target !== document.getElementById('ui-layer')) return;
 
             // Start Pan
@@ -1168,13 +1158,6 @@
             // We need the last known position? Or just assume if activePiece didn't move much
             // But touchEnd doesn't have coordinates.
             // "onMouseUp" clears activePiece.
-
-            // If we are rotating, stop
-            if (isRotating) {
-                isRotating = false;
-                saveGame();
-                return;
-            }
 
             // Normal Drag End
             if (activePiece) {
@@ -1201,38 +1184,9 @@
             onMouseUp();
         });
 
-
-        // --- SELECTION UI ---
         function selectPiece(piece) {
             deselectPiece();
             selectedUnit = piece;
-
-            // Create Ring
-            if (!rotationRing) {
-                rotationRing = document.createElement('div');
-                rotationRing.classList.add('rotation-ring');
-                rotationRing.innerHTML = '<div class="rotation-handle"></div>';
-
-                // Ring Logic
-                rotationRing.addEventListener('touchstart', (e) => {
-                    e.preventDefault(); e.stopPropagation();
-                    isRotating = true;
-                }, { passive: false });
-
-                rotationRing.addEventListener('mousedown', (e) => {
-                    e.preventDefault(); e.stopPropagation();
-                    isRotating = true;
-                });
-
-                table.appendChild(rotationRing);
-            }
-
-            // Position Ring
-            const x = parseFloat(piece.style.left) + (piece.offsetWidth / 2);
-            const y = parseFloat(piece.style.top) + (piece.offsetHeight / 2);
-            rotationRing.style.left = `${x}px`;
-            rotationRing.style.top = `${y}px`;
-            rotationRing.style.display = 'block';
 
             // Create Buttons (Only for Units)
             if (piece.classList.contains('unit')) {
@@ -1269,7 +1223,6 @@
         }
 
         function deselectPiece() {
-            if (rotationRing) rotationRing.style.display = 'none';
             if (woundControls) woundControls.style.display = 'none';
             selectedUnit = null;
         }
@@ -1290,11 +1243,6 @@
             }
             saveGame();
         }
-
-        // Hook into Main Move Loop for Rotation and UI Following
-        const originalOnMouseMove = window.onMouseMove; // Ref to existing function if needed? No, we redefined it inside.
-        // We will modify the existing onMouseMove instead of wrapping it, to be cleaner.
-
 
         // --- INPUT HANDLING ---
         window.addEventListener('keydown', (e) => {
@@ -1428,25 +1376,6 @@
             // let mouseX = clientX - tableRect.left;
             // let mouseY = clientY - tableRect.top;
 
-            // --- ROTATION LOGIC ---
-            if (isRotating && selectedUnit) {
-                const rect = selectedUnit.getBoundingClientRect();
-                const centerX = rect.left + rect.width / 2;
-                const centerY = rect.top + rect.height / 2;
-                const rad = Math.atan2(clientY - centerY, clientX - centerX);
-                const deg = rad * (180 / Math.PI) + 90;
-
-                selectedUnit.dataset.angle = deg;
-                selectedUnit.style.transform = `rotate(${deg}deg)`;
-
-                // Sync Ring Rotation so "Behind" stays behind
-                if (rotationRing) {
-                    rotationRing.style.transform = `translate(-50%, -50%) rotate(${deg}deg)`;
-                }
-
-                return;
-            }
-
             // Calculate Mouse Pos in internal pixels relative to table top-left (excluding pan/scale)
             const mouseX = (e.clientX - tableRect.left) / boardScale;
             const mouseY = (e.clientY - tableRect.top) / boardScale;
@@ -1480,15 +1409,6 @@
                 activePiece.style.top = `${clampedTop}px`;
                 targetX = clampedLeft + (activePiece.offsetWidth / 2);
                 targetY = clampedTop + (activePiece.offsetHeight / 2);
-
-                // If dragging Selected Unit, move the UI with it
-                if (activePiece === selectedUnit) {
-                    if (rotationRing) {
-                        rotationRing.style.left = `${targetX}px`;
-                        rotationRing.style.top = `${targetY}px`;
-                    }
-                    // woundControls moves with unit
-                }
             }
 
             if (anchorX > -1) {
