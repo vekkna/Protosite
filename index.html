@@ -4,7 +4,7 @@
     <head>
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1">
-        <title>Wargame Prototype v6 (Synced)</title>
+        <title>Seize the Day Wargame</title>
         <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
         <script src="https://unpkg.com/papaparse@5.4.1/papaparse.min.js"></script>
         <style>
@@ -648,6 +648,10 @@
                 --unit-accent: rgba(187, 96, 76, 0.72);
             }
 
+            .unit.faction-undead {
+                --unit-accent: rgba(144, 168, 132, 0.7);
+            }
+
             .wound-marker {
                 position: absolute;
                 top: -10px;
@@ -1147,7 +1151,8 @@
                 </div>
             </div>
             <button id="right-sidebar-toggle" type="button" class="btn-grey" onclick="toggleRightSidebar()"
-                aria-controls="right-sidebar" aria-expanded="true" aria-label="Hide right sidebar" title="Hide right sidebar">
+                aria-controls="right-sidebar" aria-expanded="true" aria-label="Hide right sidebar"
+                title="Hide right sidebar">
                 <span>&gt;</span>
             </button>
         </div>
@@ -1311,51 +1316,178 @@
             loadRules();
 
             // --- STATS INTEGRATION ---
-            const SHEET_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vQXT5eF4DzRhJokOVdTb5g1Lnt6_gFkeh7oEdg2DLYAtY98FxybE-ijwA8uoWDiYtiBb0a3BM-ukWx9/pub?output=csv';
+            const SHEET_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vQXT5eF4DzRhJokOVdTb5g1Lnt6_gFkeh7oEdg2DLYAtY98FxybE-ijwA8uoWDiYtiBb0a3BM-ukWx9/pub?gid=1329580381&single=true&output=csv';
+            const STATS_CACHE_KEY = 'seize-the-day-unit-stats-cache-v1';
+            const STATS_CACHE_MAX_AGE_MS = 1000 * 60 * 30;
+            const DEFAULT_DRAFT_POOL_SIZE = 12;
 
             let unitStatsDB = {};
+            let availableUnitRows = [];
+            let statsLoadPromise = null;
 
-            function loadStats() {
-                Papa.parse(SHEET_URL, {
-                    download: true,
-                    header: true,
-                    skipEmptyLines: true,
-                    transformHeader: function (header) {
-                        return header.trim();
-                    },
-                    complete: function (results) {
-                        if (results.data.length > 0) {
-                            console.log("CSV Headers Detected:", Object.keys(results.data[0]));
-                        }
-                        results.data.forEach(row => {
-                            if (row.Unit) {
-                                unitStatsDB[row.Unit.trim()] = row;
-                            } else {
-                                console.warn("Skipped row (Missing 'Unit' column):", row);
-                            }
-                        });
-                        console.log("Stats loaded:", Object.keys(unitStatsDB).length, "units found.");
-                    },
-                    error: function (err) {
-                        console.error("Error loading stats:", err);
-                    }
+            function normalizeStatsRow(row) {
+                const normalized = {};
+                Object.entries(row || {}).forEach(([key, value]) => {
+                    const cleanKey = typeof key === 'string' ? key.trim() : key;
+                    normalized[cleanKey] = typeof value === 'string' ? value.trim() : value;
                 });
+                return normalized;
             }
 
-            function buildStatsMarkup(unitName) {
-                if (!unitName) {
+            function setStatsData(rows, persistCache = false) {
+                const nextStatsDB = {};
+                const nextAvailableUnitRows = [];
+
+                rows.forEach(rawRow => {
+                    const row = normalizeStatsRow(rawRow);
+                    const unitName = row.Unit ? row.Unit.trim() : "";
+                    if (!unitName) {
+                        console.warn("Skipped row (Missing 'Unit' column):", rawRow);
+                        return;
+                    }
+
+                    row.Unit = unitName;
+                    nextStatsDB[unitName] = row;
+                    nextAvailableUnitRows.push(row);
+                });
+
+                unitStatsDB = nextStatsDB;
+                availableUnitRows = nextAvailableUnitRows;
+
+                if (persistCache) {
+                    try {
+                        localStorage.setItem(STATS_CACHE_KEY, JSON.stringify({
+                            source: SHEET_URL,
+                            timestamp: Date.now(),
+                            rows: availableUnitRows
+                        }));
+                    } catch (err) {
+                        console.warn("Unable to cache stats locally:", err);
+                    }
+                }
+
+                console.log("Stats loaded:", availableUnitRows.length, "units found.");
+            }
+
+            function readStatsCache(allowStale = false) {
+                try {
+                    const cached = JSON.parse(localStorage.getItem(STATS_CACHE_KEY) || "null");
+                    if (!cached || cached.source !== SHEET_URL || !Array.isArray(cached.rows)) {
+                        return null;
+                    }
+
+                    const age = Date.now() - (cached.timestamp || 0);
+                    if (!allowStale && age > STATS_CACHE_MAX_AGE_MS) {
+                        return null;
+                    }
+
+                    return cached.rows.map(normalizeStatsRow);
+                } catch (err) {
+                    console.warn("Unable to read cached stats:", err);
+                    return null;
+                }
+            }
+
+            function loadStats(forceRefresh = false) {
+                if (!forceRefresh && availableUnitRows.length > 0) {
+                    return Promise.resolve(availableUnitRows);
+                }
+
+                if (!forceRefresh && statsLoadPromise) {
+                    return statsLoadPromise;
+                }
+
+                if (!forceRefresh) {
+                    const cachedRows = readStatsCache();
+                    if (cachedRows) {
+                        setStatsData(cachedRows, false);
+                        statsLoadPromise = Promise.resolve(availableUnitRows);
+                        return statsLoadPromise;
+                    }
+                }
+
+                statsLoadPromise = new Promise((resolve, reject) => {
+                    Papa.parse(SHEET_URL, {
+                        download: true,
+                        header: true,
+                        skipEmptyLines: true,
+                        transformHeader: function (header) {
+                            return header.trim();
+                        },
+                        complete: function (results) {
+                            if (results.data.length > 0) {
+                                console.log("CSV Headers Detected:", Object.keys(results.data[0]));
+                            }
+                            setStatsData(results.data, true);
+                            resolve(availableUnitRows);
+                        },
+                        error: function (err) {
+                            const staleCache = readStatsCache(true);
+                            if (staleCache) {
+                                console.warn("Using stale cached stats after load error:", err);
+                                setStatsData(staleCache, false);
+                                resolve(availableUnitRows);
+                                return;
+                            }
+
+                            console.error("Error loading stats:", err);
+                            reject(err);
+                        }
+                    });
+                });
+
+                return statsLoadPromise;
+            }
+
+            function getUnitStats(unitSource) {
+                if (!unitSource) {
+                    return { unitName: "", stats: null };
+                }
+
+                const unitName = typeof unitSource === 'string'
+                    ? unitSource.trim()
+                    : ((unitSource.dataset && unitSource.dataset.name) || unitSource.name || unitSource.Unit || "").trim();
+
+                const storedStats = (typeof unitSource === 'object' && unitSource !== null)
+                    ? (unitSource._unitStats || unitSource.stats || (unitSource.Unit ? unitSource : null))
+                    : null;
+
+                return {
+                    unitName,
+                    stats: storedStats ? normalizeStatsRow(storedStats) : (unitStatsDB[unitName] || null)
+                };
+            }
+
+            function getStatValue(stats, ...keys) {
+                for (const key of keys) {
+                    const value = stats ? stats[key] : undefined;
+                    if (value !== undefined && value !== null && `${value}`.trim() !== "") {
+                        return value;
+                    }
+                }
+                return '-';
+            }
+
+            function buildStatsMarkup(unitSource) {
+                if (!unitSource) {
                     return '<span class="stats-empty">Hover a unit to inspect its profile.</span>';
                 }
 
-                const cleanName = unitName.trim();
-                const stats = unitStatsDB[cleanName];
+                const { unitName, stats } = getUnitStats(unitSource);
+                const cleanName = ((stats && stats.Unit) || unitName || "").trim();
+
+                if (!cleanName) {
+                    return '<span class="stats-empty">Hover a unit to inspect its profile.</span>';
+                }
 
                 let activeRules = [];
 
                 // Check Global Rules DB (Safety check added so it doesn't crash if empty)
                 if (globalRulesDB.length > 0) {
+                    const cleanNameLower = cleanName.toLowerCase();
                     globalRulesDB.forEach(rule => {
-                        if (cleanName.includes(rule.keyword)) {
+                        const keyword = rule.keyword ? rule.keyword.toLowerCase() : "";
+                        if (keyword && cleanNameLower.includes(keyword)) {
                             activeRules.push(rule.effect);
                         }
                     });
@@ -1367,7 +1499,7 @@
                 }
 
                 if (stats) {
-                    const filteredRules = activeRules.filter(r => r && r.trim() !== "");
+                    const filteredRules = [...new Set(activeRules.filter(r => r && r.trim() !== ""))];
                     const rulesHtml = filteredRules.length > 0
                         ? `<div class="rules-block">
                              <div class="rules-title">Special Rules</div>
@@ -1377,23 +1509,23 @@
 
                     return `
                         <div class="stats-card">
-                            <div class="stats-unit-name">${stats.Unit}</div>
+                            <div class="stats-unit-name">${stats.Unit || unitName}</div>
                             <div class="stats-grid">
                                 <div class="stat-chip">
                                     <img class="stat-icon" src="icons/move.svg" alt="Move">
-                                    <span class="stat-value">${stats.Move}</span>
+                                    <span class="stat-value">${getStatValue(stats, 'Move')}/${getStatValue(stats, 'Drill')}</span>
                                 </div>
                                 <div class="stat-chip">
                                     <img class="stat-icon" src="icons/shoot.svg" alt="Shoot">
-                                    <span class="stat-value">${stats.Shoot}</span>
+                                    <span class="stat-value">${getStatValue(stats, 'Shoot')}</span>
                                 </div>
                                 <div class="stat-chip">
-                                    <img class="stat-icon" src="icons/strike.svg" alt="Strike">
-                                    <span class="stat-value">${stats.Strike}</span>
+                                    <img class="stat-icon" src="icons/strike.svg" alt="Melee">
+                                    <span class="stat-value">${getStatValue(stats, 'Melee', 'Strike')}</span>
                                 </div>
                                 <div class="stat-chip">
                                     <img class="stat-icon" src="icons/defence.svg" alt="Defence">
-                                    <span class="stat-value">${stats.Defence}</span>
+                                    <span class="stat-value">${getStatValue(stats, 'Def', 'Defence')}</span>
                                 </div>
                             </div>
                             ${rulesHtml}
@@ -1404,9 +1536,9 @@
                 return '<span class="stats-missing">Stats not found for this unit.</span>';
             }
 
-            function updateStatsPanel(unitName) {
+            function updateStatsPanel(unitSource) {
                 const panel = document.getElementById('stats-content');
-                panel.innerHTML = buildStatsMarkup(unitName);
+                panel.innerHTML = buildStatsMarkup(unitSource);
             }
 
             function hideUnitTooltip() {
@@ -1448,7 +1580,7 @@
                 if (!unitEl) return;
 
                 const tooltip = document.getElementById('unit-tooltip');
-                tooltip.innerHTML = buildStatsMarkup(unitEl.dataset.name);
+                tooltip.innerHTML = buildStatsMarkup(unitEl);
                 tooltip.setAttribute('aria-hidden', 'false');
                 positionUnitTooltip(unitEl);
                 tooltip.classList.add('visible');
@@ -1588,7 +1720,8 @@
                         y: parseFloat(el.style.top),
                         angle: el.dataset.angle,
                         wounds: el.dataset.wounds,
-                        color: el.style.backgroundColor
+                        color: el.style.backgroundColor,
+                        stats: el._unitStats || null
                     });
                 });
                 document.querySelectorAll('.terrain').forEach(el => {
@@ -1624,7 +1757,7 @@
 
                 data.forEach(obj => {
                     if (obj.type === 'unit') {
-                        createUnitDOM(obj.name, obj.color, obj.x, obj.y, obj.angle, obj.wounds);
+                        createUnitDOM(obj.name, obj.color, obj.x, obj.y, obj.angle, obj.wounds, obj.stats);
                     } else if (obj.type === 'terrain') {
                         createTerrainDOM(obj.subType, obj.x, obj.y, obj.w, obj.h, obj.angle);
                     }
@@ -1642,16 +1775,17 @@
 
             // --- DOM FACTORIES ---
             function applyUnitTheme(unitEl, name) {
-                unitEl.classList.remove('faction-elf', 'faction-human', 'faction-orc', 'faction-dwarf');
+                unitEl.classList.remove('faction-elf', 'faction-human', 'faction-orc', 'faction-dwarf', 'faction-undead');
                 const unitName = (name || "").toLowerCase();
 
-                if (unitName.includes('elf')) unitEl.classList.add('faction-elf');
+                if (unitName.includes('elf') || unitName.includes('elven')) unitEl.classList.add('faction-elf');
                 else if (unitName.includes('human')) unitEl.classList.add('faction-human');
                 else if (unitName.includes('orc')) unitEl.classList.add('faction-orc');
                 else if (unitName.includes('dwarf')) unitEl.classList.add('faction-dwarf');
+                else if (unitName.includes('undead')) unitEl.classList.add('faction-undead');
             }
 
-            function createUnitDOM(name, color, x, y, angle, wounds) {
+            function createUnitDOM(name, color, x, y, angle, wounds, stats = null) {
                 const div = document.createElement('div');
                 div.classList.add('piece', 'unit');
                 div.style.backgroundColor = color;
@@ -1664,6 +1798,7 @@
                 div.dataset.angle = angle || 0;
                 div.style.transform = `rotate(${angle}deg)`;
                 div.dataset.wounds = wounds || 0;
+                div._unitStats = stats ? normalizeStatsRow(stats) : (unitStatsDB[name] ? { ...unitStatsDB[name] } : null);
                 applyUnitTheme(div, name);
 
                 const appendMarker = () => {
@@ -1680,7 +1815,7 @@
 
                 div.addEventListener('mouseenter', () => {
                     hoveredUnit = div;
-                    updateStatsPanel(div.dataset.name);
+                    updateStatsPanel(div);
                     queueUnitTooltip(div);
                 });
 
@@ -1704,6 +1839,7 @@
                         div.dataset.name = newName;
                         applyUnitTheme(div, newName);
                         appendMarker();
+                        updateStatsPanel(div);
                         saveGame();
                     }
                 });
@@ -1814,11 +1950,25 @@
                 sendData({ type: 'ROLL_DICE', rolls: rolls, count: count });
             }
 
-            function initGame() {
+            function shuffleArray(array) {
+                for (let i = array.length - 1; i > 0; i--) {
+                    const j = Math.floor(Math.random() * (i + 1));
+                    [array[i], array[j]] = [array[j], array[i]];
+                }
+                return array;
+            }
+
+            async function initGame() {
                 const saved = localStorage.getItem(SAVE_KEY);
                 if (saved) {
                     restoreBoardState(saved, true);
                 } else {
+                    try {
+                        await loadStats();
+                    } catch (err) {
+                        console.error("Unable to load unit stats before creating the draft pool:", err);
+                    }
+
                     createDefaultUnits();
                     createDefaultTerrain();
                     saveGame(true);
@@ -1826,25 +1976,11 @@
             }
 
             function createDefaultUnits() {
-                const races = ["Elf", "Human", "Orc", "Dwarf"];
-                const types = ["Archers", "Swords", "Spears", "Cavalry", "Skirmishers", "Mounted Bowmen"];
-
-                // 1. Generate all possible unique combinations
-                let deck = [];
-                races.forEach(race => {
-                    types.forEach(type => {
-                        deck.push(`${race} ${type}`);
-                    });
-                });
-
-                // 2. Shuffle deck (Fisher-Yates)
-                for (let i = deck.length - 1; i > 0; i--) {
-                    const j = Math.floor(Math.random() * (i + 1));
-                    [deck[i], deck[j]] = [deck[j], deck[i]];
+                const draftPool = shuffleArray([...availableUnitRows]).slice(0, Math.min(DEFAULT_DRAFT_POOL_SIZE, availableUnitRows.length));
+                if (draftPool.length === 0) {
+                    console.warn("No units were available in the spreadsheet, so no draft pool was created.");
+                    return;
                 }
-
-                // 3. Select 12 unique units for the draft pool
-                const draftPool = deck.slice(0, 12);
 
                 // 4. Grid Configuration (3 rows, 4 columns)
                 const cols = 4;
@@ -1859,7 +1995,8 @@
                 const startY = (tableHeightPx - gridHeight) / 2;
 
                 // 5. Spawn units in the grid
-                draftPool.forEach((name, i) => {
+                draftPool.forEach((unitStats, i) => {
+                    const name = unitStats.Unit;
                     const col = i % cols;
                     const row = Math.floor(i / cols);
 
@@ -1867,7 +2004,7 @@
                     const y = startY + (row * (unitHeightPx + padding));
 
                     // Spawn as neutral (grey) for drafting
-                    createUnitDOM(name, "#666", x, y, 0, 0);
+                    createUnitDOM(name, "#666", x, y, 0, 0, unitStats);
                 });
             }
 
@@ -2103,8 +2240,8 @@
             updateRightSidebarUI();
 
             const originalInitGame = initGame;
-            initGame = function () {
-                originalInitGame();
+            initGame = async function () {
+                await originalInitGame();
                 fitTableToScreen();
                 // Second call to ensure layout is settled
                 setTimeout(fitTableToScreen, 100);
