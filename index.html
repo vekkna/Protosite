@@ -223,6 +223,50 @@
                 background: linear-gradient(90deg, transparent, rgba(216, 179, 109, 0.45), transparent);
             }
 
+            .section-header {
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                gap: 10px;
+            }
+
+            .section-header h3 {
+                flex: 1;
+            }
+
+            .section-toggle {
+                width: 40px !important;
+                min-width: 40px;
+                height: 40px;
+                padding: 0;
+                display: inline-flex;
+                align-items: center;
+                justify-content: center;
+                font-size: 1rem;
+                line-height: 1;
+            }
+
+            .section-toggle span {
+                display: block;
+                transition: transform 0.18s ease;
+            }
+
+            .section-toggle[aria-expanded="false"] span {
+                transform: rotate(-90deg);
+            }
+
+            .collapsible-section {
+                display: flex;
+                flex-direction: column;
+                gap: 10px;
+                overflow: hidden;
+                flex-shrink: 0;
+            }
+
+            .collapsible-section.is-collapsed {
+                display: none;
+            }
+
             .palette-item {
                 padding: 12px 14px;
                 font-weight: bold;
@@ -1068,17 +1112,26 @@
         <div id="container">
             <div class="sidebar">
                 <span class="sidebar-kicker">War Council</span>
-                <h3 style="margin-top:0">Multiplayer</h3>
-                <p class="sidebar-description">Host or join a battle.</p>
-                <div id="status-indicator">OFFLINE</div>
-                <button id="host-btn" class="btn-blue" onclick="hostGame()">Host Game</button>
-                <input type="text" id="my-id-display" placeholder="Your ID will appear here" readonly
-                    style="display:none;">
-                <button id="copy-btn" class="btn-grey" onclick="copyId()" style="display:none; margin-bottom:10px;">Copy
-                    ID</button>
-                <div class="panel-divider"></div>
-                <input type="text" id="join-input" placeholder="Enter Host ID">
-                <button id="join-btn" class="btn-blue" onclick="joinGame()">Join Game</button>
+                <div class="section-header">
+                    <h3 style="margin-top:0">Multiplayer</h3>
+                    <button id="multiplayer-toggle" type="button" class="btn-grey section-toggle"
+                        onclick="toggleMultiplayerPanel()" aria-controls="multiplayer-panel" aria-expanded="true"
+                        aria-label="Hide multiplayer section" title="Hide multiplayer section">
+                        <span>▾</span>
+                    </button>
+                </div>
+                <div id="multiplayer-panel" class="collapsible-section">
+                    <p class="sidebar-description">Host or join a battle.</p>
+                    <div id="status-indicator">OFFLINE</div>
+                    <button id="host-btn" class="btn-blue" onclick="hostGame()">Host Game</button>
+                    <input type="text" id="my-id-display" placeholder="Your ID will appear here" readonly
+                        style="display:none;">
+                    <button id="copy-btn" class="btn-grey" onclick="copyId()" style="display:none; margin-bottom:10px;">Copy
+                        ID</button>
+                    <div class="panel-divider"></div>
+                    <input type="text" id="join-input" placeholder="Enter Host ID">
+                    <button id="join-btn" class="btn-blue" onclick="joinGame()">Join Game</button>
+                </div>
                 <span class="sidebar-kicker">Battle Tools</span>
                 <h3 style="margin-top:20px">Tools</h3>
                 <span class="sidebar-kicker">Bid for Initiative</span>
@@ -1182,6 +1235,7 @@
             const TERRAIN_DEFAULT_H = 4;
             const THREAT_RANGE_INCHES = 12;
             const SAVE_KEY = 'wargameSave_v6';
+            const UI_STATE_KEY = 'wargameUiState_v1';
             const TOOLTIP_HOVER_DELAY_MS = 350;
 
             // --- CONVERSIONS ---
@@ -1192,6 +1246,27 @@
             let bidsHidden = false; // Default to false (visible)
             let statsTooltipTimer = null;
             let isRightSidebarHidden = false;
+            let isMultiplayerPanelCollapsed = false;
+
+            function loadUIState() {
+                try {
+                    const savedState = JSON.parse(localStorage.getItem(UI_STATE_KEY) || '{}');
+                    isMultiplayerPanelCollapsed = Boolean(savedState.isMultiplayerPanelCollapsed);
+                } catch (err) {
+                    console.warn("Unable to load UI state:", err);
+                }
+            }
+
+            function saveUIState() {
+                try {
+                    localStorage.setItem(UI_STATE_KEY, JSON.stringify({
+                        isMultiplayerPanelCollapsed
+                    }));
+                } catch (err) {
+                    console.warn("Unable to save UI state:", err);
+                }
+            }
+
             function toggleBidVisibility() {
                 bidsHidden = !bidsHidden;
                 updateBidUI();
@@ -1240,6 +1315,39 @@
             function toggleRightSidebar() {
                 isRightSidebarHidden = !isRightSidebarHidden;
                 updateRightSidebarUI();
+            }
+
+            function updateMultiplayerPanelUI() {
+                const panel = document.getElementById('multiplayer-panel');
+                const toggleBtn = document.getElementById('multiplayer-toggle');
+                if (!panel || !toggleBtn) return;
+
+                panel.classList.toggle('is-collapsed', isMultiplayerPanelCollapsed);
+                toggleBtn.setAttribute('aria-expanded', String(!isMultiplayerPanelCollapsed));
+                toggleBtn.setAttribute('aria-label', isMultiplayerPanelCollapsed ? 'Show multiplayer section' : 'Hide multiplayer section');
+                toggleBtn.title = isMultiplayerPanelCollapsed ? 'Show multiplayer section' : 'Hide multiplayer section';
+            }
+
+            function toggleMultiplayerPanel() {
+                isMultiplayerPanelCollapsed = !isMultiplayerPanelCollapsed;
+                saveUIState();
+                updateMultiplayerPanelUI();
+            }
+
+            function updateMultiplayerControlsUI() {
+                const hostBtn = document.getElementById('host-btn');
+                const myIdDisplay = document.getElementById('my-id-display');
+                const copyBtn = document.getElementById('copy-btn');
+                const joinInput = document.getElementById('join-input');
+                const joinBtn = document.getElementById('join-btn');
+                if (!hostBtn || !myIdDisplay || !copyBtn || !joinInput || !joinBtn) return;
+
+                const isHosting = Boolean(isHost);
+                hostBtn.style.display = isHosting ? 'none' : 'block';
+                myIdDisplay.style.display = isHosting ? 'block' : 'none';
+                copyBtn.style.display = isHosting ? 'block' : 'none';
+                joinInput.style.display = isHosting ? 'none' : 'block';
+                joinBtn.style.display = isHosting ? 'none' : 'block';
             }
 
             const tableWidthPx = inchesToPx(TABLE_WIDTH_FT * 12);
@@ -1617,13 +1725,9 @@
 
                 peer.on('open', (id) => {
                     updateStatus("Hosting");
-                    document.getElementById('my-id-display').style.display = 'block';
                     document.getElementById('my-id-display').value = id;
-                    document.getElementById('copy-btn').style.display = 'block';
-                    document.getElementById('host-btn').style.display = 'none';
-                    document.getElementById('join-input').style.display = 'none';
-                    document.getElementById('join-btn').style.display = 'none';
                     isHost = true;
+                    updateMultiplayerControlsUI();
                 });
 
                 peer.on('connection', (c) => {
@@ -1668,6 +1772,8 @@
                     updateStatus("Disconnected");
                     document.getElementById('status-indicator').classList.remove('status-connected');
                     conn = null;
+                    isHost = false;
+                    updateMultiplayerControlsUI();
                 });
             }
 
@@ -2237,6 +2343,9 @@
                 fitTableToScreen();
             };
 
+            loadUIState();
+            updateMultiplayerPanelUI();
+            updateMultiplayerControlsUI();
             updateRightSidebarUI();
 
             const originalInitGame = initGame;
