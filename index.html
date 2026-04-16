@@ -1262,6 +1262,7 @@
         const SAVE_KEY = 'wargameSave_v6';
         const UI_STATE_KEY = 'wargameUiState_v1';
         const TOOLTIP_HOVER_DELAY_MS = 350;
+        const TOOLTIP_SUPPRESS_AFTER_MANIPULATION_MS = 300;
 
         // --- CONVERSIONS ---
         const mmToInches = (mm) => mm / 25.4;
@@ -1399,6 +1400,7 @@
         let hoveredUnit = null;
         let hoveredTerrain = null;
         let angleIndicatorTimer = null;
+        let suppressTooltipUntil = 0;
         let undoStack = [];
         const MAX_UNDO = 20;
 
@@ -1686,6 +1688,11 @@
             tooltip.setAttribute('aria-hidden', 'true');
         }
 
+        function suppressUnitTooltip(durationMs = TOOLTIP_SUPPRESS_AFTER_MANIPULATION_MS) {
+            suppressTooltipUntil = Date.now() + durationMs;
+            hideUnitTooltip();
+        }
+
         function positionUnitTooltip(unitEl) {
             const tooltip = document.getElementById('unit-tooltip');
             const unitRect = {
@@ -1711,7 +1718,7 @@
         }
 
         function showUnitTooltip(unitEl) {
-            if (!unitEl) return;
+            if (!unitEl || activePiece || Date.now() < suppressTooltipUntil) return;
 
             const tooltip = document.getElementById('unit-tooltip');
             tooltip.innerHTML = buildStatsMarkup(unitEl);
@@ -1721,10 +1728,11 @@
         }
 
         function queueUnitTooltip(unitEl) {
+            if (!unitEl || activePiece || Date.now() < suppressTooltipUntil) return;
             hideUnitTooltip();
             statsTooltipTimer = setTimeout(() => {
                 statsTooltipTimer = null;
-                if (hoveredUnit === unitEl) {
+                if (hoveredUnit === unitEl && !activePiece && Date.now() >= suppressTooltipUntil) {
                     showUnitTooltip(unitEl);
                 }
             }, TOOLTIP_HOVER_DELAY_MS);
@@ -2210,6 +2218,7 @@
                 const target = activePiece || hoveredUnit || hoveredTerrain;
                 if (target) {
                     e.preventDefault();
+                    suppressUnitTooltip();
                     pushUndo();
                     let currentAngle = parseFloat(target.dataset.angle) || 0;
                     const step = e.shiftKey ? 1 : 2;
@@ -2300,7 +2309,7 @@
         function onPieceDragStart(e) {
             if (e.button !== 0) return;
             e.stopPropagation();
-            hideUnitTooltip();
+            suppressUnitTooltip(Number.MAX_SAFE_INTEGER);
             pushUndo();
             activePiece = e.currentTarget;
             ghostPiece = activePiece.cloneNode(true);
@@ -2377,6 +2386,7 @@
         function onMouseUp(e) {
             if (activePiece) saveGame();
             activePiece = null;
+            suppressUnitTooltip();
             isMeasuring = false;
             if (ghostPiece) { ghostPiece.remove(); ghostPiece = null; }
             lineElement.style.opacity = 0;
@@ -2385,6 +2395,7 @@
 
         function onWheel(e) {
             e.preventDefault(); e.stopPropagation();
+            suppressUnitTooltip();
             pushUndo();
             const piece = e.currentTarget;
             let currentAngle = parseFloat(piece.dataset.angle) || 0;
