@@ -2429,16 +2429,17 @@
             const table = document.getElementById('game-table');
             if (!container || !table) return;
 
-            const availableWidth = container.clientWidth - 20;
-            const availableHeight = container.clientHeight - 20;
+            const availableWidth = Math.max(container.clientWidth - 20, 1);
+            const availableHeight = Math.max(container.clientHeight - 20, 1);
             const tableWidth = tableWidthPx;
             const tableHeight = tableHeightPx;
 
             const scaleX = availableWidth / tableWidth;
             const scaleY = availableHeight / tableHeight;
 
-            // Use unified scale to prevent skewing
-            currentScale = Math.min(scaleX, scaleY, 1);
+            // Use a unified scale so the battlefield fills the available space
+            // without distorting unit or terrain proportions.
+            currentScale = Math.max(Math.min(scaleX, scaleY), 0.01);
 
             table.style.transform = `scale(${currentScale})`;
         }
