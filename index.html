@@ -455,7 +455,21 @@
             gap: 6px;
         }
 
+        .pool-controls {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            margin-top: 2px;
+        }
+
+        .pool-actions {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
         .dice-count-field label,
+        .pool-count-field label,
         .dice-roll-heading {
             font-size: 0.75rem;
             letter-spacing: 0.14em;
@@ -463,7 +477,8 @@
             color: var(--ink-muted);
         }
 
-        #dice-count {
+        #dice-count,
+        #starting-pool-count {
             width: 100%;
             padding: 10px 12px;
             border-radius: 12px;
@@ -1197,7 +1212,18 @@
                     <span class="die-face empty">-</span>
                 </div>
             </div>
-            <button onclick="resetGame()" class="btn-grey" style="margin-top: 15px;">Reset Board</button>
+            <span class="sidebar-kicker">Starting Pool</span>
+            <div class="pool-controls">
+                <div class="dice-count-field pool-count-field">
+                    <label for="starting-pool-count">Units</label>
+                    <input type="number" id="starting-pool-count" value="12" min="2" max="24" step="2"
+                        onchange="normalizeStartingPoolCount()">
+                </div>
+                <div class="pool-actions">
+                    <button onclick="resetGame()" class="btn-grey">Reset Board</button>
+                    <button onclick="resetLongSideDeployment()" class="btn-blue">Reset Long Sides</button>
+                </div>
+            </div>
         </div>
         <div id="table-container">
             <div id="game-table">
@@ -1862,6 +1888,7 @@
                 cp1: document.getElementById('cp1').value,
                 cp2: document.getElementById('cp2').value,
                 diceCount: document.getElementById('dice-count').value,
+                startingPoolCount: document.getElementById('starting-pool-count').value,
                 bidsHidden: bidsHidden
             };
             document.querySelectorAll('.unit').forEach(el => {
@@ -1903,6 +1930,8 @@
                 if (state.cp2 !== undefined) document.getElementById('cp2').value = state.cp2;
                 if (state.diceCount !== undefined) document.getElementById('dice-count').value = state.diceCount;
                 normalizeDiceCount(false);
+                if (state.startingPoolCount !== undefined) document.getElementById('starting-pool-count').value = state.startingPoolCount;
+                normalizeStartingPoolCount(false);
                 // Always show bids by default on load, ignoring saved hidden state
                 bidsHidden = false;
                 updateBidUI();
@@ -2037,7 +2066,7 @@
             restoreBoardState(previousState);
         };
 
-        window.resetGame = async function () {
+        async function resetBoard(createUnits) {
             localStorage.removeItem(SAVE_KEY);
 
             table.querySelectorAll('.unit, .terrain, .ghost, .range-ring').forEach(p => p.remove());
@@ -2063,9 +2092,17 @@
                 console.error("Unable to refresh unit stats during board reset:", err);
             }
 
-            createDefaultUnits();
+            createUnits();
             createDefaultTerrain();
             saveGame();
+        }
+
+        window.resetGame = async function () {
+            await resetBoard(createDefaultUnits);
+        };
+
+        window.resetLongSideDeployment = async function () {
+            await resetBoard(createLongSideDeploymentUnits);
         };
 
         let diceAnimationTimer = null;
@@ -2074,6 +2111,16 @@
             const input = document.getElementById('dice-count');
             const parsed = parseInt(input.value, 10);
             const safeValue = Number.isFinite(parsed) ? Math.min(20, Math.max(1, parsed)) : 2;
+            input.value = safeValue;
+            if (shouldSave) saveGame();
+            return safeValue;
+        }
+
+        function normalizeStartingPoolCount(shouldSave = true) {
+            const input = document.getElementById('starting-pool-count');
+            const parsed = parseInt(input.value, 10);
+            let safeValue = Number.isFinite(parsed) ? Math.min(24, Math.max(2, parsed)) : DEFAULT_DRAFT_POOL_SIZE;
+            if (safeValue % 2 !== 0) safeValue += safeValue >= 24 ? -1 : 1;
             input.value = safeValue;
             if (shouldSave) saveGame();
             return safeValue;
@@ -2154,16 +2201,19 @@
             }
         }
 
+        function createRandomUnitPool(count) {
+            return shuffleArray([...availableUnitRows]).slice(0, Math.min(count, availableUnitRows.length));
+        }
+
         function createDefaultUnits() {
-            const draftPool = shuffleArray([...availableUnitRows]).slice(0, Math.min(DEFAULT_DRAFT_POOL_SIZE, availableUnitRows.length));
+            const draftPool = createRandomUnitPool(normalizeStartingPoolCount(false));
             if (draftPool.length === 0) {
                 console.warn("No units were available in the spreadsheet, so no draft pool was created.");
                 return;
             }
 
-            // 4. Grid Configuration (3 rows, 4 columns)
-            const cols = 4;
-            const rows = 3;
+            const cols = Math.min(4, Math.max(1, draftPool.length));
+            const rows = Math.ceil(draftPool.length / cols);
             const padding = 20; // Space between units
 
             // Calculate total grid dimensions to center it
@@ -2185,6 +2235,37 @@
                 // Spawn as neutral (grey) for drafting
                 createUnitDOM(name, "#666", x, y, 0, 0, unitStats);
             });
+        }
+
+        function createLongSideDeploymentUnits() {
+            const deploymentPool = createRandomUnitPool(normalizeStartingPoolCount(false));
+            if (deploymentPool.length === 0) {
+                console.warn("No units were available in the spreadsheet, so no long-side deployment was created.");
+                return;
+            }
+
+            const perSide = Math.floor(deploymentPool.length / 2);
+            const topSide = deploymentPool.slice(0, perSide);
+            const bottomSide = deploymentPool.slice(perSide, perSide * 2);
+            const sidePadding = Math.max(inchesToPx(1), unitWidthPx / 2);
+            const topY = inchesToPx(1);
+            const bottomY = tableHeightPx - unitHeightPx - inchesToPx(1);
+
+            const placeSide = (units, y, angle) => {
+                const availableWidth = tableWidthPx - (sidePadding * 2) - unitWidthPx;
+                const gap = units.length > 1 ? availableWidth / (units.length - 1) : 0;
+                const startX = units.length > 1
+                    ? sidePadding
+                    : (tableWidthPx - unitWidthPx) / 2;
+
+                units.forEach((unitStats, i) => {
+                    const x = startX + (gap * i);
+                    createUnitDOM(unitStats.Unit, "#666", x, y, angle, 0, unitStats);
+                });
+            };
+
+            placeSide(topSide, topY, 0);
+            placeSide(bottomSide, bottomY, 180);
         }
 
         function createDefaultTerrain() {
