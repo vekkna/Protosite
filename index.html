@@ -711,6 +711,41 @@
             --unit-accent: rgba(144, 168, 132, 0.7);
         }
 
+        .activation-checkbox {
+            position: absolute;
+            top: 0;
+            right: 0;
+            z-index: 16;
+            width: 14px;
+            height: 14px;
+            margin: 0;
+            appearance: none;
+            -webkit-appearance: none;
+            border: 1px solid rgba(245, 233, 205, 0.86);
+            border-radius: 0 6px 0 3px;
+            background: rgba(8, 7, 6, 0.22);
+            box-shadow: 0 1px 2px rgba(0, 0, 0, 0.18), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+            cursor: pointer;
+            pointer-events: auto;
+        }
+
+        .activation-checkbox:checked {
+            background: linear-gradient(135deg, rgba(235, 194, 103, 0.98), rgba(163, 105, 38, 0.95));
+            border-color: rgba(255, 242, 196, 0.96);
+        }
+
+        .activation-checkbox:checked::after {
+            content: "";
+            position: absolute;
+            left: 4px;
+            top: 1px;
+            width: 4px;
+            height: 8px;
+            border: solid rgba(22, 15, 10, 0.95);
+            border-width: 0 2px 2px 0;
+            transform: rotate(45deg);
+        }
+
         .wound-marker {
             position: absolute;
             top: -10px;
@@ -1439,6 +1474,8 @@
         let hoveredUnit = null;
         let hoveredTerrain = null;
         let angleIndicatorTimer = null;
+        let rotationPivotTarget = null;
+        let rotationPivotStartAngle = 0;
         let suppressTooltipUntil = 0;
         let undoStack = [];
         const MAX_UNDO = 20;
@@ -1900,6 +1937,7 @@
                     y: parseFloat(el.style.top),
                     angle: el.dataset.angle,
                     wounds: el.dataset.wounds,
+                    activated: el.dataset.activated === 'true',
                     color: el.style.backgroundColor,
                     stats: el._unitStats || null
                 });
@@ -1939,7 +1977,7 @@
 
             data.forEach(obj => {
                 if (obj.type === 'unit') {
-                    createUnitDOM(obj.name, obj.color, obj.x, obj.y, obj.angle, obj.wounds, obj.stats);
+                    createUnitDOM(obj.name, obj.color, obj.x, obj.y, obj.angle, obj.wounds, obj.stats, obj.activated);
                 } else if (obj.type === 'terrain') {
                     createTerrainDOM(obj.subType, obj.x, obj.y, obj.w, obj.h, obj.angle);
                 }
@@ -1967,7 +2005,7 @@
             else if (unitName.includes('undead')) unitEl.classList.add('faction-undead');
         }
 
-        function createUnitDOM(name, color, x, y, angle, wounds, stats = null) {
+        function createUnitDOM(name, color, x, y, angle, wounds, stats = null, activated = false) {
             const div = document.createElement('div');
             div.classList.add('piece', 'unit');
             div.style.backgroundColor = color;
@@ -1980,8 +2018,35 @@
             div.dataset.angle = angle || 0;
             div.style.transform = `rotate(${angle}deg)`;
             div.dataset.wounds = wounds || 0;
+            div.dataset.activated = activated ? 'true' : 'false';
             div._unitStats = stats ? normalizeStatsRow(stats) : (unitStatsDB[name] ? { ...unitStatsDB[name] } : null);
             applyUnitTheme(div, name);
+
+            const appendActivationCheckbox = () => {
+                let checkbox = div.querySelector('.activation-checkbox');
+                if (!checkbox) {
+                    checkbox = document.createElement('input');
+                    checkbox.type = 'checkbox';
+                    checkbox.classList.add('activation-checkbox');
+                    checkbox.setAttribute('aria-label', 'Activated this round');
+                    checkbox.title = 'Activated this round';
+                    checkbox.addEventListener('mousedown', e => e.stopPropagation());
+                    checkbox.addEventListener('click', e => e.stopPropagation());
+                    checkbox.addEventListener('dblclick', e => e.stopPropagation());
+                    checkbox.addEventListener('change', () => {
+                        const nextActivated = checkbox.checked;
+                        checkbox.checked = !nextActivated;
+                        div.dataset.activated = checkbox.checked ? 'true' : 'false';
+                        pushUndo();
+                        checkbox.checked = nextActivated;
+                        div.dataset.activated = nextActivated ? 'true' : 'false';
+                        saveGame();
+                    });
+                    div.appendChild(checkbox);
+                }
+
+                checkbox.checked = div.dataset.activated === 'true';
+            };
 
             const appendMarker = () => {
                 let marker = div.querySelector('.wound-marker');
@@ -2008,6 +2073,7 @@
                 hideUnitTooltip();
             });
 
+            appendActivationCheckbox();
             appendMarker();
             attachListeners(div);
 
@@ -2020,6 +2086,7 @@
                     div.innerText = newName;
                     div.dataset.name = newName;
                     applyUnitTheme(div, newName);
+                    appendActivationCheckbox();
                     appendMarker();
                     updateStatsPanel(div);
                     saveGame();
@@ -2314,13 +2381,14 @@
                     e.preventDefault();
                     suppressUnitTooltip();
                     pushUndo();
-                    let currentAngle = parseFloat(target.dataset.angle) || 0;
+                    const previousAngle = parseFloat(target.dataset.angle) || 0;
+                    let currentAngle = previousAngle;
                     const step = e.shiftKey ? 1 : 2;
                     if (e.key === 'ArrowRight') currentAngle += step;
                     else currentAngle -= step;
                     target.dataset.angle = currentAngle;
                     target.style.transform = `rotate(${currentAngle}deg)`;
-                    showAngleIndicator(target, currentAngle);
+                    showAngleIndicator(target, getRotationDelta(target, previousAngle, currentAngle));
                     saveGame();
                     return;
                 }
@@ -2351,6 +2419,7 @@
 
         window.addEventListener('keyup', (e) => {
             if (e.key.toLowerCase() === 'r') removeRangeRing();
+            if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') resetRotationPivot();
         });
 
         function showRangeRing(unit) {
@@ -2375,11 +2444,25 @@
             return normalized;
         }
 
-        function showAngleIndicator(piece, angle) {
+        function getRotationDelta(piece, previousAngle, nextAngle) {
+            if (rotationPivotTarget !== piece) {
+                rotationPivotTarget = piece;
+                rotationPivotStartAngle = previousAngle;
+            }
+
+            return nextAngle - rotationPivotStartAngle;
+        }
+
+        function resetRotationPivot() {
+            rotationPivotTarget = null;
+            rotationPivotStartAngle = 0;
+        }
+
+        function showAngleIndicator(piece, angleDelta) {
             const indicator = document.getElementById('angle-indicator');
             if (!indicator || !piece) return;
 
-            const normalizedAngle = normalizeAngle(angle);
+            const normalizedAngle = normalizeAngle(angleDelta);
             const left = (parseFloat(piece.style.left) || 0) + (piece.offsetWidth / 2);
             const top = (parseFloat(piece.style.top) || 0) - 18;
 
@@ -2396,6 +2479,7 @@
             angleIndicatorTimer = setTimeout(() => {
                 indicator.classList.remove('visible');
                 indicator.setAttribute('aria-hidden', 'true');
+                resetRotationPivot();
             }, 700);
         }
 
@@ -2492,12 +2576,13 @@
             suppressUnitTooltip();
             pushUndo();
             const piece = e.currentTarget;
-            let currentAngle = parseFloat(piece.dataset.angle) || 0;
+            const previousAngle = parseFloat(piece.dataset.angle) || 0;
+            let currentAngle = previousAngle;
             if (e.deltaY > 0) currentAngle += 2;
             else currentAngle -= 2;
             piece.dataset.angle = currentAngle;
             piece.style.transform = `rotate(${currentAngle}deg)`;
-            showAngleIndicator(piece, currentAngle);
+            showAngleIndicator(piece, getRotationDelta(piece, previousAngle, currentAngle));
             saveGame();
         }
 
