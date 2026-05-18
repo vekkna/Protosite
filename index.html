@@ -1327,8 +1327,14 @@
         const SCALE = 20;
         const TABLE_WIDTH_FT = 4;
         const TABLE_DEPTH_FT = 3;
-        const UNIT_WIDTH_MM = 88;
-        const UNIT_DEPTH_MM = 63;
+        const DEFAULT_UNIT_FOOTPRINT = 'SW';
+        const UNIT_FOOTPRINTS_MM = {
+            SN: { width: 63, depth: 88 },
+            SW: { width: 88, depth: 63 },
+            L: { width: 126, depth: 88 },
+            LW: { width: 177, depth: 63 },
+            LN: { width: 88, depth: 126 }
+        };
         const DEPLOY_INCHES = 6;
         const TERRAIN_DEFAULT_W = 6;
         const TERRAIN_DEFAULT_H = 4;
@@ -1452,8 +1458,22 @@
 
         const tableWidthPx = inchesToPx(TABLE_WIDTH_FT * 12);
         const tableHeightPx = inchesToPx(TABLE_DEPTH_FT * 12);
-        const unitWidthPx = inchesToPx(mmToInches(UNIT_WIDTH_MM));
-        const unitHeightPx = inchesToPx(mmToInches(UNIT_DEPTH_MM));
+        const defaultUnitSizePx = getUnitSizePx({ Footprint: DEFAULT_UNIT_FOOTPRINT });
+
+        function getUnitFootprint(stats) {
+            const footprint = ((stats && stats.Footprint) || DEFAULT_UNIT_FOOTPRINT).trim().toUpperCase();
+            return UNIT_FOOTPRINTS_MM[footprint] ? footprint : DEFAULT_UNIT_FOOTPRINT;
+        }
+
+        function getUnitSizePx(stats) {
+            const footprint = getUnitFootprint(stats);
+            const sizeMm = UNIT_FOOTPRINTS_MM[footprint];
+            return {
+                footprint,
+                width: inchesToPx(mmToInches(sizeMm.width)),
+                height: inchesToPx(mmToInches(sizeMm.depth))
+            };
+        }
 
         // --- SETUP TABLE ---
         const table = document.getElementById('game-table');
@@ -1529,7 +1549,7 @@
 
         // --- STATS INTEGRATION ---
         const SHEET_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vQXT5eF4DzRhJokOVdTb5g1Lnt6_gFkeh7oEdg2DLYAtY98FxybE-ijwA8uoWDiYtiBb0a3BM-ukWx9/pub?gid=1562649455&single=true&output=csv';
-        const STATS_CACHE_KEY = 'seize-the-day-unit-stats-cache-v1';
+        const STATS_CACHE_KEY = 'seize-the-day-unit-stats-cache-v2';
         const STATS_CACHE_MAX_AGE_MS = 1000 * 60 * 30;
         const DEFAULT_DRAFT_POOL_SIZE = 12;
 
@@ -2007,19 +2027,24 @@
 
         function createUnitDOM(name, color, x, y, angle, wounds, stats = null, activated = false) {
             const div = document.createElement('div');
+            const unitStats = stats
+                ? { ...(unitStatsDB[name] || {}), ...normalizeStatsRow(stats) }
+                : (unitStatsDB[name] ? { ...unitStatsDB[name] } : null);
+            const unitSize = getUnitSizePx(unitStats);
             div.classList.add('piece', 'unit');
             div.style.backgroundColor = color;
-            div.style.width = `${unitWidthPx}px`;
-            div.style.height = `${unitHeightPx}px`;
+            div.style.width = `${unitSize.width}px`;
+            div.style.height = `${unitSize.height}px`;
             div.style.left = `${x}px`;
             div.style.top = `${y}px`;
             div.innerText = name;
             div.dataset.name = name;
             div.dataset.angle = angle || 0;
+            div.dataset.footprint = unitSize.footprint;
             div.style.transform = `rotate(${angle}deg)`;
             div.dataset.wounds = wounds || 0;
             div.dataset.activated = activated ? 'true' : 'false';
-            div._unitStats = stats ? normalizeStatsRow(stats) : (unitStatsDB[name] ? { ...unitStatsDB[name] } : null);
+            div._unitStats = unitStats;
             applyUnitTheme(div, name);
 
             const appendActivationCheckbox = () => {
@@ -2252,16 +2277,16 @@
         }
 
         async function initGame() {
+            try {
+                await loadStats();
+            } catch (err) {
+                console.error("Unable to load unit stats:", err);
+            }
+
             const saved = localStorage.getItem(SAVE_KEY);
             if (saved) {
                 restoreBoardState(saved, true);
             } else {
-                try {
-                    await loadStats();
-                } catch (err) {
-                    console.error("Unable to load unit stats before creating the draft pool:", err);
-                }
-
                 createDefaultUnits();
                 createDefaultTerrain();
                 saveGame(true);
@@ -2283,21 +2308,36 @@
             const rows = Math.ceil(draftPool.length / cols);
             const padding = 20; // Space between units
 
-            // Calculate total grid dimensions to center it
-            const gridWidth = (cols * unitWidthPx) + ((cols - 1) * padding);
-            const gridHeight = (rows * unitHeightPx) + ((rows - 1) * padding);
+            const unitSizes = draftPool.map(getUnitSizePx);
+            const colWidths = Array.from({ length: cols }, (_, col) =>
+                Math.max(...unitSizes.filter((_, i) => i % cols === col).map(size => size.width), 0)
+            );
+            const rowHeights = Array.from({ length: rows }, (_, row) =>
+                Math.max(...unitSizes.filter((_, i) => Math.floor(i / cols) === row).map(size => size.height), 0)
+            );
+
+            // Calculate total grid dimensions to center mixed footprint units.
+            const gridWidth = colWidths.reduce((total, width) => total + width, 0) + ((cols - 1) * padding);
+            const gridHeight = rowHeights.reduce((total, height) => total + height, 0) + ((rows - 1) * padding);
 
             const startX = (tableWidthPx - gridWidth) / 2;
             const startY = (tableHeightPx - gridHeight) / 2;
+            const colOffsets = colWidths.map((_, col) =>
+                colWidths.slice(0, col).reduce((total, width) => total + width + padding, 0)
+            );
+            const rowOffsets = rowHeights.map((_, row) =>
+                rowHeights.slice(0, row).reduce((total, height) => total + height + padding, 0)
+            );
 
             // 5. Spawn units in the grid
             draftPool.forEach((unitStats, i) => {
                 const name = unitStats.Unit;
                 const col = i % cols;
                 const row = Math.floor(i / cols);
+                const unitSize = unitSizes[i];
 
-                const x = startX + (col * (unitWidthPx + padding));
-                const y = startY + (row * (unitHeightPx + padding));
+                const x = startX + colOffsets[col] + ((colWidths[col] - unitSize.width) / 2);
+                const y = startY + rowOffsets[row] + ((rowHeights[row] - unitSize.height) / 2);
 
                 // Spawn as neutral (grey) for drafting
                 createUnitDOM(name, "#666", x, y, 0, 0, unitStats);
@@ -2314,25 +2354,32 @@
             const perSide = Math.floor(deploymentPool.length / 2);
             const topSide = deploymentPool.slice(0, perSide);
             const bottomSide = deploymentPool.slice(perSide, perSide * 2);
-            const sidePadding = Math.max(inchesToPx(1), unitWidthPx / 2);
-            const topY = inchesToPx(1);
-            const bottomY = tableHeightPx - unitHeightPx - inchesToPx(1);
+            const sidePadding = Math.max(inchesToPx(1), defaultUnitSizePx.width / 2);
+            const topDeploymentLineY = inchesToPx(DEPLOY_INCHES);
+            const bottomDeploymentLineY = tableHeightPx - inchesToPx(DEPLOY_INCHES);
 
-            const placeSide = (units, y, angle) => {
-                const availableWidth = tableWidthPx - (sidePadding * 2) - unitWidthPx;
-                const gap = units.length > 1 ? availableWidth / (units.length - 1) : 0;
+            const placeSide = (units, angle) => {
+                const unitSizes = units.map(getUnitSizePx);
+                const totalUnitWidth = unitSizes.reduce((total, size) => total + size.width, 0);
+                const availableWidth = tableWidthPx - (sidePadding * 2);
+                const gap = units.length > 1 ? Math.max(0, (availableWidth - totalUnitWidth) / (units.length - 1)) : 0;
                 const startX = units.length > 1
                     ? sidePadding
-                    : (tableWidthPx - unitWidthPx) / 2;
+                    : (tableWidthPx - unitSizes[0].width) / 2;
+                let nextX = startX;
 
                 units.forEach((unitStats, i) => {
-                    const x = startX + (gap * i);
-                    createUnitDOM(unitStats.Unit, "#666", x, y, angle, 0, unitStats);
+                    const unitSize = unitSizes[i];
+                    const unitY = angle === 180
+                        ? topDeploymentLineY - unitSize.height
+                        : bottomDeploymentLineY;
+                    createUnitDOM(unitStats.Unit, "#666", nextX, unitY, angle, 0, unitStats);
+                    nextX += unitSize.width + gap;
                 });
             };
 
-            placeSide(topSide, topY, 180);
-            placeSide(bottomSide, bottomY, 0);
+            placeSide(topSide, 180);
+            placeSide(bottomSide, 0);
         }
 
         function createDefaultTerrain() {
