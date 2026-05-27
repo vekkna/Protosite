@@ -3,7 +3,7 @@
 
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
     <title>Seize the Day Wargame</title>
     <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
     <script src="https://unpkg.com/papaparse@5.4.1/papaparse.min.js"></script>
@@ -287,6 +287,7 @@
             box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08), 0 10px 16px rgba(0, 0, 0, 0.18);
             transition: transform 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease, filter 0.15s ease;
             text-align: center;
+            touch-action: none;
         }
 
         .palette-item::before {
@@ -593,6 +594,7 @@
             cursor: crosshair;
             border-radius: 18px;
             isolation: isolate;
+            touch-action: none;
         }
 
         #table-container {
@@ -651,10 +653,16 @@
             text-align: center;
             cursor: grab;
             transition: transform 0.1s ease-out, box-shadow 0.18s ease, filter 0.18s ease;
+            touch-action: none;
         }
 
         .piece:active {
             cursor: grabbing;
+        }
+
+        .piece.is-selected {
+            outline: 3px solid rgba(255, 220, 142, 0.92);
+            outline-offset: 4px;
         }
 
         .unit {
@@ -876,6 +884,61 @@
 
         #angle-indicator.visible {
             opacity: 1;
+        }
+
+        #piece-controls {
+            position: absolute;
+            display: none;
+            flex-direction: column;
+            align-items: stretch;
+            gap: 6px;
+            padding: 6px;
+            border-radius: 14px;
+            background: rgba(17, 12, 9, 0.94);
+            border: 1px solid rgba(216, 179, 109, 0.48);
+            box-shadow: 0 14px 26px rgba(0, 0, 0, 0.34);
+            transform: translateX(-50%);
+            z-index: 45;
+            touch-action: manipulation;
+        }
+
+        #piece-controls.visible {
+            display: flex;
+        }
+
+        .piece-control-row {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        #wound-controls[hidden] {
+            display: none;
+        }
+
+        #piece-controls button {
+            width: 54px;
+            min-height: 46px;
+            padding: 8px 4px;
+            font-size: 0.78rem;
+        }
+
+        #wound-controls button {
+            width: 78px;
+        }
+
+        #piece-angle,
+        #piece-wounds {
+            min-width: 54px;
+            color: var(--ink-main);
+            text-align: center;
+            font-family: var(--font-display);
+            font-size: 0.82rem;
+            letter-spacing: 0.06em;
+        }
+
+        #piece-wounds {
+            min-width: 76px;
         }
 
         #stats-panel {
@@ -1128,6 +1191,14 @@
             color: var(--gold);
         }
 
+        .touch-only {
+            display: none;
+        }
+
+        #landscape-notice {
+            display: none;
+        }
+
         @media (max-width: 1200px) {
             body {
                 height: auto;
@@ -1190,6 +1261,124 @@
                 width: 34px;
                 height: 34px;
                 font-size: 1rem;
+            }
+        }
+
+        @media (any-pointer: coarse) {
+            .mouse-only {
+                display: none;
+            }
+
+            .touch-only {
+                display: block;
+            }
+
+            .activation-checkbox {
+                top: -30px;
+                right: 50%;
+                width: 26px;
+                height: 26px;
+                border-radius: 50%;
+                transform: translateX(50%);
+            }
+
+            .activation-checkbox:checked::after {
+                left: 9px;
+                top: 4px;
+                width: 6px;
+                height: 12px;
+            }
+        }
+
+        @media (orientation: landscape) and (min-width: 740px) and (max-width: 1366px) {
+            body {
+                height: 100svh;
+                min-height: 100svh;
+                padding: max(8px, env(safe-area-inset-top)) max(8px, env(safe-area-inset-right)) max(8px, env(safe-area-inset-bottom)) max(8px, env(safe-area-inset-left));
+                overflow: hidden;
+            }
+
+            #container {
+                height: 100%;
+                min-height: 0;
+                flex-direction: row;
+                gap: 8px;
+            }
+
+            .sidebar {
+                width: 176px;
+                height: 100%;
+                padding: 12px 10px;
+                gap: 9px;
+                border-radius: 18px;
+            }
+
+            #right-sidebar {
+                width: 190px;
+            }
+
+            #table-container {
+                min-height: 0;
+                border-radius: 20px;
+            }
+
+            #game-table {
+                border-radius: 14px;
+            }
+
+            #controls-hint {
+                padding: 10px;
+                gap: 6px;
+                font-size: 0.86rem;
+            }
+
+            #stats-panel {
+                padding: 10px;
+                gap: 8px;
+            }
+
+            .palette-item {
+                min-height: 42px;
+                padding: 9px 8px;
+            }
+
+            button {
+                min-height: 42px;
+                padding: 8px;
+                font-size: 0.72rem;
+            }
+        }
+
+        @media (any-pointer: coarse) and (orientation: portrait) and (min-width: 600px) and (max-width: 1100px) {
+            body {
+                align-items: center;
+                padding: 20px;
+            }
+
+            #container {
+                display: none;
+            }
+
+            #landscape-notice {
+                position: relative;
+                z-index: 1;
+                display: flex;
+                max-width: 360px;
+                padding: 30px 26px;
+                flex-direction: column;
+                align-items: center;
+                gap: 14px;
+                text-align: center;
+                border: 1px solid var(--panel-border);
+                border-radius: 22px;
+                background: linear-gradient(180deg, var(--panel-top), var(--panel-bottom));
+                box-shadow: 0 22px 40px rgba(0, 0, 0, 0.34);
+            }
+
+            #landscape-notice p {
+                color: var(--ink-soft);
+                font-size: 1.15rem;
+                line-height: 1.3;
             }
         }
     </style>
@@ -1264,6 +1453,18 @@
             <div id="game-table">
                 <div id="unit-tooltip" aria-hidden="true"></div>
                 <div id="angle-indicator" aria-hidden="true"></div>
+                <div id="piece-controls" role="toolbar" aria-label="Selected piece controls" aria-hidden="true">
+                    <div class="piece-control-row">
+                        <button type="button" class="btn-grey" data-rotate-step="-5" aria-label="Rotate left 5 degrees">-5</button>
+                        <span id="piece-angle">0 deg</span>
+                        <button type="button" class="btn-grey" data-rotate-step="5" aria-label="Rotate right 5 degrees">+5</button>
+                    </div>
+                    <div id="wound-controls" class="piece-control-row" hidden>
+                        <button type="button" class="btn-red" data-wound-step="-1" aria-label="Remove one wound">- Wound</button>
+                        <span id="piece-wounds">0 Wounds</span>
+                        <button type="button" class="btn-red" data-wound-step="1" aria-label="Add one wound">+ Wound</button>
+                    </div>
+                </div>
                 <svg id="ui-layer">
                     <line id="measure-line" x1="0" y1="0" x2="0" y2="0" />
                     <text id="measure-text" x="0" y="0">0"</text>
@@ -1274,13 +1475,13 @@
             <span class="sidebar-kicker">Battlefield Dressing</span>
             <h3 style="margin-top:0">Terrain</h3>
             <p class="sidebar-description">Drag scenery onto the field.</p>
-            <div class="palette-item palette-forest" onmousedown="spawnTerrain('forest')">
+            <div class="palette-item palette-forest" onpointerdown="spawnTerrain('forest', event)">
                 <span class="palette-title">Forest</span>
             </div>
-            <div class="palette-item palette-hills" onmousedown="spawnTerrain('hills')">
+            <div class="palette-item palette-hills" onpointerdown="spawnTerrain('hills', event)">
                 <span class="palette-title">Hills</span>
             </div>
-            <div class="palette-item palette-rough" onmousedown="spawnTerrain('rough')">
+            <div class="palette-item palette-rough" onpointerdown="spawnTerrain('rough', event)">
                 <span class="palette-title">Rough</span>
             </div>
             <div id="stats-panel">
@@ -1289,17 +1490,21 @@
                     <button class="btn-grey" onclick="openRulebook()">Open Rulebook</button>
                 </div>
                 <div id="stats-content">
-                    <span class="stats-empty">Hover a unit to inspect its profile.</span>
+                    <span class="stats-empty">Select a unit to inspect its profile.</span>
                 </div>
             </div>
             <div id="controls-hint">
                 <p><strong>Field Controls</strong></p>
-                <p>Drag a unit to move</p>
-                <p>Drag the battlefield to measure</p>
-                <p>Mouse wheel or arrow keys rotate units and terrain</p>
-                <p>+/- over a unit changes strain</p>
-                <p>+/- over terrain changes size</p>
-                <p>Z / Ctrl+Z undoes the last change</p>
+                <p class="mouse-only">Drag a unit or terrain to move</p>
+                <p class="mouse-only">Drag the battlefield to measure</p>
+                <p class="mouse-only">Mouse wheel or arrow keys rotate pieces</p>
+                <p class="mouse-only">+/- over a unit changes wounds</p>
+                <p class="mouse-only">+/- over terrain changes size</p>
+                <p class="mouse-only">Z / Ctrl+Z undoes the last change</p>
+                <p class="touch-only">Drag units or terrain with one finger</p>
+                <p class="touch-only">Tap a piece to show controls</p>
+                <p class="touch-only">Use +/- Wound after selecting a unit</p>
+                <p class="touch-only">Drag empty battlefield to measure</p>
             </div>
         </div>
         <button id="right-sidebar-toggle" type="button" class="btn-grey" onclick="toggleRightSidebar()"
@@ -1307,6 +1512,10 @@
             title="Hide right sidebar">
             <span>&gt;</span>
         </button>
+    </div>
+    <div id="landscape-notice" role="status">
+        <h2>Landscape Mode</h2>
+        <p>Rotate your tablet to play on the battlefield.</p>
     </div>
     <div id="rulebook-modal" class="modal-overlay" onclick="closeRulebook()">
         <div class="modal-content" onclick="event.stopPropagation()">
@@ -1343,6 +1552,8 @@
         const UI_STATE_KEY = 'wargameUiState_v1';
         const TOOLTIP_HOVER_DELAY_MS = 350;
         const TOOLTIP_SUPPRESS_AFTER_MANIPULATION_MS = 300;
+        const DRAG_THRESHOLD_PX = 8;
+        const TOUCH_ROTATION_STEP_DEG = 5;
 
         // --- CONVERSIONS ---
         const mmToInches = (mm) => mm / 25.4;
@@ -1497,6 +1708,14 @@
         let rotationPivotTarget = null;
         let rotationPivotStartAngle = 0;
         let suppressTooltipUntil = 0;
+        let selectedPiece = null;
+        let activePointerId = null;
+        let pendingDragPiece = null;
+        let pointerStartX = 0;
+        let pointerStartY = 0;
+        let isDraggingPiece = false;
+        let measurementPointerId = null;
+        let suppressRenameUntil = 0;
         let undoStack = [];
         const MAX_UNDO = 20;
 
@@ -1702,14 +1921,14 @@
 
         function buildStatsMarkup(unitSource) {
             if (!unitSource) {
-                return '<span class="stats-empty">Hover a unit to inspect its profile.</span>';
+                return '<span class="stats-empty">Select a unit to inspect its profile.</span>';
             }
 
             const { unitName, stats } = getUnitStats(unitSource);
             const cleanName = ((stats && stats.Unit) || unitName || "").trim();
 
             if (!cleanName) {
-                return '<span class="stats-empty">Hover a unit to inspect its profile.</span>';
+                return '<span class="stats-empty">Select a unit to inspect its profile.</span>';
             }
 
             let activeRules = [];
@@ -1833,6 +2052,135 @@
                 }
             }, TOOLTIP_HOVER_DELAY_MS);
         }
+
+        function isTouchPointer(event) {
+            return event.pointerType === 'touch' || event.pointerType === 'pen';
+        }
+
+        function clearPieceSelection() {
+            if (selectedPiece) {
+                selectedPiece.classList.remove('is-selected');
+            }
+
+            selectedPiece = null;
+            const controls = document.getElementById('piece-controls');
+            controls.classList.remove('visible');
+            controls.setAttribute('aria-hidden', 'true');
+        }
+
+        function positionPieceControls() {
+            const controls = document.getElementById('piece-controls');
+            if (!selectedPiece || !selectedPiece.isConnected || isDraggingPiece) {
+                controls.classList.remove('visible');
+                controls.setAttribute('aria-hidden', 'true');
+                return;
+            }
+
+            controls.style.visibility = 'hidden';
+            const isUnitSelected = selectedPiece.classList.contains('unit');
+            const woundControls = document.getElementById('wound-controls');
+            woundControls.hidden = !isUnitSelected;
+            controls.classList.add('visible');
+            controls.setAttribute('aria-hidden', 'false');
+
+            const pieceLeft = parseFloat(selectedPiece.style.left) || 0;
+            const pieceTop = parseFloat(selectedPiece.style.top) || 0;
+            const centerX = pieceLeft + (selectedPiece.offsetWidth / 2);
+            const edgePadding = 10;
+            const halfControlsWidth = controls.offsetWidth / 2;
+            const clampedX = Math.min(
+                tableWidthPx - halfControlsWidth - edgePadding,
+                Math.max(halfControlsWidth + edgePadding, centerX)
+            );
+            let top = pieceTop + selectedPiece.offsetHeight + 16;
+            if (top + controls.offsetHeight > tableHeightPx - edgePadding) {
+                top = Math.max(edgePadding, pieceTop - controls.offsetHeight - 16);
+            }
+
+            document.getElementById('piece-angle').innerText = `${normalizeAngle(parseFloat(selectedPiece.dataset.angle) || 0).toFixed(0)} deg`;
+            if (isUnitSelected) {
+                const wounds = parseInt(selectedPiece.dataset.wounds, 10) || 0;
+                document.getElementById('piece-wounds').innerText = `${wounds} Wound${wounds === 1 ? '' : 's'}`;
+            }
+            controls.style.left = `${clampedX}px`;
+            controls.style.top = `${top}px`;
+            controls.style.visibility = 'visible';
+        }
+
+        function selectPiece(piece) {
+            if (!piece || !piece.classList.contains('piece')) {
+                clearPieceSelection();
+                return;
+            }
+
+            if (selectedPiece && selectedPiece !== piece) {
+                selectedPiece.classList.remove('is-selected');
+            }
+
+            selectedPiece = piece;
+            selectedPiece.classList.add('is-selected');
+            if (piece.classList.contains('unit')) {
+                updateStatsPanel(piece);
+            } else {
+                updateStatsPanel(null);
+            }
+            positionPieceControls();
+        }
+
+        function rotatePiece(piece, delta) {
+            if (!piece) return;
+            suppressUnitTooltip();
+            pushUndo();
+            const previousAngle = parseFloat(piece.dataset.angle) || 0;
+            const nextAngle = previousAngle + delta;
+            piece.dataset.angle = nextAngle;
+            piece.style.transform = `rotate(${nextAngle}deg)`;
+            showAngleIndicator(piece, getRotationDelta(piece, previousAngle, nextAngle));
+            positionPieceControls();
+            saveGame();
+        }
+
+        function adjustUnitWounds(unit, delta) {
+            if (!unit || !unit.classList.contains('unit')) return;
+            const wounds = parseInt(unit.dataset.wounds, 10) || 0;
+            const nextWounds = Math.max(0, wounds + delta);
+            if (nextWounds === wounds) return;
+
+            pushUndo();
+            unit.dataset.wounds = nextWounds;
+            const marker = unit.querySelector('.wound-marker');
+            marker.innerText = nextWounds;
+            marker.style.display = nextWounds > 0 ? 'flex' : 'none';
+            positionPieceControls();
+            saveGame();
+        }
+
+        function handlePieceTap(piece, event) {
+            selectPiece(piece);
+            if (isTouchPointer(event)) {
+                // Rename remains a desktop double-click interaction, not an accidental touch gesture.
+                suppressRenameUntil = Date.now() + 500;
+            }
+        }
+
+        const pieceControls = document.getElementById('piece-controls');
+        pieceControls.addEventListener('pointerdown', (event) => {
+            event.stopPropagation();
+        });
+        pieceControls.addEventListener('click', (event) => {
+            if (!selectedPiece) return;
+            const rotationButton = event.target.closest('[data-rotate-step]');
+            if (rotationButton) {
+                const step = parseFloat(rotationButton.dataset.rotateStep) || TOUCH_ROTATION_STEP_DEG;
+                rotatePiece(selectedPiece, step);
+                return;
+            }
+
+            const woundButton = event.target.closest('[data-wound-step]');
+            if (woundButton && selectedPiece.classList.contains('unit')) {
+                adjustUnitWounds(selectedPiece, parseInt(woundButton.dataset.woundStep, 10));
+            }
+        });
 
         loadStats();
 
@@ -1978,6 +2326,7 @@
 
         function restoreBoardState(jsonString, suppressBroadcast = false) {
             if (!jsonString) return;
+            clearPieceSelection();
             table.querySelectorAll('.unit, .terrain, .ghost, .range-ring').forEach(p => p.remove());
 
             const state = JSON.parse(jsonString);
@@ -2056,6 +2405,7 @@
                     checkbox.setAttribute('aria-label', 'Activated this round');
                     checkbox.title = 'Activated this round';
                     checkbox.addEventListener('mousedown', e => e.stopPropagation());
+                    checkbox.addEventListener('pointerdown', e => e.stopPropagation());
                     checkbox.addEventListener('click', e => e.stopPropagation());
                     checkbox.addEventListener('dblclick', e => e.stopPropagation());
                     checkbox.addEventListener('change', () => {
@@ -2094,7 +2444,9 @@
             div.addEventListener('mouseleave', () => {
                 hoveredUnit = null;
                 removeRangeRing();
-                updateStatsPanel(null);
+                if (selectedPiece !== div) {
+                    updateStatsPanel(null);
+                }
                 hideUnitTooltip();
             });
 
@@ -2103,6 +2455,11 @@
             attachListeners(div);
 
             div.addEventListener('dblclick', (e) => {
+                if (Date.now() < suppressRenameUntil) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    return;
+                }
                 e.stopPropagation();
                 const currentName = div.dataset.name;
                 const newName = prompt("Rename Unit:", currentName);
@@ -2167,6 +2524,11 @@
             hoveredTerrain = null;
             activePiece = null;
             ghostPiece = null;
+            activePointerId = null;
+            pendingDragPiece = null;
+            isDraggingPiece = false;
+            measurementPointerId = null;
+            clearPieceSelection();
 
             document.getElementById('cp1').value = 1;
             document.getElementById('cp2').value = 1;
@@ -2394,21 +2756,35 @@
             });
         }
 
-        window.spawnTerrain = function (type) {
+        window.spawnTerrain = function (type, event) {
+            if (event && event.button !== 0) return;
+            if (event) {
+                event.preventDefault();
+                event.stopPropagation();
+            }
+
+            clearPieceSelection();
             pushUndo();
             const w = inchesToPx(TERRAIN_DEFAULT_W);
             const h = inchesToPx(TERRAIN_DEFAULT_H);
-            const div = createTerrainDOM(type, -9999, -9999, w, h, 0);
+            const div = createTerrainDOM(type, (tableWidthPx - w) / 2, (tableHeightPx - h) / 2, w, h, 0);
             activePiece = div;
+            pendingDragPiece = null;
             ghostPiece = null;
             anchorX = -1;
             div.dataset.offsetX = w / 2;
             div.dataset.offsetY = h / 2;
+            isDraggingPiece = true;
+            activePointerId = event ? event.pointerId : null;
+            suppressUnitTooltip(Number.MAX_SAFE_INTEGER);
+            if (event && event.currentTarget.setPointerCapture) {
+                event.currentTarget.setPointerCapture(event.pointerId);
+            }
             saveGame();
         };
 
         function attachListeners(element) {
-            element.addEventListener('mousedown', onPieceDragStart);
+            element.addEventListener('pointerdown', onPiecePointerDown);
             element.addEventListener('wheel', onWheel);
         }
 
@@ -2426,42 +2802,26 @@
                 const target = activePiece || hoveredUnit || hoveredTerrain;
                 if (target) {
                     e.preventDefault();
-                    suppressUnitTooltip();
-                    pushUndo();
-                    const previousAngle = parseFloat(target.dataset.angle) || 0;
-                    let currentAngle = previousAngle;
                     const step = e.shiftKey ? 1 : 2;
-                    if (e.key === 'ArrowRight') currentAngle += step;
-                    else currentAngle -= step;
-                    target.dataset.angle = currentAngle;
-                    target.style.transform = `rotate(${currentAngle}deg)`;
-                    showAngleIndicator(target, getRotationDelta(target, previousAngle, currentAngle));
-                    saveGame();
+                    rotatePiece(target, e.key === 'ArrowRight' ? step : -step);
                     return;
                 }
             }
 
             if (!isPlus && !isMinus) return;
 
-            pushUndo();
-
             if (hoveredUnit) {
-                let wounds = parseInt(hoveredUnit.dataset.wounds);
-                const marker = hoveredUnit.querySelector('.wound-marker');
-                if (isPlus) wounds++;
-                if (isMinus && wounds > 0) wounds--;
-                hoveredUnit.dataset.wounds = wounds;
-                marker.innerText = wounds;
-                marker.style.display = (wounds > 0) ? 'flex' : 'none';
+                adjustUnitWounds(hoveredUnit, isPlus ? 1 : -1);
             }
             else if (hoveredTerrain) {
+                pushUndo();
                 let w = parseFloat(hoveredTerrain.style.width);
                 let h = parseFloat(hoveredTerrain.style.height);
                 const factor = isPlus ? 1.1 : 0.9;
                 hoveredTerrain.style.width = `${w * factor}px`;
                 hoveredTerrain.style.height = `${h * factor}px`;
+                saveGame();
             }
-            saveGame();
         });
 
         window.addEventListener('keyup', (e) => {
@@ -2531,34 +2891,67 @@
         }
 
         // --- DRAG LOGIC ---
-        function onPieceDragStart(e) {
-            if (e.button !== 0) return;
+        function onPiecePointerDown(e) {
+            if (!e.isPrimary || e.button !== 0 || activePointerId !== null) return;
+            e.preventDefault();
             e.stopPropagation();
+
+            activePointerId = e.pointerId;
+            pendingDragPiece = e.currentTarget;
+            pointerStartX = e.clientX;
+            pointerStartY = e.clientY;
+            isDraggingPiece = false;
+            const rect = pendingDragPiece.getBoundingClientRect();
+            pendingDragPiece.dataset.offsetX = (e.clientX - rect.left) / currentScale;
+            pendingDragPiece.dataset.offsetY = (e.clientY - rect.top) / currentScale;
+
+            if (pendingDragPiece.setPointerCapture) {
+                pendingDragPiece.setPointerCapture(e.pointerId);
+            }
+
+            if (isTouchPointer(e)) {
+                hideUnitTooltip();
+            }
+        }
+
+        function startPieceDrag() {
+            if (!pendingDragPiece) return;
+
             suppressUnitTooltip(Number.MAX_SAFE_INTEGER);
             pushUndo();
-            activePiece = e.currentTarget;
+            activePiece = pendingDragPiece;
+            pendingDragPiece = null;
+            isDraggingPiece = true;
             ghostPiece = activePiece.cloneNode(true);
             ghostPiece.classList.add('ghost');
+            ghostPiece.classList.remove('is-selected');
             ghostPiece.removeAttribute('id');
             ghostPiece.style.transform = activePiece.style.transform;
             table.insertBefore(ghostPiece, activePiece);
             const rect = activePiece.getBoundingClientRect();
             const tableRect = table.getBoundingClientRect();
-            activePiece.dataset.offsetX = (e.clientX - rect.left) / currentScale;
-            activePiece.dataset.offsetY = (e.clientY - rect.top) / currentScale;
             anchorX = ((rect.left - tableRect.left) + (rect.width / 2)) / currentScale;
             anchorY = ((rect.top - tableRect.top) + (rect.height / 2)) / currentScale;
             showLine(anchorX, anchorY, anchorX, anchorY);
+            positionPieceControls();
         }
 
-        table.addEventListener('mousedown', (e) => {
-            if (e.button !== 0) return;
+        table.addEventListener('pointerdown', (e) => {
+            if (!e.isPrimary || e.button !== 0 || activePointerId !== null) return;
             if (e.target !== table && e.target !== document.getElementById('ui-layer')) return;
+            e.preventDefault();
+            clearPieceSelection();
+            activePointerId = e.pointerId;
+            measurementPointerId = e.pointerId;
             isMeasuring = true;
             const tableRect = table.getBoundingClientRect();
             anchorX = (e.clientX - tableRect.left) / currentScale;
             anchorY = (e.clientY - tableRect.top) / currentScale;
             showLine(anchorX, anchorY, anchorX, anchorY);
+
+            if (table.setPointerCapture) {
+                table.setPointerCapture(e.pointerId);
+            }
         });
 
         function showLine(x1, y1, x2, y2) {
@@ -2572,7 +2965,15 @@
             textEl.innerHTML = '0"';
         }
 
-        function onMouseMove(e) {
+        function onPointerMove(e) {
+            if (e.pointerId !== activePointerId) return;
+
+            if (pendingDragPiece && !isDraggingPiece) {
+                const movement = Math.hypot(e.clientX - pointerStartX, e.clientY - pointerStartY);
+                if (movement < DRAG_THRESHOLD_PX) return;
+                startPieceDrag();
+            }
+
             if (!activePiece && !isMeasuring) return;
             const tableRect = table.getBoundingClientRect();
             let mouseX = (e.clientX - tableRect.left) / currentScale;
@@ -2601,40 +3002,42 @@
                 textEl.innerHTML = `${pxToInches(distancePx)}"`;
                 textEl.setAttribute('x', anchorX + (dx / 2) + 10);
                 textEl.setAttribute('y', anchorY + (dy / 2) - 10);
-            } else {
-                const rect = activePiece.getBoundingClientRect();
-                anchorX = (rect.left - tableRect.left) + (rect.width / 2);
-                anchorY = (rect.top - tableRect.top) + (rect.height / 2);
             }
         }
 
-        function onMouseUp(e) {
+        function onPointerUp(e) {
+            if (e.pointerId !== activePointerId) return;
+
+            if (pendingDragPiece && !isDraggingPiece && e.type !== 'pointercancel') {
+                handlePieceTap(pendingDragPiece, e);
+            }
+
             if (activePiece) saveGame();
             activePiece = null;
-            suppressUnitTooltip();
+            pendingDragPiece = null;
+            activePointerId = null;
+            measurementPointerId = null;
+            const completedManipulation = isDraggingPiece || isMeasuring;
+            isDraggingPiece = false;
             isMeasuring = false;
             if (ghostPiece) { ghostPiece.remove(); ghostPiece = null; }
             lineElement.style.opacity = 0;
             document.getElementById('measure-text').style.opacity = 0;
+            if (completedManipulation) {
+                suppressUnitTooltip();
+            }
+            positionPieceControls();
         }
 
         function onWheel(e) {
             e.preventDefault(); e.stopPropagation();
-            suppressUnitTooltip();
-            pushUndo();
             const piece = e.currentTarget;
-            const previousAngle = parseFloat(piece.dataset.angle) || 0;
-            let currentAngle = previousAngle;
-            if (e.deltaY > 0) currentAngle += 2;
-            else currentAngle -= 2;
-            piece.dataset.angle = currentAngle;
-            piece.style.transform = `rotate(${currentAngle}deg)`;
-            showAngleIndicator(piece, getRotationDelta(piece, previousAngle, currentAngle));
-            saveGame();
+            rotatePiece(piece, e.deltaY > 0 ? 2 : -2);
         }
 
-        window.addEventListener('mousemove', onMouseMove);
-        window.addEventListener('mouseup', onMouseUp);
+        window.addEventListener('pointermove', onPointerMove);
+        window.addEventListener('pointerup', onPointerUp);
+        window.addEventListener('pointercancel', onPointerUp);
 
         let currentScale = 1;
         function fitTableToScreen() {
