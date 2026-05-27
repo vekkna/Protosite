@@ -362,6 +362,13 @@
             box-shadow: inset 0 2px 8px rgba(0, 0, 0, 0.35);
         }
 
+        button:disabled {
+            cursor: not-allowed;
+            opacity: 0.5;
+            transform: none;
+            filter: none;
+        }
+
         .btn-red {
             background: linear-gradient(180deg, #a54031 0%, #6f251a 100%);
             border-color: rgba(255, 209, 182, 0.45);
@@ -443,17 +450,34 @@
         }
 
         .dice-controls {
-            display: grid;
-            grid-template-columns: 1fr auto;
+            display: flex;
+            flex-direction: column;
             gap: 10px;
             margin-bottom: 14px;
-            align-items: end;
+        }
+
+        #dice-btn {
+            width: 100%;
         }
 
         .dice-count-field {
             display: flex;
             flex-direction: column;
             gap: 6px;
+        }
+
+        .dice-count-adjuster {
+            display: grid;
+            grid-template-columns: 42px minmax(0, 1fr) 42px;
+            gap: 5px;
+            align-items: stretch;
+        }
+
+        .dice-step-button {
+            min-height: 44px;
+            padding: 0;
+            font-size: 0.9rem;
+            line-height: 1;
         }
 
         .pool-controls {
@@ -487,6 +511,19 @@
             background: rgba(13, 11, 9, 0.85);
             color: var(--ink-main);
             font: inherit;
+        }
+
+        #dice-count {
+            min-width: 0;
+            appearance: textfield;
+            -moz-appearance: textfield;
+        }
+
+        #dice-count::-webkit-outer-spin-button,
+        #dice-count::-webkit-inner-spin-button {
+            margin: 0;
+            appearance: none;
+            -webkit-appearance: none;
         }
 
         .dice-roll-card {
@@ -1410,6 +1447,7 @@
             </div>
             <span class="sidebar-kicker">Battle Tools</span>
             <h3 style="margin-top:20px">Tools</h3>
+            <button id="fullscreen-btn" type="button" class="btn-grey" onclick="toggleFullscreen()">Full Screen</button>
             <span class="sidebar-kicker">Bid for Initiative</span>
             <div class="cp-container">
                 <div class="cp-field">
@@ -1427,7 +1465,14 @@
             <div class="dice-controls">
                 <div class="dice-count-field">
                     <label for="dice-count">Number of d6</label>
-                    <input type="number" id="dice-count" value="2" min="1" max="20" onchange="normalizeDiceCount()">
+                    <div class="dice-count-adjuster">
+                        <button type="button" class="btn-grey dice-step-button" onclick="adjustDiceCount(-1)"
+                            aria-label="Decrease number of dice">&#9660;</button>
+                        <input type="number" id="dice-count" value="2" min="1" max="20"
+                            onchange="normalizeDiceCount()">
+                        <button type="button" class="btn-grey dice-step-button" onclick="adjustDiceCount(1)"
+                            aria-label="Increase number of dice">&#9650;</button>
+                    </div>
                 </div>
                 <button id="dice-btn" class="btn-red" onclick="rollDice()">Roll</button>
             </div>
@@ -1666,6 +1711,53 @@
             joinInput.style.display = isHosting ? 'none' : 'block';
             joinBtn.style.display = isHosting ? 'none' : 'block';
         }
+
+        function getFullscreenElement() {
+            return document.fullscreenElement || document.webkitFullscreenElement || null;
+        }
+
+        function updateFullscreenUI() {
+            const button = document.getElementById('fullscreen-btn');
+            if (!button) return;
+
+            const root = document.documentElement;
+            const supported = Boolean(root.requestFullscreen || root.webkitRequestFullscreen);
+            const isFullscreen = Boolean(getFullscreenElement());
+            button.disabled = !supported;
+            button.innerText = isFullscreen ? 'Exit Full Screen' : 'Full Screen';
+            button.title = supported
+                ? (isFullscreen ? 'Exit full screen' : 'Open game in full screen')
+                : 'Full screen is unavailable in this browser';
+        }
+
+        async function toggleFullscreen() {
+            const root = document.documentElement;
+            try {
+                if (getFullscreenElement()) {
+                    if (document.exitFullscreen) {
+                        await document.exitFullscreen();
+                    } else if (document.webkitExitFullscreen) {
+                        document.webkitExitFullscreen();
+                    }
+                } else if (root.requestFullscreen) {
+                    await root.requestFullscreen();
+                } else if (root.webkitRequestFullscreen) {
+                    root.webkitRequestFullscreen();
+                }
+            } catch (err) {
+                console.warn('Unable to toggle full screen:', err);
+            }
+
+            updateFullscreenUI();
+        }
+
+        function handleFullscreenChange() {
+            updateFullscreenUI();
+            requestAnimationFrame(() => fitTableToScreen());
+        }
+
+        document.addEventListener('fullscreenchange', handleFullscreenChange);
+        document.addEventListener('webkitfullscreenchange', handleFullscreenChange);
 
         const tableWidthPx = inchesToPx(TABLE_WIDTH_FT * 12);
         const tableHeightPx = inchesToPx(TABLE_DEPTH_FT * 12);
@@ -2570,6 +2662,12 @@
             return safeValue;
         }
 
+        function adjustDiceCount(delta) {
+            const currentCount = normalizeDiceCount(false);
+            document.getElementById('dice-count').value = currentCount + delta;
+            normalizeDiceCount();
+        }
+
         function normalizeStartingPoolCount(shouldSave = true) {
             const input = document.getElementById('starting-pool-count');
             const parsed = parseInt(input.value, 10);
@@ -2604,9 +2702,18 @@
             return Array.from({ length: count }, () => '?');
         }
 
+        function sortDiceHighestFirst(rolls) {
+            if (!rolls.every(value => Number.isFinite(value))) {
+                return [...rolls];
+            }
+
+            return [...rolls].sort((first, second) => second - first);
+        }
+
         function renderDiceRoll(rolls) {
+            const displayedRolls = sortDiceHighestFirst(rolls);
             const card = document.getElementById('dice-roll-card');
-            const placeholderRoll = createPlaceholderRoll(rolls.length || 1);
+            const placeholderRoll = createPlaceholderRoll(displayedRolls.length || 1);
 
             if (diceAnimationTimer) {
                 clearTimeout(diceAnimationTimer);
@@ -2618,13 +2725,13 @@
             setDiceFaces(placeholderRoll, true);
 
             diceAnimationTimer = setTimeout(() => {
-                setDiceFaces(rolls);
+                setDiceFaces(displayedRolls);
             }, 320);
         }
 
         function rollDice() {
             const count = normalizeDiceCount(false);
-            const rolls = Array.from({ length: count }, () => Math.floor(Math.random() * 6) + 1);
+            const rolls = sortDiceHighestFirst(Array.from({ length: count }, () => Math.floor(Math.random() * 6) + 1));
 
             renderDiceRoll(rolls);
             sendData({ type: 'ROLL_DICE', rolls: rolls, count: count });
@@ -3072,6 +3179,7 @@
         loadUIState();
         updateMultiplayerPanelUI();
         updateMultiplayerControlsUI();
+        updateFullscreenUI();
         updateRightSidebarUI();
 
         const originalInitGame = initGame;
