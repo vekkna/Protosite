@@ -1426,14 +1426,15 @@
         <div class="sidebar">
             <span class="sidebar-kicker">War Council</span>
             <div class="section-header">
-                <h3 style="margin-top:0">Multiplayer</h3>
+                <h3 style="margin-top:0">Game Setup</h3>
                 <button id="multiplayer-toggle" type="button" class="btn-grey section-toggle"
                     onclick="toggleMultiplayerPanel()" aria-controls="multiplayer-panel" aria-expanded="true"
-                    aria-label="Hide multiplayer section" title="Hide multiplayer section">
+                    aria-label="Hide game setup section" title="Hide game setup section">
                     <span>▾</span>
                 </button>
             </div>
             <div id="multiplayer-panel" class="collapsible-section">
+                <span class="sidebar-kicker">Multiplayer</span>
                 <p class="sidebar-description">Host or join a battle.</p>
                 <div id="status-indicator">OFFLINE</div>
                 <button id="host-btn" class="btn-blue" onclick="hostGame()">Host Game</button>
@@ -1444,6 +1445,19 @@
                 <div class="panel-divider"></div>
                 <input type="text" id="join-input" placeholder="Enter Host ID">
                 <button id="join-btn" class="btn-blue" onclick="joinGame()">Join Game</button>
+                <div class="panel-divider"></div>
+                <span class="sidebar-kicker">Starting Pool</span>
+                <div class="pool-controls">
+                    <div class="dice-count-field pool-count-field">
+                        <label for="starting-pool-count">Units</label>
+                        <input type="number" id="starting-pool-count" value="12" min="2" max="24" step="2"
+                            onchange="normalizeStartingPoolCount()">
+                    </div>
+                    <div class="pool-actions">
+                        <button onclick="resetGame()" class="btn-grey">Reset Board</button>
+                        <button onclick="resetLongSideDeployment()" class="btn-blue">Reset Long Sides</button>
+                    </div>
+                </div>
             </div>
             <span class="sidebar-kicker">Battle Tools</span>
             <h3 style="margin-top:20px">Tools</h3>
@@ -1479,18 +1493,6 @@
             <div id="dice-roll-card" class="dice-roll-card">
                 <div id="dice-values" class="dice-values">
                     <span class="die-face empty">-</span>
-                </div>
-            </div>
-            <span class="sidebar-kicker">Starting Pool</span>
-            <div class="pool-controls">
-                <div class="dice-count-field pool-count-field">
-                    <label for="starting-pool-count">Units</label>
-                    <input type="number" id="starting-pool-count" value="12" min="2" max="24" step="2"
-                        onchange="normalizeStartingPoolCount()">
-                </div>
-                <div class="pool-actions">
-                    <button onclick="resetGame()" class="btn-grey">Reset Board</button>
-                    <button onclick="resetLongSideDeployment()" class="btn-blue">Reset Long Sides</button>
                 </div>
             </div>
         </div>
@@ -1686,8 +1688,8 @@
 
             panel.classList.toggle('is-collapsed', isMultiplayerPanelCollapsed);
             toggleBtn.setAttribute('aria-expanded', String(!isMultiplayerPanelCollapsed));
-            toggleBtn.setAttribute('aria-label', isMultiplayerPanelCollapsed ? 'Show multiplayer section' : 'Hide multiplayer section');
-            toggleBtn.title = isMultiplayerPanelCollapsed ? 'Show multiplayer section' : 'Hide multiplayer section';
+            toggleBtn.setAttribute('aria-label', isMultiplayerPanelCollapsed ? 'Show game setup section' : 'Hide game setup section');
+            toggleBtn.title = isMultiplayerPanelCollapsed ? 'Show game setup section' : 'Hide game setup section';
         }
 
         function toggleMultiplayerPanel() {
