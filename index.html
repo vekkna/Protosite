@@ -1875,7 +1875,6 @@
         // --- STATS INTEGRATION ---
         const SHEET_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vQXT5eF4DzRhJokOVdTb5g1Lnt6_gFkeh7oEdg2DLYAtY98FxybE-ijwA8uoWDiYtiBb0a3BM-ukWx9/pub?gid=663136589&single=true&output=csv';
         const STATS_CACHE_KEY = 'seize-the-day-unit-stats-cache-v2';
-        const STATS_CACHE_MAX_AGE_MS = 1000 * 60 * 30;
         const DEFAULT_DRAFT_POOL_SIZE = 12;
 
         let unitStatsDB = {};
@@ -1926,15 +1925,10 @@
             console.log("Stats loaded:", availableUnitRows.length, "units found.");
         }
 
-        function readStatsCache(allowStale = false) {
+        function readStatsCache() {
             try {
                 const cached = JSON.parse(localStorage.getItem(STATS_CACHE_KEY) || "null");
                 if (!cached || cached.source !== SHEET_URL || !Array.isArray(cached.rows)) {
-                    return null;
-                }
-
-                const age = Date.now() - (cached.timestamp || 0);
-                if (!allowStale && age > STATS_CACHE_MAX_AGE_MS) {
                     return null;
                 }
 
@@ -1943,6 +1937,12 @@
                 console.warn("Unable to read cached stats:", err);
                 return null;
             }
+        }
+
+        function getFreshStatsUrl() {
+            const url = new URL(SHEET_URL);
+            url.searchParams.set('refresh', Date.now());
+            return url.toString();
         }
 
         function loadStats(forceRefresh = false) {
@@ -1954,17 +1954,8 @@
                 return statsLoadPromise;
             }
 
-            if (!forceRefresh) {
-                const cachedRows = readStatsCache();
-                if (cachedRows) {
-                    setStatsData(cachedRows, false);
-                    statsLoadPromise = Promise.resolve(availableUnitRows);
-                    return statsLoadPromise;
-                }
-            }
-
             statsLoadPromise = new Promise((resolve, reject) => {
-                Papa.parse(SHEET_URL, {
+                Papa.parse(getFreshStatsUrl(), {
                     download: true,
                     header: true,
                     skipEmptyLines: true,
@@ -1979,10 +1970,10 @@
                         resolve(availableUnitRows);
                     },
                     error: function (err) {
-                        const staleCache = readStatsCache(true);
-                        if (staleCache) {
-                            console.warn("Using stale cached stats after load error:", err);
-                            setStatsData(staleCache, false);
+                        const cachedRows = readStatsCache();
+                        if (cachedRows) {
+                            console.warn("Using locally cached stats after load error:", err);
+                            setStatsData(cachedRows, false);
                             resolve(availableUnitRows);
                             return;
                         }
