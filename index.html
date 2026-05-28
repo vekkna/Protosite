@@ -1560,6 +1560,7 @@
                 <p class="mouse-only">+/- over a unit changes wounds</p>
                 <p class="mouse-only">+/- over terrain changes size</p>
                 <p class="mouse-only">Z / Ctrl+Z undoes the last change</p>
+                <p class="mouse-only">F toggles full screen</p>
                 <p class="touch-only">Drag units or terrain with one finger</p>
                 <p class="touch-only">Tap a piece to show controls</p>
                 <p class="touch-only">Use +/- Wound after selecting a unit</p>
@@ -2936,7 +2937,18 @@
         }
 
         // --- INPUT HANDLING ---
+        function isEditableShortcutTarget(target) {
+            if (!target) return false;
+            return target.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName);
+        }
+
         window.addEventListener('keydown', (e) => {
+            if (!e.repeat && !e.altKey && !e.ctrlKey && !e.metaKey && e.key.toLowerCase() === 'f' && !isEditableShortcutTarget(e.target)) {
+                e.preventDefault();
+                toggleFullscreen();
+                return;
+            }
+
             if ((e.ctrlKey || e.metaKey) && e.key === 'z') { e.preventDefault(); undo(); return; }
             if (e.key === 'z') { undo(); return; }
             if (e.key.toLowerCase() === 'r' && hoveredUnit) showRangeRing(hoveredUnit);
