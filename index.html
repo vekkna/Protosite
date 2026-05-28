@@ -1822,7 +1822,6 @@
         let pointerStartY = 0;
         let isDraggingPiece = false;
         let measurementPointerId = null;
-        let suppressRenameUntil = 0;
         let undoStack = [];
         const MAX_UNDO = 20;
 
@@ -2276,10 +2275,6 @@
 
         function handlePieceTap(piece, event) {
             selectPiece(piece);
-            if (isTouchPointer(event)) {
-                // Rename remains a desktop double-click interaction, not an accidental touch gesture.
-                suppressRenameUntil = Date.now() + 500;
-            }
         }
 
         const pieceControls = document.getElementById('piece-controls');
@@ -2586,27 +2581,6 @@
             appendActivationCheckbox();
             appendMarker();
             attachListeners(div);
-
-            div.addEventListener('dblclick', (e) => {
-                if (Date.now() < suppressRenameUntil) {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    return;
-                }
-                e.stopPropagation();
-                const currentName = div.dataset.name;
-                const newName = prompt("Rename Unit:", currentName);
-                if (newName !== null && newName.trim() !== "") {
-                    pushUndo();
-                    div.innerText = newName;
-                    div.dataset.name = newName;
-                    applyUnitTheme(div, newName);
-                    appendActivationCheckbox();
-                    appendMarker();
-                    updateStatsPanel(div);
-                    saveGame();
-                }
-            });
 
             table.appendChild(div);
             return div;
