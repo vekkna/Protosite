@@ -8,8 +8,6 @@
     <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
     <script src="https://unpkg.com/papaparse@5.4.1/papaparse.min.js"></script>
     <style>
-        @import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700;800&family=Crimson+Text:wght@400;600;700&display=swap');
-
         :root {
             --bg-deep: #120d09;
             --bg-mid: #231911;
@@ -691,6 +689,7 @@
             cursor: grab;
             transition: transform 0.1s ease-out, box-shadow 0.18s ease, filter 0.18s ease;
             touch-action: none;
+            overflow: visible;
         }
 
         .piece:active {
@@ -700,6 +699,66 @@
         .piece.is-selected {
             outline: 3px solid rgba(255, 220, 142, 0.92);
             outline-offset: 4px;
+        }
+
+        .rotation-handle {
+            position: absolute;
+            left: 50%;
+            top: calc(100% - 1px);
+            width: 58px;
+            height: 82px;
+            transform: translateX(-50%) scaleY(0.72);
+            transform-origin: top center;
+            opacity: 0;
+            pointer-events: none;
+            touch-action: none;
+            cursor: grab;
+            z-index: 9;
+            transition: opacity 0.16s ease, transform 0.16s ease;
+        }
+
+        .rotation-handle::before {
+            content: "";
+            position: absolute;
+            left: 50%;
+            top: 0;
+            width: 12px;
+            height: calc(100% - 22px);
+            transform: translateX(-50%);
+            border-radius: 999px;
+            background: linear-gradient(180deg, rgba(255, 226, 154, 0.92), rgba(173, 118, 47, 0.9));
+            border: 1px solid rgba(44, 28, 13, 0.5);
+            box-shadow: 0 8px 14px rgba(0, 0, 0, 0.26), inset 0 1px 0 rgba(255, 255, 255, 0.42);
+        }
+
+        .rotation-handle::after {
+            content: "";
+            position: absolute;
+            left: 50%;
+            bottom: 0;
+            width: 34px;
+            height: 34px;
+            transform: translateX(-50%);
+            border-radius: 50%;
+            background:
+                radial-gradient(circle at 34% 30%, rgba(255, 244, 199, 0.95), rgba(216, 161, 71, 0.96) 48%, rgba(107, 67, 30, 0.98) 100%);
+            border: 2px solid rgba(255, 236, 183, 0.94);
+            box-shadow: 0 10px 18px rgba(0, 0, 0, 0.34), 0 0 0 4px rgba(20, 13, 8, 0.22);
+        }
+
+        .piece.is-selected .rotation-handle {
+            opacity: 1;
+            pointer-events: auto;
+            transform: translateX(-50%) scaleY(1);
+        }
+
+        .piece.is-dragging .rotation-handle {
+            opacity: 0;
+            pointer-events: none;
+        }
+
+        .rotation-handle:active {
+            cursor: grabbing;
         }
 
         .unit {
@@ -1213,6 +1272,12 @@
             font-size: 0.7rem;
         }
 
+        .unit-popup-controls [data-wound-step] {
+            font-size: 1.9rem;
+            line-height: 1;
+            padding: 5px;
+        }
+
         #controls-hint {
             margin-top: auto;
             padding: 12px 14px;
@@ -1319,6 +1384,83 @@
         }
 
         @media (any-pointer: coarse) {
+            body {
+                background: #15100c;
+            }
+
+            body::before,
+            #table-container::before,
+            #game-table::before,
+            #game-table::after {
+                display: none;
+            }
+
+            #table-container {
+                background: #17120d;
+                box-shadow: none;
+            }
+
+            #game-table {
+                background-image: none;
+                background-color: #355643;
+                box-shadow: 0 0 0 2px rgba(69, 56, 34, 0.9);
+            }
+
+            .piece,
+            .rotation-handle,
+            #unit-tooltip,
+            #piece-controls,
+            button {
+                transition: none;
+            }
+
+            .unit,
+            .unit:hover {
+                background-image: none;
+                box-shadow: 0 0 0 2px var(--unit-accent);
+                filter: none;
+                text-shadow: none;
+            }
+
+            .terrain {
+                box-shadow: none;
+                text-shadow: none;
+            }
+
+            .terrain.forest {
+                background: #245a33;
+            }
+
+            .terrain.hills {
+                background: #7e6041;
+            }
+
+            .terrain.rough {
+                background: #77713a;
+            }
+
+            .ghost {
+                filter: none;
+            }
+
+            .range-ring,
+            #angle-indicator,
+            #piece-controls,
+            #unit-tooltip,
+            #stats-panel,
+            .sidebar,
+            .palette-item,
+            .activation-checkbox,
+            .wound-marker,
+            .rotation-handle::before,
+            .rotation-handle::after {
+                box-shadow: none;
+            }
+
+            #measure-text {
+                filter: none;
+            }
+
             .mouse-only {
                 display: none;
             }
@@ -1820,14 +1962,27 @@
         let selectedPiece = null;
         let activePointerId = null;
         let pendingDragPiece = null;
+        let rotatingPiece = null;
+        let rotationDragStartAngle = 0;
+        let rotationDragLastPointerAngle = 0;
+        let rotationDragPointerDelta = 0;
+        let rotationDragUndoPushed = false;
+        let rotationDragCenterX = 0;
+        let rotationDragCenterY = 0;
         let pointerStartX = 0;
         let pointerStartY = 0;
         let isDraggingPiece = false;
+        let activeTableRect = null;
+        let activePieceHalfWidth = 0;
+        let activePieceHalfHeight = 0;
+        let pendingPointerMove = null;
+        let pointerMoveFrame = null;
         let measurementPointerId = null;
         let undoStack = [];
         const MAX_UNDO = 20;
 
         const lineElement = document.getElementById('measure-line');
+        const measureTextElement = document.getElementById('measure-text');
 
         // --- RULES LOGIC (IFRAME & TOOLTIPS) ---
 
@@ -2094,13 +2249,9 @@
         function buildUnitControlsMarkup() {
             return `
                 <div class="unit-popup-controls" role="toolbar" aria-label="Selected unit controls">
-                    <div id="unit-popup-rotation" class="piece-control-row">
-                        <button type="button" class="btn-grey" data-rotate-step="-5" aria-label="Rotate left 5 degrees">Rotate -</button>
-                        <button type="button" class="btn-grey" data-rotate-step="5" aria-label="Rotate right 5 degrees">Rotate +</button>
-                    </div>
                     <div id="unit-popup-wounds" class="piece-control-row">
-                        <button type="button" class="btn-red" data-wound-step="-1" aria-label="Remove one wound">Wound -</button>
-                        <button type="button" class="btn-red" data-wound-step="1" aria-label="Add one wound">Wound +</button>
+                        <button type="button" class="btn-red" data-wound-step="-1" aria-label="Remove one wound">-</button>
+                        <button type="button" class="btn-red" data-wound-step="1" aria-label="Add one wound">+</button>
                     </div>
                 </div>
             `;
@@ -2187,7 +2338,7 @@
 
         function positionPieceControls() {
             const controls = document.getElementById('piece-controls');
-            if (!selectedPiece || !selectedPiece.isConnected || isDraggingPiece) {
+            if (!selectedPiece || !selectedPiece.isConnected || isDraggingPiece || rotatingPiece) {
                 controls.classList.remove('visible');
                 controls.setAttribute('aria-hidden', 'true');
                 hideUnitTooltip();
@@ -2247,16 +2398,21 @@
             positionPieceControls();
         }
 
+        function setPieceAngle(piece, nextAngle, angleDelta = null) {
+            if (!piece) return;
+            const previousAngle = parseFloat(piece.dataset.angle) || 0;
+            piece.dataset.angle = nextAngle;
+            piece.style.transform = `rotate(${nextAngle}deg)`;
+            showAngleIndicator(piece, angleDelta ?? getRotationDelta(piece, previousAngle, nextAngle));
+            positionPieceControls();
+        }
+
         function rotatePiece(piece, delta) {
             if (!piece) return;
             suppressUnitTooltip();
             pushUndo();
             const previousAngle = parseFloat(piece.dataset.angle) || 0;
-            const nextAngle = previousAngle + delta;
-            piece.dataset.angle = nextAngle;
-            piece.style.transform = `rotate(${nextAngle}deg)`;
-            showAngleIndicator(piece, getRotationDelta(piece, previousAngle, nextAngle));
-            positionPieceControls();
+            setPieceAngle(piece, previousAngle + delta);
             saveGame();
         }
 
@@ -2500,6 +2656,19 @@
             else if (unitName.includes('undead')) unitEl.classList.add('faction-undead');
         }
 
+        function appendRotationHandle(piece) {
+            let handle = piece.querySelector('.rotation-handle');
+            if (handle) return;
+
+            handle = document.createElement('div');
+            handle.classList.add('rotation-handle');
+            handle.setAttribute('role', 'button');
+            handle.setAttribute('aria-label', 'Drag to rotate');
+            handle.title = 'Drag to rotate';
+            handle.addEventListener('pointerdown', onRotationHandlePointerDown);
+            piece.appendChild(handle);
+        }
+
         function createUnitDOM(name, color, x, y, angle, wounds, stats = null, activated = false) {
             const div = document.createElement('div');
             const unitStats = stats
@@ -2582,6 +2751,7 @@
 
             appendActivationCheckbox();
             appendMarker();
+            appendRotationHandle(div);
             attachListeners(div);
 
             table.appendChild(div);
@@ -2604,6 +2774,7 @@
             div.dataset.angle = angle || 0;
             div.style.transform = `rotate(${angle}deg)`;
 
+            appendRotationHandle(div);
             attachListeners(div);
             div.addEventListener('mouseenter', () => hoveredTerrain = div);
             div.addEventListener('mouseleave', () => hoveredTerrain = null);
@@ -3025,6 +3196,107 @@
             }, 700);
         }
 
+        function getActiveTableRect() {
+            if (!activeTableRect) {
+                activeTableRect = table.getBoundingClientRect();
+            }
+
+            return activeTableRect;
+        }
+
+        function getTablePointerPosition(event) {
+            const tableRect = getActiveTableRect();
+            return {
+                x: (event.clientX - tableRect.left) / currentScale,
+                y: (event.clientY - tableRect.top) / currentScale
+            };
+        }
+
+        function getPointerAngleFromPieceCenter(piece, event) {
+            const pointer = getTablePointerPosition(event);
+            const centerX = rotatingPiece === piece
+                ? rotationDragCenterX
+                : (parseFloat(piece.style.left) || 0) + (piece.offsetWidth / 2);
+            const centerY = rotatingPiece === piece
+                ? rotationDragCenterY
+                : (parseFloat(piece.style.top) || 0) + (piece.offsetHeight / 2);
+
+            return Math.atan2(pointer.y - centerY, pointer.x - centerX) * (180 / Math.PI);
+        }
+
+        function onRotationHandlePointerDown(e) {
+            if (!e.isPrimary || e.button !== 0 || activePointerId !== null) return;
+            e.preventDefault();
+            e.stopPropagation();
+
+            const piece = e.currentTarget.closest('.piece');
+            if (!piece) return;
+
+            selectPiece(piece);
+            activeTableRect = table.getBoundingClientRect();
+            activePointerId = e.pointerId;
+            rotatingPiece = piece;
+            rotationDragStartAngle = parseFloat(piece.dataset.angle) || 0;
+            rotationDragCenterX = (parseFloat(piece.style.left) || 0) + (piece.offsetWidth / 2);
+            rotationDragCenterY = (parseFloat(piece.style.top) || 0) + (piece.offsetHeight / 2);
+            rotationDragLastPointerAngle = getPointerAngleFromPieceCenter(piece, e);
+            rotationDragPointerDelta = 0;
+            rotationDragUndoPushed = false;
+            pendingDragPiece = null;
+            isDraggingPiece = false;
+            piece.classList.add('is-rotating');
+            suppressUnitTooltip(Number.MAX_SAFE_INTEGER);
+            hideUnitTooltip();
+            positionPieceControls();
+
+            if (e.currentTarget.setPointerCapture) {
+                e.currentTarget.setPointerCapture(e.pointerId);
+            }
+        }
+
+        function updateRotationFromPointer(e) {
+            if (!rotatingPiece) return;
+
+            const pointerAngle = getPointerAngleFromPieceCenter(rotatingPiece, e);
+            rotationDragPointerDelta += normalizeAngle(pointerAngle - rotationDragLastPointerAngle);
+            rotationDragLastPointerAngle = pointerAngle;
+
+            const currentAngle = parseFloat(rotatingPiece.dataset.angle) || 0;
+            const nextAngle = rotationDragStartAngle + rotationDragPointerDelta;
+            if (Math.abs(normalizeAngle(nextAngle - currentAngle)) < 0.15) return;
+
+            if (!rotationDragUndoPushed) {
+                pushUndo();
+                rotationDragUndoPushed = true;
+            }
+
+            setPieceAngle(rotatingPiece, nextAngle, nextAngle - rotationDragStartAngle);
+        }
+
+        function finishRotationDrag() {
+            if (!rotatingPiece) return false;
+
+            suppressUnitTooltip();
+            if (rotationDragUndoPushed) {
+                saveGame();
+            }
+
+            rotatingPiece.classList.remove('is-rotating');
+            rotatingPiece = null;
+            rotationDragStartAngle = 0;
+            rotationDragLastPointerAngle = 0;
+            rotationDragPointerDelta = 0;
+            rotationDragUndoPushed = false;
+            rotationDragCenterX = 0;
+            rotationDragCenterY = 0;
+            activePointerId = null;
+            activeTableRect = null;
+            resetRotationPivot();
+            positionPieceControls();
+
+            return true;
+        }
+
         // --- DRAG LOGIC ---
         function onPiecePointerDown(e) {
             if (!e.isPrimary || e.button !== 0 || activePointerId !== null) return;
@@ -3032,6 +3304,7 @@
             e.stopPropagation();
 
             activePointerId = e.pointerId;
+            activeTableRect = table.getBoundingClientRect();
             pendingDragPiece = e.currentTarget;
             pointerStartX = e.clientX;
             pointerStartY = e.clientY;
@@ -3057,6 +3330,9 @@
             activePiece = pendingDragPiece;
             pendingDragPiece = null;
             isDraggingPiece = true;
+            activePiece.classList.add('is-dragging');
+            activePieceHalfWidth = activePiece.offsetWidth / 2;
+            activePieceHalfHeight = activePiece.offsetHeight / 2;
             ghostPiece = activePiece.cloneNode(true);
             ghostPiece.classList.add('ghost');
             ghostPiece.classList.remove('is-selected');
@@ -3064,7 +3340,7 @@
             ghostPiece.style.transform = activePiece.style.transform;
             table.insertBefore(ghostPiece, activePiece);
             const rect = activePiece.getBoundingClientRect();
-            const tableRect = table.getBoundingClientRect();
+            const tableRect = getActiveTableRect();
             anchorX = ((rect.left - tableRect.left) + (rect.width / 2)) / currentScale;
             anchorY = ((rect.top - tableRect.top) + (rect.height / 2)) / currentScale;
             showLine(anchorX, anchorY, anchorX, anchorY);
@@ -3077,11 +3353,12 @@
             e.preventDefault();
             clearPieceSelection();
             activePointerId = e.pointerId;
+            activeTableRect = table.getBoundingClientRect();
             measurementPointerId = e.pointerId;
             isMeasuring = true;
-            const tableRect = table.getBoundingClientRect();
-            anchorX = (e.clientX - tableRect.left) / currentScale;
-            anchorY = (e.clientY - tableRect.top) / currentScale;
+            const pointer = getTablePointerPosition(e);
+            anchorX = pointer.x;
+            anchorY = pointer.y;
             showLine(anchorX, anchorY, anchorX, anchorY);
 
             if (table.setPointerCapture) {
@@ -3090,18 +3367,48 @@
         });
 
         function showLine(x1, y1, x2, y2) {
-            const textEl = document.getElementById('measure-text');
             lineElement.style.opacity = 1;
-            textEl.style.opacity = 1;
+            measureTextElement.style.opacity = 1;
             lineElement.setAttribute('x1', x1);
             lineElement.setAttribute('y1', y1);
             lineElement.setAttribute('x2', x2);
             lineElement.setAttribute('y2', y2);
-            textEl.innerHTML = '0"';
+            measureTextElement.textContent = '0"';
         }
 
-        function onPointerMove(e) {
+        function flushPendingPointerMove() {
+            if (!pendingPointerMove) return;
+            const event = pendingPointerMove;
+            pendingPointerMove = null;
+            if (pointerMoveFrame) {
+                cancelAnimationFrame(pointerMoveFrame);
+                pointerMoveFrame = null;
+            }
+            handlePointerMove(event);
+        }
+
+        function queuePointerMove(e) {
             if (e.pointerId !== activePointerId) return;
+            pendingPointerMove = {
+                pointerId: e.pointerId,
+                clientX: e.clientX,
+                clientY: e.clientY
+            };
+
+            if (pointerMoveFrame) return;
+            pointerMoveFrame = requestAnimationFrame(() => {
+                pointerMoveFrame = null;
+                flushPendingPointerMove();
+            });
+        }
+
+        function handlePointerMove(e) {
+            if (e.pointerId !== activePointerId) return;
+
+            if (rotatingPiece) {
+                updateRotationFromPointer(e);
+                return;
+            }
 
             if (pendingDragPiece && !isDraggingPiece) {
                 const movement = Math.hypot(e.clientX - pointerStartX, e.clientY - pointerStartY);
@@ -3110,21 +3417,19 @@
             }
 
             if (!activePiece && !isMeasuring) return;
-            const tableRect = table.getBoundingClientRect();
-            let mouseX = (e.clientX - tableRect.left) / currentScale;
-            let mouseY = (e.clientY - tableRect.top) / currentScale;
-            let targetX = mouseX;
-            let targetY = mouseY;
+            const pointer = getTablePointerPosition(e);
+            let targetX = pointer.x;
+            let targetY = pointer.y;
 
             if (activePiece) {
                 const offX = parseFloat(activePiece.dataset.offsetX);
                 const offY = parseFloat(activePiece.dataset.offsetY);
-                const newLeft = mouseX - offX;
-                const newTop = mouseY - offY;
+                const newLeft = pointer.x - offX;
+                const newTop = pointer.y - offY;
                 activePiece.style.left = `${newLeft}px`;
                 activePiece.style.top = `${newTop}px`;
-                targetX = newLeft + (activePiece.offsetWidth / 2);
-                targetY = newTop + (activePiece.offsetHeight / 2);
+                targetX = newLeft + activePieceHalfWidth;
+                targetY = newTop + activePieceHalfHeight;
             }
 
             if (anchorX > -1) {
@@ -3133,31 +3438,42 @@
                 const dx = targetX - anchorX;
                 const dy = targetY - anchorY;
                 const distancePx = Math.sqrt(dx * dx + dy * dy);
-                const textEl = document.getElementById('measure-text');
-                textEl.innerHTML = `${pxToInches(distancePx)}"`;
-                textEl.setAttribute('x', anchorX + (dx / 2) + 10);
-                textEl.setAttribute('y', anchorY + (dy / 2) - 10);
+                measureTextElement.textContent = `${pxToInches(distancePx)}"`;
+                measureTextElement.setAttribute('x', anchorX + (dx / 2) + 10);
+                measureTextElement.setAttribute('y', anchorY + (dy / 2) - 10);
             }
         }
 
         function onPointerUp(e) {
             if (e.pointerId !== activePointerId) return;
+            flushPendingPointerMove();
+
+            if (rotatingPiece) {
+                finishRotationDrag();
+                return;
+            }
 
             if (pendingDragPiece && !isDraggingPiece && e.type !== 'pointercancel') {
                 handlePieceTap(pendingDragPiece, e);
             }
 
-            if (activePiece) saveGame();
+            if (activePiece) {
+                activePiece.classList.remove('is-dragging');
+                saveGame();
+            }
             activePiece = null;
             pendingDragPiece = null;
             activePointerId = null;
+            activeTableRect = null;
+            activePieceHalfWidth = 0;
+            activePieceHalfHeight = 0;
             measurementPointerId = null;
             const completedManipulation = isDraggingPiece || isMeasuring;
             isDraggingPiece = false;
             isMeasuring = false;
             if (ghostPiece) { ghostPiece.remove(); ghostPiece = null; }
             lineElement.style.opacity = 0;
-            document.getElementById('measure-text').style.opacity = 0;
+            measureTextElement.style.opacity = 0;
             if (completedManipulation) {
                 suppressUnitTooltip();
             }
@@ -3170,7 +3486,7 @@
             rotatePiece(piece, e.deltaY > 0 ? 2 : -2);
         }
 
-        window.addEventListener('pointermove', onPointerMove);
+        window.addEventListener('pointermove', queuePointerMove);
         window.addEventListener('pointerup', onPointerUp);
         window.addEventListener('pointercancel', onPointerUp);
 
