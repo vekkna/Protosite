@@ -1610,7 +1610,7 @@
                 <div class="pool-controls">
                     <div class="dice-count-field pool-count-field">
                         <label for="starting-pool-count">Units</label>
-                        <input type="number" id="starting-pool-count" value="12" min="2" max="24" step="2"
+                        <input type="number" id="starting-pool-count" value="12" min="2" step="2"
                             onchange="normalizeStartingPoolCount()">
                     </div>
                     <div class="pool-actions">
@@ -2859,8 +2859,8 @@
         function normalizeStartingPoolCount(shouldSave = true) {
             const input = document.getElementById('starting-pool-count');
             const parsed = parseInt(input.value, 10);
-            let safeValue = Number.isFinite(parsed) ? Math.min(24, Math.max(2, parsed)) : DEFAULT_DRAFT_POOL_SIZE;
-            if (safeValue % 2 !== 0) safeValue += safeValue >= 24 ? -1 : 1;
+            let safeValue = Number.isFinite(parsed) ? Math.max(2, parsed) : DEFAULT_DRAFT_POOL_SIZE;
+            if (safeValue % 2 !== 0) safeValue += 1;
             input.value = safeValue;
             if (shouldSave) saveGame();
             return safeValue;
@@ -3012,26 +3012,71 @@
             const topSide = deploymentPool.slice(0, perSide);
             const bottomSide = deploymentPool.slice(perSide, perSide * 2);
             const sidePadding = Math.max(inchesToPx(1), defaultUnitSizePx.width / 2);
+            const rankGap = 10;
+            const unitGap = 10;
             const topDeploymentLineY = inchesToPx(DEPLOY_INCHES);
             const bottomDeploymentLineY = tableHeightPx - inchesToPx(DEPLOY_INCHES);
 
-            const placeSide = (units, angle) => {
-                const unitSizes = units.map(getUnitSizePx);
-                const totalUnitWidth = unitSizes.reduce((total, size) => total + size.width, 0);
-                const availableWidth = tableWidthPx - (sidePadding * 2);
-                const gap = units.length > 1 ? Math.max(0, (availableWidth - totalUnitWidth) / (units.length - 1)) : 0;
-                const startX = units.length > 1
-                    ? sidePadding
-                    : (tableWidthPx - unitSizes[0].width) / 2;
-                let nextX = startX;
+            const buildDeploymentRanks = (units) => {
+                const availableWidth = Math.max(1, tableWidthPx - (sidePadding * 2));
+                const ranks = [];
+                let currentRank = null;
 
-                units.forEach((unitStats, i) => {
-                    const unitSize = unitSizes[i];
-                    const unitY = angle === 180
-                        ? topDeploymentLineY - unitSize.height
-                        : bottomDeploymentLineY;
-                    createUnitDOM(unitStats.Unit, "#666", nextX, unitY, angle, 0, unitStats);
-                    nextX += unitSize.width + gap;
+                units.forEach(unitStats => {
+                    const unitSize = getUnitSizePx(unitStats);
+                    const candidateWidth = currentRank
+                        ? currentRank.width + unitGap + unitSize.width
+                        : unitSize.width;
+
+                    if (currentRank && candidateWidth > availableWidth) {
+                        ranks.push(currentRank);
+                        currentRank = null;
+                    }
+
+                    if (!currentRank) {
+                        currentRank = {
+                            items: [],
+                            width: 0,
+                            height: 0
+                        };
+                    }
+
+                    currentRank.items.push({ unitStats, unitSize });
+                    currentRank.width += (currentRank.items.length > 1 ? unitGap : 0) + unitSize.width;
+                    currentRank.height = Math.max(currentRank.height, unitSize.height);
+                });
+
+                if (currentRank) {
+                    ranks.push(currentRank);
+                }
+
+                return ranks;
+            };
+
+            const placeSide = (units, angle) => {
+                const availableWidth = tableWidthPx - (sidePadding * 2);
+                const ranks = buildDeploymentRanks(units);
+                let rankOffset = 0;
+
+                ranks.forEach(rank => {
+                    const totalUnitWidth = rank.items.reduce((total, item) => total + item.unitSize.width, 0);
+                    const gap = rank.items.length > 1
+                        ? Math.max(unitGap, (availableWidth - totalUnitWidth) / (rank.items.length - 1))
+                        : 0;
+                    let nextX = rank.items.length > 1
+                        ? sidePadding
+                        : (tableWidthPx - rank.items[0].unitSize.width) / 2;
+
+                    rank.items.forEach(({ unitStats, unitSize }) => {
+                        const unitY = angle === 180
+                            ? Math.max(0, topDeploymentLineY - rankOffset - unitSize.height)
+                            : Math.min(tableHeightPx - unitSize.height, bottomDeploymentLineY + rankOffset);
+                        const unitX = Math.max(0, Math.min(tableWidthPx - unitSize.width, nextX));
+                        createUnitDOM(unitStats.Unit, "#666", unitX, unitY, angle, 0, unitStats);
+                        nextX += unitSize.width + gap;
+                    });
+
+                    rankOffset += rank.height + rankGap;
                 });
             };
 
