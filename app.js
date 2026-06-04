@@ -366,7 +366,7 @@ function loadStats(forceRefresh = false) {
         return Promise.resolve(availableUnitRows);
     }
 
-    if (!forceRefresh && statsLoadPromise) {
+    if (statsLoadPromise) {
         return statsLoadPromise;
     }
 
@@ -398,6 +398,8 @@ function loadStats(forceRefresh = false) {
                 reject(err);
             }
         });
+    }).finally(() => {
+        statsLoadPromise = null;
     });
 
     return statsLoadPromise;
@@ -1079,15 +1081,24 @@ async function resetBoard(createUnits) {
     hideUnitTooltip();
     removeRangeRing();
 
-    try {
-        await loadStats(true);
-    } catch (err) {
-        console.error("Unable to refresh unit stats during board reset:", err);
+    const needsInitialStats = availableUnitRows.length === 0;
+    if (needsInitialStats) {
+        try {
+            await loadStats(true);
+        } catch (err) {
+            console.error("Unable to load unit stats during board reset:", err);
+        }
     }
 
     createUnits();
     createDefaultTerrain();
     saveGame();
+
+    if (!needsInitialStats) {
+        loadStats(true).catch(err => {
+            console.error("Unable to refresh unit stats after board reset:", err);
+        });
+    }
 }
 
 window.resetGame = async function () {
@@ -1185,14 +1196,6 @@ function rollDice() {
     sendData({ type: 'ROLL_DICE', rolls: rolls, count: count });
 }
 
-function shuffleArray(array) {
-    for (let i = array.length - 1; i > 0; i--) {
-        const j = Math.floor(Math.random() * (i + 1));
-        [array[i], array[j]] = [array[j], array[i]];
-    }
-    return array;
-}
-
 // --- STARTUP BOARD STATE ---
 async function initGame() {
     try {
@@ -1212,8 +1215,46 @@ async function initGame() {
 }
 
 // --- UNIT DEPLOYMENT GENERATION ---
+function getUnitQuantity(unitStats) {
+    const rawQuantity = unitStats ? unitStats.Quantity : undefined;
+    if (rawQuantity === undefined || rawQuantity === null || `${rawQuantity}`.trim() === "") {
+        return 1;
+    }
+
+    const quantity = Number(rawQuantity);
+    if (!Number.isSafeInteger(quantity) || quantity < 0) {
+        console.warn(`Invalid Quantity for "${unitStats.Unit || 'unknown unit'}"; using 1 copy instead:`, rawQuantity);
+        return 1;
+    }
+
+    return quantity;
+}
+
 function createRandomUnitPool(count) {
-    return shuffleArray([...availableUnitRows]).slice(0, Math.min(count, availableUnitRows.length));
+    const remainingUnits = availableUnitRows.map(unitStats => ({
+        unitStats,
+        copies: getUnitQuantity(unitStats)
+    })).filter(entry => entry.copies > 0);
+    let remainingCopies = remainingUnits.reduce((total, entry) => total + entry.copies, 0);
+    const drawCount = Math.min(count, remainingCopies);
+    const unitPool = [];
+
+    for (let draw = 0; draw < drawCount; draw++) {
+        let copyIndex = Math.floor(Math.random() * remainingCopies);
+
+        for (const entry of remainingUnits) {
+            if (copyIndex < entry.copies) {
+                unitPool.push(entry.unitStats);
+                entry.copies -= 1;
+                remainingCopies -= 1;
+                break;
+            }
+
+            copyIndex -= entry.copies;
+        }
+    }
+
+    return unitPool;
 }
 
 function createDefaultUnits() {
