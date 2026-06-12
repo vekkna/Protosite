@@ -53,17 +53,16 @@
             <button id="fullscreen-btn" type="button" class="btn-grey" onclick="toggleFullscreen()">Full Screen</button>
             <span class="sidebar-kicker">Bid for Initiative</span>
             <div class="cp-container">
-                <div class="cp-field">
+                <div class="cp-field" data-bid-player="p1">
                     <span class="cp-label">P1 CP</span>
-                    <input type="number" id="cp1" value="1" min="1" onchange="saveGame()">
+                    <input type="number" id="cp1" value="1" min="1" onchange="handleCpBidChange('p1')">
                 </div>
-                <div class="cp-field">
+                <div class="cp-field" data-bid-player="p2">
                     <span class="cp-label">P2 CP</span>
-                    <input type="number" id="cp2" value="1" min="1" onchange="saveGame()">
+                    <input type="number" id="cp2" value="1" min="1" onchange="handleCpBidChange('p2')">
                 </div>
             </div>
-            <!-- <button id="toggle-bids-btn" class="btn-grey" onclick="toggleBidVisibility()"
-                    style="margin-top: -5px; margin-bottom: 10px;">Hide Bids</button> -->
+            <button id="toggle-bids-btn" class="btn-grey" onclick="toggleBidVisibility()">Hide My Bid</button>
             <span class="sidebar-kicker">Roll Dice</span>
             <div class="dice-controls">
                 <div class="dice-count-field">
