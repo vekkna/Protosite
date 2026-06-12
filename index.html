@@ -105,7 +105,13 @@
         </div>
         <div id="right-sidebar" class="sidebar">
             <span class="sidebar-kicker">Battlefield Dressing</span>
-            <h3 style="margin-top:0">Terrain</h3>
+            <div class="stats-panel-header">
+                <h3>How to Play</h3>
+                <button id="controls-help-btn" type="button" class="btn-grey" onclick="openControlsHelp()"
+                    aria-haspopup="dialog" aria-controls="controls-modal">Field Controls</button>
+                <button class="btn-grey" onclick="openRulebook()">Open Rulebook</button>
+                <h3 style="margin-top:0">Terrain</h3>
+            </div>
             <p class="sidebar-description">Drag scenery onto the field.</p>
             <div class="palette-item palette-forest" onpointerdown="spawnTerrain('forest', event)">
                 <span class="palette-title">Forest</span>
@@ -117,28 +123,11 @@
                 <span class="palette-title">Rough</span>
             </div>
             <div id="stats-panel">
-                <div class="stats-panel-header">
-                    <h3>Unit Briefing</h3>
-                    <button class="btn-grey" onclick="openRulebook()">Open Rulebook</button>
-                </div>
                 <div id="stats-content">
                     <span class="stats-empty">Select a unit to inspect its profile.</span>
                 </div>
             </div>
-            <div id="controls-hint">
-                <p><strong>Field Controls</strong></p>
-                <p class="mouse-only">Drag a unit or terrain to move</p>
-                <p class="mouse-only">Drag the battlefield to measure</p>
-                <p class="mouse-only">Mouse wheel or arrow keys rotate pieces</p>
-                <p class="mouse-only">+/- over a unit changes wounds</p>
-                <p class="mouse-only">+/- over terrain changes size</p>
-                <p class="mouse-only">Z / Ctrl+Z undoes the last change</p>
-                <p class="mouse-only">F toggles full screen</p>
-                <p class="touch-only">Drag units or terrain with one finger</p>
-                <p class="touch-only">Tap a piece to show controls</p>
-                <p class="touch-only">Use +/- Wound after selecting a unit</p>
-                <p class="touch-only">Drag empty battlefield to measure</p>
-            </div>
+
         </div>
         <button id="right-sidebar-toggle" type="button" class="btn-grey" onclick="toggleRightSidebar()"
             aria-controls="right-sidebar" aria-expanded="true" aria-label="Hide right sidebar"
@@ -150,15 +139,51 @@
         <h2>Landscape Mode</h2>
         <p>Rotate your tablet to play on the battlefield.</p>
     </div>
-    <div id="rulebook-modal" class="modal-overlay" onclick="closeRulebook()">
-        <div class="modal-content" onclick="event.stopPropagation()">
+    <div id="controls-modal" class="modal-overlay" onclick="closeControlsHelp()" aria-hidden="true">
+        <div class="modal-content controls-modal-content" role="dialog" aria-modal="true"
+            aria-labelledby="controls-modal-title" onclick="event.stopPropagation()">
             <div class="modal-header">
-                <h2 style="margin:0; color:#fff;">Battlefield Rules</h2>
-                <button class="btn-red" onclick="closeRulebook()" style="padding: 5px 10px;">X</button>
+                <h2 id="controls-modal-title">Field Controls</h2>
+                <button class="btn-red" onclick="closeControlsHelp()" aria-label="Close field controls">X</button>
+            </div>
+            <div class="modal-body controls-modal-body">
+                <div id="controls-hint">
+                    <div class="controls-group mouse-only">
+                        <span class="controls-group-label">Mouse and Keyboard</span>
+                        <ul class="controls-help-list">
+                            <li>Drag a unit or terrain to move it.</li>
+                            <li>Drag on the battlefield to measure distance.</li>
+                            <li>Mouse wheel, arrow keys, or the pop-up bar rotate pieces.</li>
+                            <li>+/- over a unit changes wounds.</li>
+                            <li>+/- over terrain changes size.</li>
+                            <li>Z or Ctrl+Z undoes the last change.</li>
+                            <li>F toggles full screen.</li>
+                        </ul>
+                    </div>
+                    <div class="controls-group touch-only">
+                        <span class="controls-group-label">Touch</span>
+                        <ul class="controls-help-list">
+                            <li>Drag units or terrain with one finger.</li>
+                            <li>Select a piece to show movement controls.</li>
+                            <li>Use the pop-up controls to rotate pieces or adjust wounds.</li>
+                            <li>Drag empty battlefield space to measure distance.</li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div id="rulebook-modal" class="modal-overlay" onclick="closeRulebook()" aria-hidden="true">
+        <div class="modal-content" role="dialog" aria-modal="true" aria-labelledby="rulebook-modal-title"
+            onclick="event.stopPropagation()">
+            <div class="modal-header">
+                <h2 id="rulebook-modal-title" style="margin:0; color:#fff;">Battlefield Rules</h2>
+                <button class="btn-red" onclick="closeRulebook()" style="padding: 5px 10px;"
+                    aria-label="Close battlefield rules">X</button>
             </div>
             <div class="modal-body">
                 <iframe id="rulebook-frame"
-                    src="https://docs.google.com/document/d/e/2PACX-1vQ6rL9A4bRyix3XiJ_sSFqoR9sItMcbU8GqSejkXuspXR18tM4jfJG0tz1lMJO8SPQJ7Y3xNWMBONtv/pub?embedded=true"
+                    src="https://docs.google.com/document/d/e/2PACX-1vT27U3ta_RW1zr49tuN6ZYf7C0zcRTjWr7VAr7s3VFPS_riND2yITD7B_va60_DHeo9k4cdu-Va8wPV/pub?embedded=true"
                     style="width:100%; height:100%; border:none;">
                 </iframe>
             </div>

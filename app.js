@@ -249,16 +249,48 @@ const measureTextElement = document.getElementById('measure-text');
 
 // --- RULEBOOK MODAL ---
 
+function setModalVisibility(modalId, isVisible) {
+    const modal = document.getElementById(modalId);
+    if (!modal) return;
+
+    modal.style.display = isVisible ? 'flex' : 'none';
+    modal.setAttribute('aria-hidden', String(!isVisible));
+
+    if (isVisible) {
+        const focusTarget = modal.querySelector('.modal-header button');
+        if (focusTarget) {
+            try {
+                focusTarget.focus({ preventScroll: true });
+            } catch (err) {
+                focusTarget.focus();
+            }
+        }
+    }
+}
+
 function openRulebook() {
-    document.getElementById('rulebook-modal').style.display = 'flex';
+    closeControlsHelp();
+    setModalVisibility('rulebook-modal', true);
 }
 
 function closeRulebook() {
-    document.getElementById('rulebook-modal').style.display = 'none';
+    setModalVisibility('rulebook-modal', false);
+}
+
+function openControlsHelp() {
+    closeRulebook();
+    setModalVisibility('controls-modal', true);
+}
+
+function closeControlsHelp() {
+    setModalVisibility('controls-modal', false);
 }
 
 window.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape') closeRulebook();
+    if (e.key === 'Escape') {
+        closeRulebook();
+        closeControlsHelp();
+    }
 });
 
 let globalRulesDB = [];

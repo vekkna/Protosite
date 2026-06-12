@@ -1268,36 +1268,70 @@ input::placeholder {
     padding: 5px;
 }
 
+.controls-modal-content {
+    width: 430px;
+    max-width: 100%;
+    height: auto;
+    max-height: min(620px, calc(100svh - 40px));
+}
+
+.controls-modal-body {
+    padding: 16px;
+    overflow-y: auto;
+    background:
+        radial-gradient(circle at top right, rgba(80, 105, 70, 0.16), transparent 36%),
+        linear-gradient(180deg, rgba(33, 24, 18, 0.98), rgba(15, 11, 9, 0.98));
+}
+
 #controls-hint {
-    margin-top: auto;
-    padding: 12px 14px;
-    background: rgba(255, 255, 255, 0.03);
-    border: 1px solid rgba(216, 179, 109, 0.14);
-    border-radius: 16px;
-    font-size: 0.95rem;
+    display: grid;
+    gap: 12px;
     color: var(--ink-soft);
     text-align: left;
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
 }
 
-#controls-hint p {
-    padding-top: 8px;
-    border-top: 1px solid rgba(216, 179, 109, 0.1);
+.controls-group {
+    padding: 13px 14px;
+    border: 1px solid rgba(216, 179, 109, 0.18);
+    border-radius: 16px;
+    background: rgba(255, 255, 255, 0.035);
 }
 
-#controls-hint p:first-child {
-    padding-top: 0;
-    border-top: none;
-}
-
-#controls-hint strong {
+.controls-group-label {
+    display: block;
+    margin-bottom: 9px;
+    color: var(--gold);
     font-family: var(--font-display);
-    font-size: 0.82rem;
+    font-size: 0.78rem;
     letter-spacing: 0.16em;
     text-transform: uppercase;
-    color: var(--gold);
+}
+
+.controls-help-list {
+    display: grid;
+    gap: 8px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    font-size: 1rem;
+    line-height: 1.25;
+}
+
+.controls-help-list li {
+    position: relative;
+    padding-left: 18px;
+}
+
+.controls-help-list li::before {
+    content: "";
+    position: absolute;
+    left: 0;
+    top: 0.55em;
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--gold);
+    box-shadow: 0 0 0 3px rgba(216, 179, 109, 0.12);
 }
 
 .touch-only {
@@ -1360,6 +1394,28 @@ input::placeholder {
 
     .stats-panel-header {
         gap: 10px;
+    }
+
+    .modal-overlay {
+        padding: 10px;
+    }
+
+    .controls-modal-content {
+        max-height: calc(100svh - 20px);
+        border-radius: 18px;
+    }
+
+    .controls-modal-body {
+        padding: 12px;
+    }
+
+    .controls-group {
+        padding: 12px;
+        border-radius: 14px;
+    }
+
+    .controls-help-list {
+        font-size: 0.96rem;
     }
 
     button {
@@ -1513,15 +1569,18 @@ input::placeholder {
         border-radius: 14px;
     }
 
-    #controls-hint {
-        padding: 10px;
-        gap: 6px;
-        font-size: 0.86rem;
-    }
-
     #stats-panel {
         padding: 10px;
         gap: 8px;
+    }
+
+    .controls-modal-body {
+        padding: 12px;
+    }
+
+    .controls-help-list {
+        gap: 7px;
+        font-size: 0.9rem;
     }
 
     .palette-item {
