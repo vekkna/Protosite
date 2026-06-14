@@ -107,8 +107,8 @@
             <div class="stats-panel-header">
                 <h3>How to Play</h3>
                 <button id="controls-help-btn" type="button" class="btn-grey" onclick="openControlsHelp()"
-                    aria-haspopup="dialog" aria-controls="controls-modal">Field Controls</button>
-                <button class="btn-grey" onclick="openRulebook()">Open Rulebook</button>
+                    aria-haspopup="dialog" aria-controls="controls-modal">Controls</button>
+                <button class="btn-grey" onclick="openRulebook()">Rulebook</button>
                 <h3 style="margin-top:0">Terrain</h3>
             </div>
             <p class="sidebar-description">Drag scenery onto the field.</p>
@@ -179,9 +179,9 @@
         <div class="modal-content" role="dialog" aria-modal="true" aria-labelledby="rulebook-modal-title"
             onclick="event.stopPropagation()">
             <div class="modal-header">
-                <h2 id="rulebook-modal-title" style="margin:0; color:#fff;">Battlefield Rules</h2>
+                <h2 id="rulebook-modal-title" style="margin:0; color:#fff;">Rulebook</h2>
                 <button class="btn-red" onclick="closeRulebook()" style="padding: 5px 10px;"
-                    aria-label="Close battlefield rules">X</button>
+                    aria-label="Close rulebook">X</button>
             </div>
             <div class="modal-body">
                 <iframe id="rulebook-frame"
