@@ -1248,24 +1248,15 @@ async function resetBoard(createUnits) {
     hideUnitTooltip();
     removeRangeRing();
 
-    const needsInitialStats = availableUnitRows.length === 0;
-    if (needsInitialStats) {
-        try {
-            await loadStats(true);
-        } catch (err) {
-            console.error("Unable to load unit stats during board reset:", err);
-        }
+    try {
+        await loadStats(true);
+    } catch (err) {
+        console.error("Unable to refresh unit stats during board reset:", err);
     }
 
     createUnits();
     createDefaultTerrain();
     saveGame();
-
-    if (!needsInitialStats) {
-        loadStats(true).catch(err => {
-            console.error("Unable to refresh unit stats after board reset:", err);
-        });
-    }
 }
 
 window.resetGame = async function () {
@@ -1382,13 +1373,23 @@ async function initGame() {
 }
 
 // --- UNIT DEPLOYMENT GENERATION ---
+function getStatsColumnValue(stats, columnName) {
+    if (!stats) return undefined;
+    const normalizedColumnName = columnName.trim().toLowerCase();
+    const matchingEntry = Object.entries(stats).find(([key]) =>
+        typeof key === 'string' && key.trim().toLowerCase() === normalizedColumnName
+    );
+
+    return matchingEntry ? matchingEntry[1] : undefined;
+}
+
 function getUnitQuantity(unitStats) {
-    const rawQuantity = unitStats ? unitStats.Quantity : undefined;
+    const rawQuantity = getStatsColumnValue(unitStats, 'Quantity');
     if (rawQuantity === undefined || rawQuantity === null || `${rawQuantity}`.trim() === "") {
         return 1;
     }
 
-    const quantity = Number(rawQuantity);
+    const quantity = Number(`${rawQuantity}`.trim().replace(/,/g, ''));
     if (!Number.isSafeInteger(quantity) || quantity < 0) {
         console.warn(`Invalid Quantity for "${unitStats.Unit || 'unknown unit'}"; using 1 copy instead:`, rawQuantity);
         return 1;
