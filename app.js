@@ -20,6 +20,9 @@ const TOOLTIP_HOVER_DELAY_MS = 350;
 const TOOLTIP_SUPPRESS_AFTER_MANIPULATION_MS = 300;
 const DRAG_THRESHOLD_PX = 8;
 const TOUCH_ROTATION_STEP_DEG = 5;
+const UNIT_LABEL_MAX_FONT_PX = 10.5;
+const UNIT_LABEL_MIN_FONT_PX = 4.5;
+const UNIT_LABEL_FONT_STEP_PX = 0.25;
 
 // --- CONVERSIONS ---
 const mmToInches = (mm) => mm / 25.4;
@@ -1096,6 +1099,32 @@ function appendRotationHandle(piece) {
     piece.appendChild(handle);
 }
 
+function fitUnitLabelText(unitEl) {
+    const label = unitEl.querySelector('.unit-label');
+    if (!label) return;
+
+    label.style.fontSize = `${UNIT_LABEL_MAX_FONT_PX}px`;
+
+    for (
+        let fontSize = UNIT_LABEL_MAX_FONT_PX;
+        fontSize >= UNIT_LABEL_MIN_FONT_PX;
+        fontSize -= UNIT_LABEL_FONT_STEP_PX
+    ) {
+        label.style.fontSize = `${fontSize}px`;
+
+        if (
+            label.scrollWidth <= label.clientWidth + 1 &&
+            label.scrollHeight <= label.clientHeight + 1
+        ) {
+            return;
+        }
+    }
+}
+
+function fitAllUnitLabels() {
+    document.querySelectorAll('.unit').forEach(fitUnitLabelText);
+}
+
 function createUnitDOM(name, color, x, y, angle, wounds, stats = null, activated = false) {
     const div = document.createElement('div');
     const unitStats = stats
@@ -1108,7 +1137,10 @@ function createUnitDOM(name, color, x, y, angle, wounds, stats = null, activated
     div.style.height = `${unitSize.height}px`;
     div.style.left = `${x}px`;
     div.style.top = `${y}px`;
-    div.innerText = name;
+    const label = document.createElement('span');
+    label.classList.add('unit-label');
+    label.textContent = name;
+    div.appendChild(label);
     div.dataset.name = name;
     div.dataset.angle = angle || 0;
     div.dataset.footprint = unitSize.footprint;
@@ -1182,6 +1214,7 @@ function createUnitDOM(name, color, x, y, angle, wounds, stats = null, activated
     attachListeners(div);
 
     table.appendChild(div);
+    fitUnitLabelText(div);
     return div;
 }
 
@@ -2031,10 +2064,17 @@ function fitTableToScreen() {
 
 window.addEventListener('resize', fitTableToScreen);
 
+if (document.fonts && document.fonts.ready) {
+    document.fonts.ready.then(fitAllUnitLabels).catch(err => {
+        console.warn('Unable to refit unit labels after font load:', err);
+    });
+}
+
 const originalRestoreBoardState = restoreBoardState;
 restoreBoardState = function (jsonString, suppressBroadcast = false) {
     originalRestoreBoardState(jsonString, suppressBroadcast);
     fitTableToScreen();
+    fitAllUnitLabels();
 };
 
 loadUIState();
@@ -2049,8 +2089,12 @@ initGame = async function () {
     await originalInitGame();
     updateBidUI();
     fitTableToScreen();
+    fitAllUnitLabels();
     // Second call to ensure layout is settled
-    setTimeout(fitTableToScreen, 100);
+    setTimeout(() => {
+        fitTableToScreen();
+        fitAllUnitLabels();
+    }, 100);
 };
 
 initGame();
