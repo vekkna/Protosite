@@ -805,7 +805,7 @@ input::placeholder {
     color: var(--ink-main);
     border: 1px solid rgba(245, 233, 205, 0.78);
     z-index: 10;
-    padding: 4px 5px;
+    padding: 0;
     line-height: 1.05;
     letter-spacing: 0;
     text-transform: uppercase;
@@ -816,7 +816,7 @@ input::placeholder {
     box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.34) inset, 0 8px 12px rgba(0, 0, 0, 0.18), 0 0 0 2px var(--unit-accent);
     border-radius: 6px;
     overflow-wrap: normal;
-    word-break: normal;
+    word-break: keep-all;
     hyphens: none;
 }
 
@@ -834,7 +834,7 @@ input::placeholder {
     pointer-events: none;
     white-space: normal;
     overflow-wrap: normal;
-    word-break: normal;
+    word-break: keep-all;
     hyphens: none;
 }
 

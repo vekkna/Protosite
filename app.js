@@ -1099,30 +1099,39 @@ function appendRotationHandle(piece) {
     piece.appendChild(handle);
 }
 
-function fitUnitLabelText(unitEl) {
-    const label = unitEl.querySelector('.unit-label');
-    if (!label) return;
+function unitLabelFits(label) {
+    return label.scrollWidth <= label.clientWidth + 1;
+}
 
-    label.style.fontSize = `${UNIT_LABEL_MAX_FONT_PX}px`;
+function fitAllUnitLabels() {
+    const labels = Array.from(document.querySelectorAll('.unit-label'));
+    if (!labels.length) return;
+
+    let sharedFontSize = UNIT_LABEL_MIN_FONT_PX;
 
     for (
         let fontSize = UNIT_LABEL_MAX_FONT_PX;
         fontSize >= UNIT_LABEL_MIN_FONT_PX;
         fontSize -= UNIT_LABEL_FONT_STEP_PX
     ) {
-        label.style.fontSize = `${fontSize}px`;
+        labels.forEach(label => {
+            label.style.fontSize = `${fontSize}px`;
+        });
 
-        if (
-            label.scrollWidth <= label.clientWidth + 1 &&
-            label.scrollHeight <= label.clientHeight + 1
-        ) {
-            return;
+        if (labels.every(unitLabelFits)) {
+            sharedFontSize = fontSize;
+            break;
         }
     }
+
+    labels.forEach(label => {
+        label.style.fontSize = `${sharedFontSize}px`;
+    });
 }
 
-function fitAllUnitLabels() {
-    document.querySelectorAll('.unit').forEach(fitUnitLabelText);
+function fitUnitLabelText(unitEl) {
+    if (!unitEl || !unitEl.querySelector('.unit-label')) return;
+    fitAllUnitLabels();
 }
 
 function createUnitDOM(name, color, x, y, angle, wounds, stats = null, activated = false) {
