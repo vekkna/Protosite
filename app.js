@@ -11,8 +11,6 @@ const UNIT_FOOTPRINTS_MM = {
     LN: { width: 88, depth: 126 }
 };
 const DEPLOY_INCHES = 6;
-const TERRAIN_DEFAULT_W = 6;
-const TERRAIN_DEFAULT_H = 4;
 const THREAT_RANGE_INCHES = 12;
 const SAVE_KEY = 'wargameSave_v6';
 const UI_STATE_KEY = 'wargameUiState_v1';
@@ -1227,10 +1225,10 @@ function createUnitDOM(name, color, x, y, angle, wounds, stats = null, activated
     return div;
 }
 
-function createTerrainDOM(subType, x, y, w, h, angle) {
-    if (!subType || subType === "undefined") subType = "rough";
-    const finalW = w || inchesToPx(TERRAIN_DEFAULT_W);
-    const finalH = h || inchesToPx(TERRAIN_DEFAULT_H);
+function createTerrainDOM(subType, x, y, _w, _h, angle) {
+    if (!subType || subType === "undefined" || subType === "rough") subType = "field";
+    const finalW = defaultUnitSizePx.width;
+    const finalH = defaultUnitSizePx.height;
 
     const div = document.createElement('div');
     div.classList.add('piece', 'terrain', subType);
@@ -1264,7 +1262,7 @@ window.undo = function () {
     restoreBoardState(previousState);
 };
 
-async function resetBoard(createUnits) {
+async function resetBoard(createUnits, shouldCreateTerrain = true) {
     localStorage.removeItem(SAVE_KEY);
 
     table.querySelectorAll('.unit, .terrain, .ghost, .range-ring').forEach(p => p.remove());
@@ -1297,12 +1295,14 @@ async function resetBoard(createUnits) {
     }
 
     createUnits();
-    createDefaultTerrain();
+    if (shouldCreateTerrain) {
+        createDefaultTerrain();
+    }
     saveGame();
 }
 
 window.resetGame = async function () {
-    await resetBoard(createDefaultUnits);
+    await resetBoard(createDefaultUnits, false);
 };
 
 window.resetLongSideDeployment = async function () {
@@ -1474,39 +1474,32 @@ function createDefaultUnits() {
         return;
     }
 
-    const cols = Math.min(4, Math.max(1, draftPool.length));
+    const cols = Math.ceil(Math.sqrt(draftPool.length));
     const rows = Math.ceil(draftPool.length / cols);
-    const padding = 20; // Space between units
-
     const unitSizes = draftPool.map(getUnitSizePx);
-    const colWidths = Array.from({ length: cols }, (_, col) =>
-        Math.max(...unitSizes.filter((_, i) => i % cols === col).map(size => size.width), 0)
-    );
-    const rowHeights = Array.from({ length: rows }, (_, row) =>
-        Math.max(...unitSizes.filter((_, i) => Math.floor(i / cols) === row).map(size => size.height), 0)
-    );
-
-    // Calculate total grid dimensions to center mixed footprint units.
-    const gridWidth = colWidths.reduce((total, width) => total + width, 0) + ((cols - 1) * padding);
-    const gridHeight = rowHeights.reduce((total, height) => total + height, 0) + ((rows - 1) * padding);
-
-    const startX = (tableWidthPx - gridWidth) / 2;
-    const startY = (tableHeightPx - gridHeight) / 2;
-    const colOffsets = colWidths.map((_, col) =>
-        colWidths.slice(0, col).reduce((total, width) => total + width + padding, 0)
-    );
-    const rowOffsets = rowHeights.map((_, row) =>
-        rowHeights.slice(0, row).reduce((total, height) => total + height + padding, 0)
-    );
+    const horizontalEdgePadding = inchesToPx(0.5);
+    const longEdgeClearance = inchesToPx(DEPLOY_INCHES);
+    const usableWidth = tableWidthPx - (horizontalEdgePadding * 2);
+    const rowHeights = Array.from({ length: rows }, (_, row) => {
+        const rowStart = row * cols;
+        return Math.max(...unitSizes.slice(rowStart, rowStart + cols).map(size => size.height));
+    });
+    const firstRowCenterY = longEdgeClearance + (rowHeights[0] / 2);
+    const lastRowCenterY = tableHeightPx - longEdgeClearance - (rowHeights[rows - 1] / 2);
 
     draftPool.forEach((unitStats, i) => {
         const name = unitStats.Unit;
-        const col = i % cols;
         const row = Math.floor(i / cols);
+        const rowStart = row * cols;
+        const unitsInRow = Math.min(cols, draftPool.length - rowStart);
+        const col = i - rowStart;
         const unitSize = unitSizes[i];
-
-        const x = startX + colOffsets[col] + ((colWidths[col] - unitSize.width) / 2);
-        const y = startY + rowOffsets[row] + ((rowHeights[row] - unitSize.height) / 2);
+        const centerX = horizontalEdgePadding + (usableWidth * (col + 0.5) / unitsInRow);
+        const centerY = rows === 1
+            ? tableHeightPx / 2
+            : firstRowCenterY + ((lastRowCenterY - firstRowCenterY) * row / (rows - 1));
+        const x = Math.max(0, Math.min(tableWidthPx - unitSize.width, centerX - (unitSize.width / 2)));
+        const y = centerY - (unitSize.height / 2);
 
         createUnitDOM(name, "#666", x, y, 0, 0, unitStats);
     });
@@ -1597,10 +1590,10 @@ function createLongSideDeploymentUnits() {
 
 // --- TERRAIN GENERATION ---
 function createDefaultTerrain() {
-    const terrainTypes = ['forest', 'forest', 'hills', 'hills', 'rough', 'rough'];
+    const terrainTypes = ['forest', 'forest', 'hills', 'hills', 'field', 'field'];
     terrainTypes.forEach((type) => {
-        const w = inchesToPx(TERRAIN_DEFAULT_W);
-        const h = inchesToPx(TERRAIN_DEFAULT_H);
+        const w = defaultUnitSizePx.width;
+        const h = defaultUnitSizePx.height;
         const x = Math.random() * (tableWidthPx - w - 100) + 50;
         const y = Math.random() * (inchesToPx(26) - inchesToPx(10)) + inchesToPx(10);
         const angle = Math.floor(Math.random() * 360);
@@ -1617,8 +1610,8 @@ window.spawnTerrain = function (type, event) {
 
     clearPieceSelection();
     pushUndo();
-    const w = inchesToPx(TERRAIN_DEFAULT_W);
-    const h = inchesToPx(TERRAIN_DEFAULT_H);
+    const w = defaultUnitSizePx.width;
+    const h = defaultUnitSizePx.height;
     const div = createTerrainDOM(type, (tableWidthPx - w) / 2, (tableHeightPx - h) / 2, w, h, 0);
     activePiece = div;
     pendingDragPiece = null;
@@ -1675,15 +1668,6 @@ window.addEventListener('keydown', (e) => {
 
     if (hoveredUnit) {
         adjustUnitWounds(hoveredUnit, isPlus ? 1 : -1);
-    }
-    else if (hoveredTerrain) {
-        pushUndo();
-        let w = parseFloat(hoveredTerrain.style.width);
-        let h = parseFloat(hoveredTerrain.style.height);
-        const factor = isPlus ? 1.1 : 0.9;
-        hoveredTerrain.style.width = `${w * factor}px`;
-        hoveredTerrain.style.height = `${h * factor}px`;
-        saveGame();
     }
 });
 

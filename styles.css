@@ -320,8 +320,16 @@ p {
     background: linear-gradient(135deg, rgba(114, 83, 51, 0.95), rgba(71, 49, 33, 0.95));
 }
 
-.palette-rough {
+.palette-field {
     background: linear-gradient(135deg, rgba(147, 127, 68, 0.96), rgba(102, 88, 43, 0.96));
+}
+
+.palette-swamp {
+    background: linear-gradient(135deg, rgba(49, 91, 80, 0.96), rgba(29, 57, 52, 0.96));
+}
+
+.palette-mountain {
+    background: linear-gradient(135deg, rgba(102, 107, 111, 0.96), rgba(55, 60, 64, 0.96));
 }
 
 /* --- BUTTONS --- */
@@ -940,31 +948,48 @@ input::placeholder {
     text-transform: uppercase;
     letter-spacing: 0.08em;
     font-size: 0.88rem;
+    border-radius: 6px;
+    background-position: center;
+    background-repeat: no-repeat;
+    background-size: cover;
 }
 
 .terrain.forest {
-    background:
-        radial-gradient(circle at 30% 30%, rgba(102, 153, 93, 0.35), transparent 35%),
-        radial-gradient(circle at 72% 38%, rgba(52, 95, 55, 0.35), transparent 30%),
-        linear-gradient(135deg, rgba(25, 71, 34, 0.92), rgba(12, 43, 21, 0.95));
+    background-image:
+        linear-gradient(rgba(8, 28, 15, 0.18), rgba(4, 18, 9, 0.48)),
+        url("images/forest.webp");
     border: 2px dashed rgba(171, 222, 136, 0.72);
-    border-radius: 50%;
 }
 
 .terrain.hills {
-    background:
-        radial-gradient(circle at 50% 30%, rgba(255, 255, 255, 0.12), transparent 35%),
-        linear-gradient(180deg, rgba(142, 108, 70, 0.92), rgba(95, 68, 40, 0.98));
+    background-image:
+        linear-gradient(rgba(56, 37, 20, 0.12), rgba(38, 24, 13, 0.44)),
+        url("images/hill.webp");
     border: 2px solid rgba(78, 55, 33, 0.95);
-    border-radius: 30% 70% 70% 30% / 30% 30% 70% 70%;
 }
 
-.terrain.rough {
-    background:
-        repeating-linear-gradient(135deg, rgba(214, 222, 165, 0.12) 0, rgba(214, 222, 165, 0.12) 10px, transparent 10px, transparent 22px),
-        linear-gradient(135deg, rgba(149, 142, 58, 0.96), rgba(111, 93, 41, 0.98));
-    border: 2px dotted rgba(243, 244, 195, 0.9);
-    border-radius: 20% 80% 40% 60% / 60% 40% 70% 30%;
+.terrain.field {
+    background-image:
+        linear-gradient(rgba(63, 48, 13, 0.1), rgba(42, 31, 8, 0.42)),
+        url("images/field.webp");
+    border: 2px solid rgba(243, 226, 142, 0.82);
+}
+
+.terrain.swamp {
+    background-image:
+        linear-gradient(rgba(11, 36, 31, 0.12), rgba(7, 26, 22, 0.46)),
+        url("images/swamp.webp");
+    border: 2px dashed rgba(137, 179, 144, 0.78);
+}
+
+.terrain.mountain {
+    background-image:
+        linear-gradient(rgba(28, 34, 38, 0.08), rgba(18, 23, 27, 0.44)),
+        url("images/mountain.webp");
+    background-size: cover, auto 120%;
+    border: 2px solid rgba(190, 197, 198, 0.72);
+    font-size: 0.65rem;
+    letter-spacing: 0.03em;
 }
 
 /* --- VISUAL FX --- */
@@ -1538,18 +1563,6 @@ input::placeholder {
     .terrain {
         box-shadow: none;
         text-shadow: none;
-    }
-
-    .terrain.forest {
-        background: #245a33;
-    }
-
-    .terrain.hills {
-        background: #7e6041;
-    }
-
-    .terrain.rough {
-        background: #77713a;
     }
 
     .ghost {
