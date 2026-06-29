@@ -1477,9 +1477,8 @@ function createDefaultUnits() {
     const cols = Math.ceil(Math.sqrt(draftPool.length));
     const rows = Math.ceil(draftPool.length / cols);
     const unitSizes = draftPool.map(getUnitSizePx);
-    const horizontalEdgePadding = inchesToPx(0.5);
+    const shortEdgeClearance = inchesToPx(2);
     const longEdgeClearance = inchesToPx(DEPLOY_INCHES);
-    const usableWidth = tableWidthPx - (horizontalEdgePadding * 2);
     const rowHeights = Array.from({ length: rows }, (_, row) => {
         const rowStart = row * cols;
         return Math.max(...unitSizes.slice(rowStart, rowStart + cols).map(size => size.height));
@@ -1494,11 +1493,16 @@ function createDefaultUnits() {
         const unitsInRow = Math.min(cols, draftPool.length - rowStart);
         const col = i - rowStart;
         const unitSize = unitSizes[i];
-        const centerX = horizontalEdgePadding + (usableWidth * (col + 0.5) / unitsInRow);
+        const firstUnitCenterX = shortEdgeClearance + (unitSizes[rowStart].width / 2);
+        const lastUnitCenterX = tableWidthPx - shortEdgeClearance
+            - (unitSizes[rowStart + unitsInRow - 1].width / 2);
+        const centerX = unitsInRow === 1
+            ? tableWidthPx / 2
+            : firstUnitCenterX + ((lastUnitCenterX - firstUnitCenterX) * col / (unitsInRow - 1));
         const centerY = rows === 1
             ? tableHeightPx / 2
             : firstRowCenterY + ((lastRowCenterY - firstRowCenterY) * row / (rows - 1));
-        const x = Math.max(0, Math.min(tableWidthPx - unitSize.width, centerX - (unitSize.width / 2)));
+        const x = centerX - (unitSize.width / 2);
         const y = centerY - (unitSize.height / 2);
 
         createUnitDOM(name, "#666", x, y, 0, 0, unitStats);
