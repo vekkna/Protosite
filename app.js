@@ -10,6 +10,9 @@ const UNIT_FOOTPRINTS_MM = {
     LW: { width: 177, depth: 63 },
     LN: { width: 88, depth: 126 }
 };
+const TERRAIN_TYPES = ['forest', 'hills', 'field', 'swamp', 'mountain'];
+const TERRAIN_NO_FEATURE_CARD = 'x';
+const TERRAIN_CARD_ANIMATION_MS = 180;
 const DEPLOY_INCHES = 6;
 const THREAT_RANGE_INCHES = 12;
 const SAVE_KEY = 'wargameSave_v6';
@@ -323,6 +326,10 @@ let pendingPointerMove = null;
 let pointerMoveFrame = null;
 let measurementPointerId = null;
 let undoStack = [];
+let terrainDeck = [];
+let terrainCardRemoveTimer = null;
+let terrainCardRevealTimer = null;
+let isTerrainCardAnimating = false;
 const MAX_UNDO = 20;
 
 const lineElement = document.getElementById('measure-line');
@@ -962,6 +969,7 @@ function getBoardState(options = {}) {
         cp2: document.getElementById('cp2').value,
         diceCount: document.getElementById('dice-count').value,
         startingPoolCount: document.getElementById('starting-pool-count').value,
+        terrainDeck: [...terrainDeck],
         bidVisibility: getNormalizedBidVisibility()
     };
 
@@ -1015,6 +1023,12 @@ function restoreBoardState(jsonString, suppressBroadcast = false) {
 
     const state = JSON.parse(jsonString);
     const data = Array.isArray(state) ? state : state.pieces;
+
+    cancelTerrainCardAnimation();
+    terrainDeck = !Array.isArray(state) && Array.isArray(state.terrainDeck)
+        ? state.terrainDeck.filter(card => TERRAIN_TYPES.includes(card) || card === TERRAIN_NO_FEATURE_CARD)
+        : [];
+    renderTerrainCard();
 
     if (!Array.isArray(state)) {
         const bidOwner = state.bidOwner === 'p1' || state.bidOwner === 'p2'
@@ -1302,10 +1316,16 @@ async function resetBoard(createUnits, shouldCreateTerrain = true) {
 }
 
 window.resetGame = async function () {
+    cancelTerrainCardAnimation();
+    terrainDeck = createShuffledTerrainDeck();
+    renderTerrainCard();
     await resetBoard(createDefaultUnits, false);
 };
 
 window.resetLongSideDeployment = async function () {
+    cancelTerrainCardAnimation();
+    terrainDeck = [];
+    renderTerrainCard();
     await resetBoard(createLongSideDeploymentUnits);
 };
 
@@ -1593,6 +1613,113 @@ function createLongSideDeploymentUnits() {
 }
 
 // --- TERRAIN GENERATION ---
+function createShuffledTerrainDeck() {
+    const deck = [
+        ...TERRAIN_TYPES.flatMap(type => [type, type]),
+        ...Array(10).fill(TERRAIN_NO_FEATURE_CARD)
+    ];
+
+    for (let i = deck.length - 1; i > 0; i--) {
+        const swapIndex = Math.floor(Math.random() * (i + 1));
+        [deck[i], deck[swapIndex]] = [deck[swapIndex], deck[i]];
+    }
+
+    return deck;
+}
+
+function getTerrainCardLabel(cardType) {
+    if (cardType === TERRAIN_NO_FEATURE_CARD) return 'X';
+    return cardType.charAt(0).toUpperCase() + cardType.slice(1);
+}
+
+function getTerrainCardAnimationDuration() {
+    const prefersReducedMotion = window.matchMedia
+        && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    return prefersReducedMotion ? 0 : TERRAIN_CARD_ANIMATION_MS;
+}
+
+function cancelTerrainCardAnimation() {
+    clearTimeout(terrainCardRemoveTimer);
+    clearTimeout(terrainCardRevealTimer);
+    terrainCardRemoveTimer = null;
+    terrainCardRevealTimer = null;
+    isTerrainCardAnimating = false;
+
+    const card = document.getElementById('terrain-card');
+    if (card) {
+        card.classList.remove('is-removing', 'is-revealing');
+    }
+}
+
+function animateTerrainCardAdvance() {
+    const card = document.getElementById('terrain-card');
+    if (!card) {
+        renderTerrainCard();
+        return;
+    }
+
+    const animationDuration = getTerrainCardAnimationDuration();
+    isTerrainCardAnimating = true;
+    card.classList.remove('is-revealing');
+    void card.offsetWidth;
+    card.classList.add('is-removing');
+
+    terrainCardRemoveTimer = setTimeout(() => {
+        terrainCardRemoveTimer = null;
+        card.classList.remove('is-removing');
+        renderTerrainCard();
+
+        if (animationDuration === 0) {
+            isTerrainCardAnimating = false;
+            return;
+        }
+
+        void card.offsetWidth;
+        card.classList.add('is-revealing');
+        terrainCardRevealTimer = setTimeout(() => {
+            terrainCardRevealTimer = null;
+            card.classList.remove('is-revealing');
+            isTerrainCardAnimating = false;
+        }, animationDuration);
+    }, animationDuration);
+}
+
+function renderTerrainCard() {
+    const card = document.getElementById('terrain-card');
+    const title = document.getElementById('terrain-card-title');
+    const note = document.getElementById('terrain-card-note');
+    if (!card || !title || !note) return;
+
+    card.classList.remove(
+        ...TERRAIN_TYPES.map(type => `terrain-card-${type}`),
+        'terrain-card-x',
+        'is-empty'
+    );
+
+    const revealedCard = terrainDeck[0];
+    if (!revealedCard) {
+        card.classList.add('is-empty');
+        card.dataset.cardType = '';
+        card.setAttribute('aria-disabled', 'true');
+        card.setAttribute('aria-label', 'Terrain deck empty. Use Reset Board to create a new deck.');
+        title.textContent = 'Deck Empty';
+        note.textContent = 'Use Reset Board';
+        return;
+    }
+
+    const label = getTerrainCardLabel(revealedCard);
+    card.classList.add(`terrain-card-${revealedCard}`);
+    card.dataset.cardType = revealedCard;
+    card.setAttribute('aria-disabled', 'false');
+    card.setAttribute('aria-label', revealedCard === TERRAIN_NO_FEATURE_CARD
+        ? 'Revealed X card. Drag to discard it and reveal the next card.'
+        : `Revealed ${label} card. Drag it onto the battlefield.`);
+    title.textContent = label;
+    note.textContent = revealedCard === TERRAIN_NO_FEATURE_CARD
+        ? 'Discard — no terrain'
+        : 'Drag onto battlefield';
+}
+
 function createDefaultTerrain() {
     const terrainTypes = ['forest', 'forest', 'hills', 'hills', 'field', 'field'];
     terrainTypes.forEach((type) => {
@@ -1605,7 +1732,7 @@ function createDefaultTerrain() {
     });
 }
 
-window.spawnTerrain = function (type, event) {
+function beginTerrainDrag(type, event, shouldPushUndo = true) {
     if (event && event.button !== 0) return;
     if (event) {
         event.preventDefault();
@@ -1613,7 +1740,7 @@ window.spawnTerrain = function (type, event) {
     }
 
     clearPieceSelection();
-    pushUndo();
+    if (shouldPushUndo) pushUndo();
     const w = defaultUnitSizePx.width;
     const h = defaultUnitSizePx.height;
     const div = createTerrainDOM(type, (tableWidthPx - w) / 2, (tableHeightPx - h) / 2, w, h, 0);
@@ -1630,6 +1757,30 @@ window.spawnTerrain = function (type, event) {
         event.currentTarget.setPointerCapture(event.pointerId);
     }
     saveGame();
+}
+
+window.spawnTerrain = function (type, event) {
+    beginTerrainDrag(type, event);
+};
+
+window.playTerrainCard = function (event) {
+    if (activePointerId !== null || isTerrainCardAnimating || !terrainDeck.length) return;
+    if (event && (event.button !== 0 || event.isPrimary === false)) return;
+    if (event) {
+        event.preventDefault();
+        event.stopPropagation();
+    }
+
+    pushUndo();
+    const revealedCard = terrainDeck.shift();
+    animateTerrainCardAdvance();
+
+    if (revealedCard === TERRAIN_NO_FEATURE_CARD) {
+        saveGame();
+        return;
+    }
+
+    beginTerrainDrag(revealedCard, event, false);
 };
 
 function attachListeners(element) {
@@ -2080,6 +2231,7 @@ updateMultiplayerControlsUI();
 updateFullscreenUI();
 updateRightSidebarUI();
 updateBidUI();
+renderTerrainCard();
 
 const originalInitGame = initGame;
 initGame = async function () {

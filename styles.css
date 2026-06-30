@@ -292,10 +292,19 @@ p {
     box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12), 0 14px 20px rgba(0, 0, 0, 0.26);
 }
 
+.terrain-card-kicker,
 .palette-title,
 .palette-note {
     position: relative;
     z-index: 1;
+}
+
+.terrain-card-kicker {
+    color: rgba(243, 231, 199, 0.78);
+    font-family: var(--font-display);
+    font-size: 0.62rem;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
 }
 
 .palette-title {
@@ -312,24 +321,106 @@ p {
     line-height: 1.15;
 }
 
-.palette-forest {
-    background: linear-gradient(135deg, rgba(35, 74, 47, 0.95), rgba(21, 48, 30, 0.95));
+.terrain-deck-card {
+    min-height: 104px;
+    gap: 7px;
+    background-position: center;
+    background-repeat: no-repeat;
+    background-size: cover;
+    text-shadow: 0 2px 4px rgba(0, 0, 0, 0.9);
 }
 
-.palette-hills {
-    background: linear-gradient(135deg, rgba(114, 83, 51, 0.95), rgba(71, 49, 33, 0.95));
+.terrain-deck-card .palette-title {
+    font-size: 1.1rem;
 }
 
-.palette-field {
-    background: linear-gradient(135deg, rgba(147, 127, 68, 0.96), rgba(102, 88, 43, 0.96));
+.terrain-deck-card .palette-note {
+    font-size: 0.78rem;
 }
 
-.palette-swamp {
-    background: linear-gradient(135deg, rgba(49, 91, 80, 0.96), rgba(29, 57, 52, 0.96));
+.terrain-card-forest {
+    background-image:
+        linear-gradient(rgba(8, 28, 15, 0.18), rgba(4, 18, 9, 0.58)),
+        url("images/forest.webp");
 }
 
-.palette-mountain {
-    background: linear-gradient(135deg, rgba(102, 107, 111, 0.96), rgba(55, 60, 64, 0.96));
+.terrain-card-hills {
+    background-image:
+        linear-gradient(rgba(56, 37, 20, 0.12), rgba(38, 24, 13, 0.54)),
+        url("images/hill.webp");
+}
+
+.terrain-card-field {
+    background-image:
+        linear-gradient(rgba(63, 48, 13, 0.1), rgba(42, 31, 8, 0.52)),
+        url("images/field.webp");
+}
+
+.terrain-card-swamp {
+    background-image:
+        linear-gradient(rgba(11, 36, 31, 0.12), rgba(7, 26, 22, 0.56)),
+        url("images/swamp.webp");
+}
+
+.terrain-card-mountain {
+    background-image:
+        linear-gradient(rgba(28, 34, 38, 0.08), rgba(18, 23, 27, 0.54)),
+        url("images/mountain.webp");
+    background-size: cover, auto 120%;
+}
+
+.terrain-card-x {
+    background:
+        linear-gradient(135deg, rgba(98, 28, 24, 0.96), rgba(42, 14, 13, 0.98));
+}
+
+.terrain-card-x .palette-title {
+    font-size: 2.4rem;
+}
+
+.terrain-deck-card.is-empty {
+    cursor: default;
+    background: linear-gradient(135deg, rgba(73, 67, 59, 0.82), rgba(35, 31, 27, 0.9));
+    filter: saturate(0.35);
+}
+
+.terrain-deck-card.is-removing {
+    animation: terrain-card-remove 180ms ease-in both;
+}
+
+.terrain-deck-card.is-revealing {
+    animation: terrain-card-reveal 180ms ease-out both;
+}
+
+@keyframes terrain-card-remove {
+    from {
+        opacity: 1;
+        transform: translateX(0) rotate(0) scale(1);
+    }
+
+    to {
+        opacity: 0;
+        transform: translateX(34px) rotate(4deg) scale(0.94);
+    }
+}
+
+@keyframes terrain-card-reveal {
+    from {
+        opacity: 0;
+        transform: translateX(-24px) rotate(-2deg) scale(0.96);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateX(0) rotate(0) scale(1);
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .terrain-deck-card.is-removing,
+    .terrain-deck-card.is-revealing {
+        animation: none;
+    }
 }
 
 /* --- BUTTONS --- */
@@ -1666,6 +1757,10 @@ input::placeholder {
     .palette-item {
         min-height: 42px;
         padding: 9px 8px;
+    }
+
+    .terrain-deck-card {
+        min-height: 90px;
     }
 
     button {
