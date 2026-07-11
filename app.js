@@ -15,6 +15,8 @@ const TERRAIN_NO_FEATURE_CARD = 'x';
 const TERRAIN_CARD_ANIMATION_MS = 180;
 const DEPLOY_INCHES = 6;
 const THREAT_RANGE_INCHES = 12;
+const UNIT_HIT_POINTS = 5;
+const ARCHER_SHOOTING_VALUES = [2, 3, 4];
 const SAVE_KEY = 'wargameSave_v6';
 const UI_STATE_KEY = 'wargameUiState_v1';
 const TOOLTIP_HOVER_DELAY_MS = 350;
@@ -358,6 +360,7 @@ function setModalVisibility(modalId, isVisible) {
 
 function openRulebook() {
     closeControlsHelp();
+    closeMatchupAnalysis();
     setModalVisibility('rulebook-modal', true);
 }
 
@@ -367,6 +370,7 @@ function closeRulebook() {
 
 function openControlsHelp() {
     closeRulebook();
+    closeMatchupAnalysis();
     setModalVisibility('controls-modal', true);
 }
 
@@ -374,10 +378,38 @@ function closeControlsHelp() {
     setModalVisibility('controls-modal', false);
 }
 
+async function openMatchupAnalysis() {
+    closeRulebook();
+    closeControlsHelp();
+    setModalVisibility('matchup-modal', true);
+
+    const results = document.getElementById('matchup-results');
+    if (results) {
+        results.replaceChildren();
+        const loading = document.createElement('p');
+        loading.className = 'matchup-status';
+        loading.textContent = 'Loading unit profiles…';
+        results.appendChild(loading);
+    }
+
+    try {
+        await loadStats();
+        renderMatchupAnalysis();
+    } catch (err) {
+        console.error('Unable to load matchup data:', err);
+        renderMatchupAnalysisError('Unit profiles could not be loaded. Please try again.');
+    }
+}
+
+function closeMatchupAnalysis() {
+    setModalVisibility('matchup-modal', false);
+}
+
 window.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') {
         closeRulebook();
         closeControlsHelp();
+        closeMatchupAnalysis();
     }
 });
 
@@ -1443,6 +1475,263 @@ function getStatsColumnValue(stats, columnName) {
     );
 
     return matchingEntry ? matchingEntry[1] : undefined;
+}
+
+function getFirstStatsColumnValue(stats, columnNames) {
+    for (const columnName of columnNames) {
+        const value = getStatsColumnValue(stats, columnName);
+        if (value !== undefined) return value;
+    }
+    return undefined;
+}
+
+function parseCombatStat(stats, columnNames) {
+    const rawValue = getFirstStatsColumnValue(stats, columnNames);
+    if (rawValue === undefined || rawValue === null || `${rawValue}`.trim() === '') return null;
+
+    const parsedValue = Number(`${rawValue}`.trim().replace(/,/g, ''));
+    return Number.isFinite(parsedValue) && parsedValue >= 0 ? parsedValue : null;
+}
+
+function getMatchupProfiles() {
+    const profilesByName = new Map();
+    let invalidProfileCount = 0;
+
+    availableUnitRows.forEach(stats => {
+        if (getUnitQuantity(stats) === 0) return;
+
+        const name = stats && stats.Unit ? `${stats.Unit}`.trim() : '';
+        const melee = parseCombatStat(stats, ['Melee']);
+        const defence = parseCombatStat(stats, ['Def', 'Def.', 'Defence', 'Defense']);
+
+        if (!name || melee === null || defence === null) {
+            invalidProfileCount += 1;
+            return;
+        }
+
+        if (!profilesByName.has(name)) {
+            profilesByName.set(name, { name, melee, defence });
+        }
+    });
+
+    return {
+        profiles: Array.from(profilesByName.values()).sort((a, b) => a.name.localeCompare(b.name)),
+        invalidProfileCount
+    };
+}
+
+function getExpectedExplodingDamage(melee, targetDefence) {
+    const minimumSuccessfulRoll = Math.ceil(targetDefence);
+    const successfulFaces = Math.max(0, Math.min(6, 7 - minimumSuccessfulRoll));
+
+    // Each six adds another identical roll, so expected hits per starting die
+    // are p(hit) / (1 - p(six)), which simplifies to successfulFaces / 5.
+    return melee * (successfulFaces / 5);
+}
+
+function getRoundsToDefeat(expectedDamage) {
+    if (expectedDamage <= 0) return Infinity;
+    return Math.ceil((UNIT_HIT_POINTS / expectedDamage) - 1e-10);
+}
+
+function analyseMatchup(unit, opponent) {
+    const unitDamage = getExpectedExplodingDamage(unit.melee, opponent.defence);
+    const opponentDamage = getExpectedExplodingDamage(opponent.melee, unit.defence);
+    const unitVictoryRound = getRoundsToDefeat(unitDamage);
+    const opponentVictoryRound = getRoundsToDefeat(opponentDamage);
+
+    if (!Number.isFinite(unitVictoryRound) && !Number.isFinite(opponentVictoryRound)) {
+        return {
+            unitDamage,
+            opponentDamage,
+            outcome: 'stalemate',
+            victor: 'Stalemate',
+            rounds: Infinity,
+            remainingHp: `${UNIT_HIT_POINTS.toFixed(2)} each`
+        };
+    }
+
+    if (unitVictoryRound === opponentVictoryRound) {
+        return {
+            unitDamage,
+            opponentDamage,
+            outcome: 'draw',
+            victor: 'Draw',
+            rounds: unitVictoryRound,
+            remainingHp: '0.00 each'
+        };
+    }
+
+    const unitWins = unitVictoryRound < opponentVictoryRound;
+    const rounds = unitWins ? unitVictoryRound : opponentVictoryRound;
+    const incomingDamage = unitWins ? opponentDamage : unitDamage;
+    const remainingHp = Math.max(0, UNIT_HIT_POINTS - (incomingDamage * rounds));
+
+    return {
+        unitDamage,
+        opponentDamage,
+        outcome: unitWins ? 'unit-win' : 'opponent-win',
+        victor: unitWins ? unit.name : opponent.name,
+        rounds,
+        remainingHp: remainingHp.toFixed(2)
+    };
+}
+
+function analyseArcherKillTurns(target, shooting) {
+    const expectedDamage = getExpectedExplodingDamage(shooting, target.defence);
+    return {
+        expectedDamage,
+        turns: getRoundsToDefeat(expectedDamage)
+    };
+}
+
+function formatExpectedDamage(value) {
+    return value.toFixed(2);
+}
+
+function formatTurns(value) {
+    return Number.isFinite(value) ? `${value}` : '∞';
+}
+
+function appendMatchupCell(row, text, className = '') {
+    const cell = document.createElement('td');
+    if (className) cell.className = className;
+    cell.textContent = text;
+    row.appendChild(cell);
+    return cell;
+}
+
+function renderMatchupAnalysisError(message) {
+    const results = document.getElementById('matchup-results');
+    if (!results) return;
+
+    const status = document.createElement('p');
+    status.className = 'matchup-status matchup-error';
+    status.textContent = message;
+    results.replaceChildren(status);
+}
+
+function renderMatchupAnalysis() {
+    const results = document.getElementById('matchup-results');
+    if (!results) return;
+
+    const { profiles, invalidProfileCount } = getMatchupProfiles();
+    if (!profiles.length) {
+        renderMatchupAnalysisError('No unit profiles with valid Melee and Def values were found.');
+        return;
+    }
+
+    const fragment = document.createDocumentFragment();
+    const summary = document.createElement('div');
+    summary.className = 'matchup-summary';
+
+    const summaryTitle = document.createElement('strong');
+    summaryTitle.textContent = `${profiles.length} units · ${profiles.length * profiles.length} ordered matchups`;
+    summary.appendChild(summaryTitle);
+
+    const summaryText = document.createElement('p');
+    summaryText.textContent = 'EV is expected damage per round. Each unit has 5 HP, attacks are simultaneous, archer kill times use Shooting 2/3/4 against each unit’s Def, and every recursively exploding six is included; no random simulation is used.';
+    summary.appendChild(summaryText);
+    fragment.appendChild(summary);
+
+    if (invalidProfileCount > 0) {
+        const warning = document.createElement('p');
+        warning.className = 'matchup-warning';
+        warning.textContent = `${invalidProfileCount} sheet row${invalidProfileCount === 1 ? '' : 's'} omitted because Melee or Def was missing or invalid.`;
+        fragment.appendChild(warning);
+    }
+
+    const archerSection = document.createElement('section');
+    archerSection.className = 'matchup-unit-group matchup-archer-section';
+
+    const archerHeader = document.createElement('div');
+    archerHeader.className = 'matchup-group-header';
+    const archerHeading = document.createElement('h3');
+    archerHeading.textContent = 'Archer kill times';
+    const archerStats = document.createElement('span');
+    archerStats.textContent = `Turns to deal ${UNIT_HIT_POINTS} expected damage`;
+    archerHeader.append(archerHeading, archerStats);
+    archerSection.appendChild(archerHeader);
+
+    const archerScroll = document.createElement('div');
+    archerScroll.className = 'matchup-table-scroll';
+    const archerTable = document.createElement('table');
+    archerTable.className = 'matchup-table matchup-archer-table';
+    const archerTableHead = document.createElement('thead');
+    const archerHeaderRow = document.createElement('tr');
+    ['Target', 'Def', ...ARCHER_SHOOTING_VALUES.map(shooting => `Shooting ${shooting}`)].forEach(label => {
+        const header = document.createElement('th');
+        header.scope = 'col';
+        header.textContent = label;
+        archerHeaderRow.appendChild(header);
+    });
+    archerTableHead.appendChild(archerHeaderRow);
+    archerTable.appendChild(archerTableHead);
+
+    const archerTableBody = document.createElement('tbody');
+    profiles.forEach(target => {
+        const row = document.createElement('tr');
+        appendMatchupCell(row, target.name, 'matchup-opponent');
+        appendMatchupCell(row, `${target.defence}`, 'matchup-number');
+        ARCHER_SHOOTING_VALUES.forEach(shooting => {
+            const analysis = analyseArcherKillTurns(target, shooting);
+            appendMatchupCell(row, formatTurns(analysis.turns), 'matchup-number');
+        });
+        archerTableBody.appendChild(row);
+    });
+    archerTable.appendChild(archerTableBody);
+    archerScroll.appendChild(archerTable);
+    archerSection.appendChild(archerScroll);
+    fragment.appendChild(archerSection);
+
+    profiles.forEach(unit => {
+        const group = document.createElement('section');
+        group.className = 'matchup-unit-group';
+
+        const groupHeader = document.createElement('div');
+        groupHeader.className = 'matchup-group-header';
+        const heading = document.createElement('h3');
+        heading.textContent = unit.name;
+        const stats = document.createElement('span');
+        stats.textContent = `Melee ${unit.melee} · Def ${unit.defence} · ${UNIT_HIT_POINTS} HP`;
+        groupHeader.append(heading, stats);
+        group.appendChild(groupHeader);
+
+        const tableScroll = document.createElement('div');
+        tableScroll.className = 'matchup-table-scroll';
+        const table = document.createElement('table');
+        table.className = 'matchup-table';
+        const tableHead = document.createElement('thead');
+        const headerRow = document.createElement('tr');
+        ['Opponent', `${unit.name} EV`, 'Opponent EV', 'Victor', 'Rounds', 'Victor HP'].forEach(label => {
+            const header = document.createElement('th');
+            header.scope = 'col';
+            header.textContent = label;
+            headerRow.appendChild(header);
+        });
+        tableHead.appendChild(headerRow);
+        table.appendChild(tableHead);
+
+        const tableBody = document.createElement('tbody');
+        profiles.forEach(opponent => {
+            const analysis = analyseMatchup(unit, opponent);
+            const row = document.createElement('tr');
+            row.className = `matchup-${analysis.outcome}`;
+            appendMatchupCell(row, opponent.name, 'matchup-opponent');
+            appendMatchupCell(row, formatExpectedDamage(analysis.unitDamage), 'matchup-number');
+            appendMatchupCell(row, formatExpectedDamage(analysis.opponentDamage), 'matchup-number');
+            appendMatchupCell(row, analysis.victor, 'matchup-victor');
+            appendMatchupCell(row, formatTurns(analysis.rounds), 'matchup-number');
+            appendMatchupCell(row, analysis.remainingHp, 'matchup-number');
+            tableBody.appendChild(row);
+        });
+        table.appendChild(tableBody);
+        tableScroll.appendChild(table);
+        group.appendChild(tableScroll);
+        fragment.appendChild(group);
+    });
+
+    results.replaceChildren(fragment);
 }
 
 function getUnitQuantity(unitStats) {

@@ -51,6 +51,8 @@
             <span class="sidebar-kicker">Battle Tools</span>
             <h3 style="margin-top:20px">Tools</h3>
             <button id="fullscreen-btn" type="button" class="btn-grey" onclick="toggleFullscreen()">Full Screen</button>
+            <button id="matchup-analysis-btn" type="button" class="btn-blue" onclick="openMatchupAnalysis()"
+                aria-haspopup="dialog" aria-controls="matchup-modal">Matchup Analysis</button>
             <span class="sidebar-kicker">Bid for Initiative</span>
             <div class="cp-container">
                 <div class="cp-field" data-bid-player="p1">
@@ -168,6 +170,23 @@
                             <li>Drag empty battlefield space to measure distance.</li>
                         </ul>
                     </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div id="matchup-modal" class="modal-overlay" onclick="closeMatchupAnalysis()" aria-hidden="true">
+        <div class="modal-content matchup-modal-content" role="dialog" aria-modal="true"
+            aria-labelledby="matchup-modal-title" onclick="event.stopPropagation()">
+            <div class="modal-header matchup-modal-header">
+                <div>
+                    <span class="matchup-modal-kicker">Expected-Value Combat</span>
+                    <h2 id="matchup-modal-title">Matchup Analysis</h2>
+                </div>
+                <button class="btn-red" onclick="closeMatchupAnalysis()" aria-label="Close matchup analysis">X</button>
+            </div>
+            <div class="modal-body matchup-modal-body">
+                <div id="matchup-results" aria-live="polite">
+                    <p class="matchup-status">Loading unit profiles…</p>
                 </div>
             </div>
         </div>
