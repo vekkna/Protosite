@@ -7,6 +7,7 @@
     <title>Seize the Day Wargame</title>
     <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
     <script src="https://unpkg.com/papaparse@5.4.1/papaparse.min.js"></script>
+    <link rel="icon" href="icons/defence.svg" type="image/svg+xml">
     <link rel="stylesheet" href="styles.css">
 </head>
 
@@ -43,8 +44,10 @@
                             onchange="normalizeStartingPoolCount()">
                     </div>
                     <div class="pool-actions">
-                        <button onclick="resetGame()" class="btn-grey">Reset Board</button>
-                        <button onclick="resetLongSideDeployment()" class="btn-blue">Reset Long Sides</button>
+                        <button id="new-rules-game-btn" type="button" onclick="startRulesGame()" class="btn-blue">New
+                            Rules Game</button>
+                        <button id="sandbox-quick-deploy-btn" type="button" onclick="resetLongSideDeployment()"
+                            class="btn-grey">Sandbox / Quick Deploy</button>
                     </div>
                 </div>
             </div>
@@ -86,6 +89,29 @@
             </div>
         </div>
         <div id="table-container">
+            <details id="game-guide" open>
+                <summary aria-label="Show or hide game guidance">
+                    <span class="guide-status">
+                        <span id="guide-mode" class="guide-mode">Sandbox</span>
+                        <span id="guide-phase">Free Play</span>
+                        <span id="guide-round">Round —</span>
+                        <span id="guide-player">Either player</span>
+                    </span>
+                    <span id="guide-prompt" role="status" aria-live="polite" aria-atomic="true">Move any piece or
+                        start a rules game.</span>
+                    <span class="guide-disclosure" aria-hidden="true"></span>
+                </summary>
+                <div class="guide-body">
+                    <div id="guide-actions" role="toolbar" aria-label="Available game actions"></div>
+                    <p id="guide-details">Legal choices will be highlighted on the battlefield.</p>
+                    <div class="game-log-controls">
+                        <button id="game-log-toggle" type="button" class="btn-grey" aria-controls="game-log"
+                            aria-expanded="false">Battle Log</button>
+                    </div>
+                    <ol id="game-log" role="log" aria-live="polite" aria-relevant="additions" hidden></ol>
+                </div>
+            </details>
+            <div id="game-toast" role="status" aria-live="polite" aria-atomic="true" hidden></div>
             <div id="game-table">
                 <div id="unit-tooltip" aria-hidden="true"></div>
                 <div id="angle-indicator" aria-hidden="true"></div>
@@ -150,24 +176,23 @@
                     <div class="controls-group mouse-only">
                         <span class="controls-group-label">Mouse and Keyboard</span>
                         <ul class="controls-help-list">
-                            <li>Host a game and give your opponent the code to join</li>
-                            <li>Set the game up with Reset Board</li>
-                            <li>Hide you bid, set it, then show it.</li>
-                            <li>Drag a unit or terrain to move it.</li>
+                            <li>Choose New Rules Game; the guide above the battlefield always shows the next choice.</li>
+                            <li>Click highlighted units and targets. Drag highlighted terrain or the active unit when prompted.</li>
+                            <li>Use a piece's rotation handle for a legal pivot, then choose its action in the guide.</li>
                             <li>Drag on the battlefield to measure distance.</li>
-                            <li>Mouse wheel, arrow keys, or the pop-up bar rotate pieces.</li>
-                            <li>+/- over a unit changes wounds.</li>
-                            <li>Z or Ctrl+Z undoes the last change.</li>
+                            <li>To play remotely, host the game, share the code, and let Player 2 join. The host confirms every rules action.</li>
+                            <li>Sandbox / Quick Deploy restores free movement, manual wounds, dice, rotation shortcuts, and undo.</li>
                             <li>F toggles full screen.</li>
                         </ul>
                     </div>
                     <div class="controls-group touch-only">
                         <span class="controls-group-label">Touch</span>
                         <ul class="controls-help-list">
-                            <li>Drag units or terrain with one finger.</li>
-                            <li>Select a piece to show movement controls.</li>
-                            <li>Use the pop-up controls to rotate pieces or adjust wounds.</li>
+                            <li>Play in landscape. The guide stays above the battlefield and can be collapsed for more room.</li>
+                            <li>Tap highlighted units or targets; drag terrain and moving units with one finger when prompted.</li>
+                            <li>Drag the circular rotation handle to spend one legal pivot.</li>
                             <li>Drag empty battlefield space to measure distance.</li>
+                            <li>Sandbox / Quick Deploy restores unrestricted piece controls.</li>
                         </ul>
                     </div>
                 </div>
@@ -207,6 +232,7 @@
             </div>
         </div>
     </div>
+    <script src="rules-engine.js"></script>
     <script src="app.js"></script>
 </body>
 

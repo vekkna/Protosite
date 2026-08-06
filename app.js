@@ -15,9 +15,10 @@ const TERRAIN_NO_FEATURE_CARD = 'x';
 const TERRAIN_CARD_ANIMATION_MS = 180;
 const DEPLOY_INCHES = 6;
 const THREAT_RANGE_INCHES = 12;
-const UNIT_HIT_POINTS = 5;
+const UNIT_HIT_POINTS = 7;
 const ARCHER_SHOOTING_VALUES = [2, 3, 4];
 const SAVE_KEY = 'wargameSave_v6';
+const REMOTE_CACHE_KEY = 'wargameRemoteView_v1';
 const UI_STATE_KEY = 'wargameUiState_v1';
 const TOOLTIP_HOVER_DELAY_MS = 350;
 const TOOLTIP_SUPPRESS_AFTER_MANIPULATION_MS = 300;
@@ -26,6 +27,11 @@ const TOUCH_ROTATION_STEP_DEG = 5;
 const UNIT_LABEL_MAX_FONT_PX = 10.5;
 const UNIT_LABEL_MIN_FONT_PX = 4.5;
 const UNIT_LABEL_FONT_STEP_PX = 0.25;
+const RULES_SAVE_SCHEMA_VERSION = 1;
+const PLAYER_COLORS = {
+    p1: '#594632',
+    p2: '#5d728e'
+};
 
 // --- CONVERSIONS ---
 const mmToInches = (mm) => mm / 25.4;
@@ -134,6 +140,10 @@ function updateBidUI() {
 }
 
 function toggleBidVisibility() {
+    if (rulesGame) {
+        showRulesToast('Bids reveal automatically after both players lock them in.', 'info');
+        return;
+    }
     const localPlayerKey = getLocalBidPlayerKey();
 
     if (localPlayerKey) {
@@ -149,6 +159,10 @@ function toggleBidVisibility() {
 }
 
 function handleCpBidChange(playerKey) {
+    if (rulesGame) {
+        renderRulesGuide();
+        return;
+    }
     const localPlayerKey = getLocalBidPlayerKey();
     if (localPlayerKey && playerKey !== localPlayerKey) {
         const input = getBidInput(playerKey);
@@ -295,8 +309,32 @@ table.style.height = `${tableHeightPx}px`;
 let peer = null;
 let conn = null;
 let isHost = false;
+let connectionSerial = 0;
 
 // --- GAME STATE ---
+let rulesGame = null;
+let isResettingBoard = false;
+let rulesTransientTerrain = null;
+let latestRulesEventRevision = 0;
+let rulesToastTimer = null;
+let rulesGuideCollapsed = false;
+let rulesAutomationBusy = false;
+let rulesActionSequence = 0;
+let rulesMoveDirection = null;
+let rulesRequestPending = false;
+let rulesRequestTimer = null;
+let rulesSessionGeneration = 0;
+let networkBidProtocol = {
+    roundKey: null,
+    secrets: {},
+    commitments: {},
+    pending: {},
+    revealStarted: false,
+    revealSent: false,
+    resolving: false,
+    resolved: false
+};
+let rulesEventPresentationQueue = Promise.resolve();
 let activePiece = null;
 let ghostPiece = null;
 let isMeasuring = false;
@@ -336,6 +374,137 @@ const MAX_UNDO = 20;
 
 const lineElement = document.getElementById('measure-line');
 const measureTextElement = document.getElementById('measure-text');
+
+function showRulesToast(message, tone = 'info', duration = 2300) {
+    const toast = document.getElementById('game-toast');
+    if (!toast || !message) return;
+    if (rulesToastTimer) clearTimeout(rulesToastTimer);
+    toast.textContent = message;
+    toast.dataset.tone = tone;
+    toast.hidden = false;
+    rulesToastTimer = setTimeout(() => {
+        toast.hidden = true;
+        rulesToastTimer = null;
+    }, duration);
+}
+
+function formatRulesEvent(event) {
+    if (!event) return '';
+    if (typeof event === 'string') return event;
+    if (event.message) return event.message;
+    if (event.text) return event.text;
+    const type = String(event.type || '').replace(/[._-]+/g, ' ').trim();
+    return type ? type.charAt(0).toUpperCase() + type.slice(1) : '';
+}
+
+function getRulesEventKey(event, fallbackIndex = 0) {
+    return String((event && (event.seq ?? event.id ?? event.eventId))
+        ?? `${rulesGame ? rulesGame.revision : 0}-${fallbackIndex}`);
+}
+
+function cancelActiveInteraction(options = {}) {
+    if (pointerMoveFrame) cancelAnimationFrame(pointerMoveFrame);
+    pointerMoveFrame = null;
+    pendingPointerMove = null;
+    if (activePiece) activePiece.classList.remove('is-dragging');
+    if (rotatingPiece) rotatingPiece.classList.remove('is-rotating');
+    if (ghostPiece) ghostPiece.remove();
+    if (rulesTransientTerrain && rulesTransientTerrain.isConnected) rulesTransientTerrain.remove();
+    activePiece = null;
+    ghostPiece = null;
+    pendingDragPiece = null;
+    rotatingPiece = null;
+    rulesTransientTerrain = null;
+    activePointerId = null;
+    activeTableRect = null;
+    measurementPointerId = null;
+    isDraggingPiece = false;
+    isMeasuring = false;
+    rotationDragUndoPushed = false;
+    rotationDragPointerDelta = 0;
+    rotationDragStartAngle = 0;
+    rotationDragLastPointerAngle = 0;
+    rotationDragCenterX = 0;
+    rotationDragCenterY = 0;
+    activePieceHalfWidth = 0;
+    activePieceHalfHeight = 0;
+    suppressTooltipUntil = Date.now() + TOOLTIP_SUPPRESS_AFTER_MANIPULATION_MS;
+    resetRotationPivot();
+    const indicator = document.getElementById('angle-indicator');
+    if (indicator) {
+        indicator.classList.remove('visible');
+        indicator.setAttribute('aria-hidden', 'true');
+    }
+    lineElement.style.opacity = 0;
+    measureTextElement.style.opacity = 0;
+    if (options.revert && rulesGame) renderRulesBoard();
+    positionPieceControls();
+}
+
+function appendRulesLogEvent(event, fallbackIndex = 0) {
+    const log = document.getElementById('game-log');
+    const message = formatRulesEvent(event);
+    if (!log || !message) return;
+    const key = getRulesEventKey(event, fallbackIndex);
+    if (Array.from(log.children).some(item => item.dataset.eventKey === key)) return;
+    const item = document.createElement('li');
+    item.dataset.eventKey = key;
+    item.textContent = message;
+    log.appendChild(item);
+    while (log.children.length > 40) log.firstElementChild.remove();
+    log.scrollTop = log.scrollHeight;
+}
+
+function presentRulesEvents(events = [], options = {}) {
+    const newEvents = Array.isArray(events) ? events : [];
+    newEvents.forEach((event, index) => {
+        appendRulesLogEvent(event, index);
+    });
+    const reduceMotion = window.matchMedia
+        && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    newEvents.forEach((event, index) => {
+        rulesEventPresentationQueue = rulesEventPresentationQueue.then(() => {
+            const rolls = event && (event.rolls || event.dice || event.results);
+            const message = formatRulesEvent(event);
+            if (Array.isArray(rolls) && rolls.length) renderDiceRoll(rolls);
+            if (message && options.toast !== false && (rolls || index === newEvents.length - 1)) {
+                showRulesToast(message, 'info', rolls ? 1700 : 2300);
+            }
+            if (!rolls) return undefined;
+            return new Promise(resolve => setTimeout(resolve, reduceMotion ? 20 : 430));
+        });
+    });
+    return rulesEventPresentationQueue;
+}
+
+function populateRulesLog() {
+    const log = document.getElementById('game-log');
+    if (!log) return;
+    log.replaceChildren();
+    const events = rulesGame && Array.isArray(rulesGame.eventLog)
+        ? rulesGame.eventLog.slice(-40)
+        : [];
+    events.forEach(appendRulesLogEvent);
+}
+
+const gameLogToggle = document.getElementById('game-log-toggle');
+if (gameLogToggle) {
+    gameLogToggle.addEventListener('click', event => {
+        event.preventDefault();
+        event.stopPropagation();
+        const log = document.getElementById('game-log');
+        if (!log) return;
+        log.hidden = !log.hidden;
+        gameLogToggle.setAttribute('aria-expanded', String(!log.hidden));
+        gameLogToggle.textContent = log.hidden ? 'Battle Log' : 'Hide Log';
+        requestAnimationFrame(fitTableToScreen);
+    });
+}
+
+const gameGuide = document.getElementById('game-guide');
+if (gameGuide) {
+    gameGuide.addEventListener('toggle', () => requestAnimationFrame(fitTableToScreen));
+}
 
 // --- RULEBOOK MODAL ---
 
@@ -632,11 +801,11 @@ function buildStatsMarkup(unitSource) {
                     <div class="stats-grid">
                         <div class="stat-chip">
                             <img class="stat-icon" src="icons/move.svg" alt="Move">
-                            <span class="stat-value">${getStatValue(stats, 'Move')}/${getStatValue(stats, 'Drill')}</span>
+                            <span class="stat-value">${getStatValue(stats, 'Speed', 'Move')}/${getStatValue(stats, 'Drill')}</span>
                         </div>
                         <div class="stat-chip">
                             <img class="stat-icon" src="icons/shoot.svg" alt="Shoot">
-                            <span class="stat-value">${getStatValue(stats, 'Shoot')}</span>
+                            <span class="stat-value">${getStatValue(stats, 'Ranged', 'Shoot')}</span>
                         </div>
                         <div class="stat-chip">
                             <img class="stat-icon" src="icons/strike.svg" alt="Melee">
@@ -824,6 +993,35 @@ function setPieceAngle(piece, nextAngle, angleDelta = null) {
 
 function rotatePiece(piece, delta) {
     if (!piece) return;
+    if (rulesGame) {
+        if (!canRulesRotatePiece(piece)) {
+            showRulesToast('That piece cannot pivot during this step.', 'warning');
+            return;
+        }
+        const previousAngle = parseFloat(piece.dataset.angle) || 0;
+        const nextAngle = previousAngle + delta;
+        const pivotAction = getVisibleRulesActions().find(action => getActionType(action) === 'activation.pivot');
+        if (!pivotAction) {
+            // Deployment facing is committed together with the deployment move.
+            setPieceAngle(piece, nextAngle, delta);
+            return;
+        }
+        dispatchRulesAction({
+            ...pivotAction,
+            unitId: piece.dataset.pieceId,
+            angle: nextAngle,
+            delta,
+            degrees: delta,
+            payload: {
+                ...(pivotAction.payload || {}),
+                unitId: piece.dataset.pieceId,
+                angle: nextAngle,
+                delta,
+                degrees: delta
+            }
+        });
+        return;
+    }
     suppressUnitTooltip();
     pushUndo();
     const previousAngle = parseFloat(piece.dataset.angle) || 0;
@@ -833,6 +1031,10 @@ function rotatePiece(piece, delta) {
 
 function adjustUnitWounds(unit, delta) {
     if (!unit || !unit.classList.contains('unit')) return;
+    if (rulesGame) {
+        showRulesToast('Wounds are applied automatically after an attack.', 'info');
+        return;
+    }
     const wounds = parseInt(unit.dataset.wounds, 10) || 0;
     const nextWounds = Math.max(0, wounds + delta);
     if (nextWounds === wounds) return;
@@ -847,6 +1049,24 @@ function adjustUnitWounds(unit, delta) {
 }
 
 function handlePieceTap(piece, event) {
+    if (rulesGame && piece.classList.contains('unit')) {
+        const pieceId = piece.dataset.pieceId;
+        const actions = getVisibleRulesActions();
+        const directAction = actions.find(action => {
+            const type = getActionType(action);
+            if (type === 'activation.shoot' || type === 'activation.strike') {
+                return getRulesActionEntityId(action, 'targetId') === pieceId;
+            }
+            if (type === 'draft.chooseUnit' || type === 'activation.selectUnit') {
+                return getRulesActionEntityId(action, 'unitId') === pieceId;
+            }
+            return false;
+        });
+        if (directAction) {
+            dispatchRulesAction(directAction);
+            return;
+        }
+    }
     selectPiece(piece);
 }
 
@@ -883,15 +1103,25 @@ unitTooltip.addEventListener('click', handleSelectedPieceControlClick);
 
 function generateShortId() {
     const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+    const randomValues = new Uint8Array(8);
+    if (window.crypto && window.crypto.getRandomValues) {
+        window.crypto.getRandomValues(randomValues);
+    } else {
+        randomValues.forEach((_, index) => { randomValues[index] = Math.floor(Math.random() * 256); });
+    }
     let result = '';
-    for (let i = 0; i < 4; i++) {
-        result += chars.charAt(Math.floor(Math.random() * chars.length));
+    for (let i = 0; i < randomValues.length; i++) {
+        result += chars.charAt(randomValues[i] % chars.length);
     }
     return result;
 }
 
 function hostGame() {
     if (peer) return;
+    if (rulesGame && rulesGame.projection && rulesGame.projection.authoritative === false) {
+        showRulesToast('This is a read-only view from another host. Start a new game or Sandbox before hosting.', 'warning', 5000);
+        return;
+    }
     updateStatus("Initializing...");
     const shortId = generateShortId();
     peer = new Peer(shortId);
@@ -904,9 +1134,13 @@ function hostGame() {
     });
 
     peer.on('connection', (c) => {
+        if (conn) {
+            c.on('open', () => c.close());
+            c.close();
+            return;
+        }
         conn = c;
         setupConnection();
-        setTimeout(() => sendData({ type: 'SYNC_BOARD', payload: getBoardState({ forNetwork: true }) }), 500);
     });
     peer.on('error', (err) => {
         console.error(err);
@@ -920,6 +1154,10 @@ function hostGame() {
 function joinGame() {
     const hostId = document.getElementById('join-input').value.trim();
     if (!hostId) return alert("Enter a Host ID");
+    if (peer && !conn) {
+        try { peer.destroy(); } catch (err) { console.warn('Unable to close the previous peer session:', err); }
+        peer = null;
+    }
     updateStatus("Connecting...");
     peer = new Peer();
     peer.on('open', () => {
@@ -934,33 +1172,145 @@ function joinGame() {
 
 function setupConnection() {
     if (!conn) return;
-    conn.on('open', () => {
+    const activeConnection = conn;
+    const activeConnectionSerial = ++connectionSerial;
+    activeConnection.on('open', () => {
+        if (conn !== activeConnection || activeConnectionSerial !== connectionSerial) return;
         updateStatus("Connected!");
+        networkBidProtocol = {
+            roundKey: null,
+            secrets: {},
+            commitments: {},
+            pending: {},
+            revealStarted: false,
+            revealSent: false,
+            resolving: false,
+            resolved: false
+        };
         document.getElementById('status-indicator').classList.add('status-connected');
         updateBidUI();
+        renderRulesGuide();
+        if (isHost) {
+            sendAuthoritativeState([]);
+        } else {
+            sendData({ type: 'SESSION_HELLO', supportedSchema: RULES_SAVE_SCHEMA_VERSION });
+        }
     });
-    conn.on('data', (data) => {
+    activeConnection.on('data', (data) => {
+        if (conn !== activeConnection || activeConnectionSerial !== connectionSerial) return;
         handleIncomingData(data);
     });
-    conn.on('close', () => {
+    activeConnection.on('close', () => {
+        if (conn !== activeConnection || activeConnectionSerial !== connectionSerial) return;
         updateStatus("Disconnected");
         document.getElementById('status-indicator').classList.remove('status-connected');
         conn = null;
-        isHost = false;
+        rulesRequestPending = false;
+        if (rulesRequestTimer) clearTimeout(rulesRequestTimer);
+        rulesRequestTimer = null;
         updateMultiplayerControlsUI();
         updateBidUI();
+        renderRulesGuide();
     });
 }
 
 function handleIncomingData(data) {
+    if (!data || typeof data !== 'object') return;
+
+    if (data.type === 'SESSION_HELLO' && isHost) {
+        sendAuthoritativeState([]);
+        return;
+    }
+    if (data.type === 'RULES_RESYNC_REQUEST' && isHost) {
+        sendAuthoritativeState([]);
+        return;
+    }
+    if (data.type === 'RULES_BID_COMMIT') {
+        handleNetworkBidCommit(data).catch(err => {
+            console.error('Unable to record bid commitment:', err);
+            showRulesToast(err.message, 'warning');
+        });
+        return;
+    }
+    if (data.type === 'RULES_BID_REVEAL_REQUEST') {
+        handleNetworkBidRevealRequest(data).catch(err => {
+            console.error('Unable to reveal committed bid:', err);
+            showRulesToast(err.message, 'warning');
+        });
+        return;
+    }
+    if (data.type === 'RULES_BID_REVEAL' && isHost) {
+        resolveCommittedNetworkBids(data).catch(err => console.error('Unable to resolve bids:', err));
+        return;
+    }
+    if (data.type === 'RULES_ACTION' && isHost) {
+        if (!rulesGame || (rulesGame.projection && rulesGame.projection.authoritative === false)) {
+            sendData({
+                type: 'RULES_REJECT',
+                message: 'The host does not currently have an authoritative rules game.'
+            });
+            if (!rulesGame) sendData({ type: 'SYNC_BOARD', payload: getBoardState({ forNetwork: true }) });
+            return;
+        }
+        if (!data.action || data.action.type === 'bid.submit'
+            || data.matchId !== rulesGame.matchId
+            || !Number.isFinite(Number(data.expectedRevision))) {
+            sendData({
+                type: 'RULES_REJECT',
+                message: data.action && data.action.type === 'bid.submit'
+                    ? 'Network bids must use the secure commit-and-reveal flow.'
+                    : 'That action does not belong to the current game.',
+                payload: buildPlayerBoardState('p2')
+            });
+            return;
+        }
+        if (rulesAutomationBusy) {
+            sendData({
+                type: 'RULES_REJECT',
+                message: 'The host is resolving an automatic step. Try again now.',
+                payload: buildPlayerBoardState('p2')
+            });
+            return;
+        }
+        dispatchRulesAction({ ...data.action, actorId: 'p2' }, {
+            source: 'remote',
+            expectedRevision: data.expectedRevision
+        });
+        return;
+    }
+    if (data.type === 'RULES_STATE' && !isHost) {
+        receiveAuthoritativeState(data.payload, data.events || [], {
+            matchId: data.matchId,
+            revision: data.revision
+        });
+        return;
+    }
+    if (data.type === 'RULES_REJECT' && !isHost) {
+        rulesRequestPending = false;
+        if (rulesRequestTimer) clearTimeout(rulesRequestTimer);
+        rulesRequestTimer = null;
+        showRulesToast(data.message || 'That action is no longer legal.', 'warning');
+        if (data.payload) receiveAuthoritativeState(data.payload, []);
+        return;
+    }
     if (data.type === 'SYNC_BOARD') {
-        restoreBoardState(data.payload, true);
+        if (isHost) {
+            if (rulesGame || isResettingBoard || incomingPayloadUsesRulesMode(data.payload)) return;
+        }
+        try {
+            restoreBoardState(data.payload, true);
+        } catch (err) {
+            console.warn('Ignored an unreadable shared sandbox state:', err);
+            if (isHost) sendData({ type: 'SYNC_BOARD', payload: getBoardState({ forNetwork: true }) });
+        }
     }
     else if (data.type === 'ROLL_DICE') {
+        if (rulesGame) return;
         const incomingRolls = Array.isArray(data.rolls) ? data.rolls : [];
         renderDiceRoll(incomingRolls.length ? incomingRolls : createPlaceholderRoll(data.count || 2));
     }
     else if (data.type === 'BID_VISIBILITY') {
+        if (rulesGame) return;
         bidVisibility = getNormalizedBidVisibility({
             ...bidVisibility,
             [data.player]: data.visible !== false
@@ -968,9 +1318,486 @@ function handleIncomingData(data) {
         updateBidUI();
     }
     else if (data.type === 'TOGGLE_BIDS') {
+        if (rulesGame) return;
         const legacyVisible = data.payload !== true;
         bidVisibility = { p1: legacyVisible, p2: legacyVisible };
         updateBidUI();
+    }
+}
+
+function buildPlayerBoardState(playerId = null) {
+    const state = JSON.parse(getBoardState());
+    if (state.rulesGame) {
+        if (!window.SeizeTheDayRules || typeof SeizeTheDayRules.projectState !== 'function') {
+            throw new Error('Cannot safely prepare a private player view without the rules projector.');
+        }
+        state.rulesGame = SeizeTheDayRules.projectState(state.rulesGame, playerId);
+        delete state.cp1;
+        delete state.cp2;
+        delete state.bidVisibility;
+    }
+    return JSON.stringify(state);
+}
+
+function sendAuthoritativeState(events = []) {
+    if (!isHost || !conn || !conn.open) return;
+    if (!rulesGame) {
+        sendData({ type: 'SYNC_BOARD', payload: getBoardState({ forNetwork: true }) });
+        return;
+    }
+    if (rulesGame.projection && rulesGame.projection.authoritative === false) {
+        console.error('Refused to broadcast a projected rules state as authoritative.');
+        return;
+    }
+    try {
+        sendData({
+            type: 'RULES_STATE',
+            payload: buildPlayerBoardState('p2'),
+            matchId: rulesGame.matchId,
+            revision: rulesGame.revision,
+            events: projectRulesEvents(events, 'p2')
+        });
+    } catch (err) {
+        console.error('Unable to prepare the private remote game state:', err);
+    }
+}
+
+function projectRulesEvents(events = [], viewerId = null) {
+    return (Array.isArray(events) ? events : []).map(event => {
+        if (!event || typeof event !== 'object') return event;
+        const type = String(event.type || '').toLowerCase();
+        if (!type.includes('bid') || type.includes('reveal')) return { ...event };
+        const actorId = event.actorId || event.playerId || (event.data && event.data.playerId);
+        return {
+            type: event.type,
+            seq: event.seq,
+            actorId,
+            message: `${actorId === 'p2' ? 'Player 2' : 'Player 1'} locked a secret bid.`
+        };
+    });
+}
+
+function getConnectedRulesPlayer() {
+    if (!conn) return null;
+    return isHost ? 'p1' : 'p2';
+}
+
+function getNetworkBidRoundKey() {
+    return rulesGame ? `${rulesGame.matchId || 'match'}:${rulesGame.round && rulesGame.round.number || 0}` : null;
+}
+
+function incomingPayloadUsesRulesMode(payload) {
+    try {
+        const state = typeof payload === 'string' ? JSON.parse(payload) : payload;
+        return Boolean(state && !Array.isArray(state)
+            && (state.mode === 'rules' || state.rulesGame));
+    } catch (err) {
+        return true;
+    }
+}
+
+function isValidBidCommitment(value) {
+    return typeof value === 'string' && /^[a-f0-9]{64}$/i.test(value);
+}
+
+function syncNetworkBidProtocol() {
+    const roundKey = getNetworkBidRoundKey();
+    if (networkBidProtocol.roundKey === roundKey) return;
+    networkBidProtocol = {
+        roundKey,
+        secrets: {},
+        commitments: {},
+        pending: {},
+        revealStarted: false,
+        revealSent: false,
+        resolving: false,
+        resolved: false
+    };
+}
+
+function randomBidNonce() {
+    const values = new Uint32Array(4);
+    window.crypto.getRandomValues(values);
+    return Array.from(values, value => value.toString(36)).join('-');
+}
+
+async function hashBidCommitment(playerId, bid, nonce, roundKey = getNetworkBidRoundKey()) {
+    if (!window.crypto || !window.crypto.subtle || typeof TextEncoder === 'undefined') {
+        throw new Error('Secure bid commitments are unavailable in this browser.');
+    }
+    const bytes = new TextEncoder().encode(`${roundKey}|${playerId}|${bid}|${nonce}`);
+    const digest = await window.crypto.subtle.digest('SHA-256', bytes);
+    return Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, '0')).join('');
+}
+
+async function commitNetworkBid(action) {
+    syncNetworkBidProtocol();
+    const playerId = getConnectedRulesPlayer();
+    if (!playerId) return false;
+    if (!rulesGame || rulesGame.phase !== 'bid' || rulesGame.round.bidStage !== 'commit') {
+        showRulesToast('Bidding is not open right now.', 'warning');
+        return false;
+    }
+    if (!conn || !conn.open) {
+        showRulesToast('The opponent connection is not ready yet.', 'warning');
+        return false;
+    }
+    if (networkBidProtocol.secrets[playerId] || networkBidProtocol.pending[playerId]) {
+        showRulesToast('Your bid is already committed for this round.', 'info');
+        return false;
+    }
+    const bid = Math.floor(Number(action.bid ?? action.value));
+    const maximum = getLivingRulesUnitCount(playerId);
+    if (!Number.isFinite(bid) || bid < 1 || bid > maximum) {
+        showRulesToast(`Choose a bid from 1 to ${maximum}.`, 'warning');
+        return false;
+    }
+    const protocol = networkBidProtocol;
+    const roundKey = protocol.roundKey;
+    const activeConnection = conn;
+    const activeConnectionSerial = connectionSerial;
+    const activeSessionGeneration = rulesSessionGeneration;
+    const matchId = rulesGame.matchId;
+    const revision = rulesGame.revision;
+    const nonce = randomBidNonce();
+    protocol.pending[playerId] = true;
+    renderRulesGuide();
+    try {
+        const commitment = await hashBidCommitment(playerId, bid, nonce, roundKey);
+        if (networkBidProtocol !== protocol
+            || protocol.roundKey !== roundKey
+            || conn !== activeConnection
+            || !activeConnection.open
+            || connectionSerial !== activeConnectionSerial
+            || rulesSessionGeneration !== activeSessionGeneration
+            || !rulesGame
+            || rulesGame.matchId !== matchId
+            || rulesGame.revision !== revision
+            || rulesGame.phase !== 'bid'
+            || rulesGame.round.bidStage !== 'commit') {
+            throw new Error('The game changed while the bid was being secured. Please bid again.');
+        }
+        protocol.secrets[playerId] = { bid, nonce };
+        protocol.commitments[playerId] = commitment;
+        sendData({
+            type: 'RULES_BID_COMMIT',
+            playerId,
+            roundKey,
+            commitment
+        });
+        showRulesToast('Secret bid committed. Waiting for the other player.', 'info');
+        if (isHost) maybeBeginNetworkBidReveal();
+        return true;
+    } finally {
+        if (networkBidProtocol === protocol) protocol.pending[playerId] = false;
+        renderRulesGuide();
+    }
+}
+
+function maybeBeginNetworkBidReveal() {
+    if (!isHost || networkBidProtocol.revealStarted || networkBidProtocol.resolved) return;
+    if (!networkBidProtocol.commitments.p1 || !networkBidProtocol.commitments.p2) return;
+    const hostSecret = networkBidProtocol.secrets.p1;
+    if (!hostSecret) return;
+    networkBidProtocol.revealStarted = true;
+    sendData({
+        type: 'RULES_BID_REVEAL_REQUEST',
+        roundKey: networkBidProtocol.roundKey,
+        commitments: { ...networkBidProtocol.commitments },
+        hostReveal: { bid: hostSecret.bid, nonce: hostSecret.nonce }
+    });
+}
+
+async function handleNetworkBidCommit(data) {
+    syncNetworkBidProtocol();
+    if (data.roundKey !== networkBidProtocol.roundKey) return;
+    if (isHost) {
+        if (data.playerId !== 'p2' || !isValidBidCommitment(data.commitment)) return;
+        if (networkBidProtocol.revealStarted) return;
+        if (networkBidProtocol.commitments.p2 && networkBidProtocol.commitments.p2 !== data.commitment) {
+            sendData({ type: 'RULES_REJECT', message: 'A secret bid commitment cannot be changed.', payload: buildPlayerBoardState('p2') });
+            return;
+        }
+        networkBidProtocol.commitments.p2 = data.commitment;
+        if (networkBidProtocol.commitments.p1) {
+            sendData({
+                type: 'RULES_BID_COMMIT',
+                playerId: 'p1',
+                roundKey: networkBidProtocol.roundKey,
+                commitment: networkBidProtocol.commitments.p1
+            });
+        }
+        maybeBeginNetworkBidReveal();
+    } else if (data.playerId === 'p1' && isValidBidCommitment(data.commitment)) {
+        if (networkBidProtocol.commitments.p1 && networkBidProtocol.commitments.p1 !== data.commitment) {
+            showRulesToast('The host attempted to change its bid commitment.', 'warning', 5000);
+            return;
+        }
+        networkBidProtocol.commitments.p1 = data.commitment;
+    }
+}
+
+async function handleNetworkBidRevealRequest(data) {
+    if (isHost) return;
+    syncNetworkBidProtocol();
+    if (data.roundKey !== networkBidProtocol.roundKey) return;
+    const secret = networkBidProtocol.secrets.p2;
+    const protocol = networkBidProtocol;
+    if (!secret || !data.hostReveal || !data.commitments
+        || protocol.resolved || protocol.revealSent || protocol.resolving) return;
+    if (!isValidBidCommitment(data.commitments.p1)
+        || !isValidBidCommitment(data.commitments.p2)
+        || !isValidBidCommitment(protocol.commitments.p1)
+        || !isValidBidCommitment(protocol.commitments.p2)
+        || data.commitments.p1 !== protocol.commitments.p1
+        || data.commitments.p2 !== protocol.commitments.p2) {
+        showRulesToast('The bid commitments changed before reveal.', 'warning', 5000);
+        return;
+    }
+    const activeConnection = conn;
+    const activeConnectionSerial = connectionSerial;
+    const activeSessionGeneration = rulesSessionGeneration;
+    const revision = rulesGame && rulesGame.revision;
+    protocol.resolving = true;
+    try {
+        const hostHash = await hashBidCommitment('p1', data.hostReveal.bid, data.hostReveal.nonce, data.roundKey);
+        if (networkBidProtocol !== protocol
+            || conn !== activeConnection
+            || !activeConnection
+            || !activeConnection.open
+            || connectionSerial !== activeConnectionSerial
+            || rulesSessionGeneration !== activeSessionGeneration
+            || !rulesGame
+            || rulesGame.revision !== revision
+            || data.roundKey !== protocol.roundKey) return;
+        if (hostHash !== protocol.commitments.p1) {
+            showRulesToast('The host’s bid reveal did not match its commitment.', 'warning', 5000);
+            return;
+        }
+        protocol.revealStarted = true;
+        protocol.revealSent = true;
+        sendData({
+            type: 'RULES_BID_REVEAL',
+            playerId: 'p2',
+            roundKey: data.roundKey,
+            bid: secret.bid,
+            nonce: secret.nonce
+        });
+    } finally {
+        if (networkBidProtocol === protocol) protocol.resolving = false;
+    }
+}
+
+async function resolveCommittedNetworkBids(guestReveal) {
+    syncNetworkBidProtocol();
+    const protocol = networkBidProtocol;
+    if (!isHost || rulesAutomationBusy || protocol.resolved || protocol.resolving
+        || !protocol.revealStarted) return;
+    const hostSecret = protocol.secrets.p1;
+    if (!hostSecret || !guestReveal || guestReveal.playerId !== 'p2'
+        || guestReveal.roundKey !== protocol.roundKey
+        || !isValidBidCommitment(protocol.commitments.p2)) return;
+    const activeConnection = conn;
+    const activeConnectionSerial = connectionSerial;
+    const activeSessionGeneration = rulesSessionGeneration;
+    const revision = rulesGame && rulesGame.revision;
+    const matchId = rulesGame && rulesGame.matchId;
+    protocol.resolving = true;
+    rulesAutomationBusy = true;
+    try {
+        const guestHash = await hashBidCommitment('p2', guestReveal.bid, guestReveal.nonce, guestReveal.roundKey);
+        if (networkBidProtocol !== protocol
+            || conn !== activeConnection
+            || !activeConnection
+            || !activeConnection.open
+            || connectionSerial !== activeConnectionSerial
+            || rulesSessionGeneration !== activeSessionGeneration
+            || !rulesGame
+            || rulesGame.matchId !== matchId
+            || rulesGame.revision !== revision
+            || rulesGame.phase !== 'bid'
+            || rulesGame.round.bidStage !== 'commit') return;
+        if (guestHash !== protocol.commitments.p2) {
+            sendData({ type: 'RULES_REJECT', message: 'The guest bid reveal did not match its commitment.', payload: buildPlayerBoardState('p2') });
+            return;
+        }
+        const first = SeizeTheDayRules.applyAction(rulesGame, {
+            type: 'bid.submit', actorId: 'p1', bid: hostSecret.bid,
+            expectedRevision: rulesGame.revision, actionId: `bid:${protocol.roundKey}:p1`
+        }, { autoAdvance: false });
+        const second = SeizeTheDayRules.applyAction(first.state, {
+            type: 'bid.submit', actorId: 'p2', bid: Number(guestReveal.bid),
+            expectedRevision: first.state.revision, actionId: `bid:${protocol.roundKey}:p2`
+        }, { autoAdvance: false });
+        rulesGame = second.state;
+        protocol.resolved = true;
+        commitRulesPresentation([...(first.events || []), ...(second.events || [])]);
+        await runVisibleForcedTransitions();
+    } catch (err) {
+        console.error('Unable to resolve committed bids:', err);
+        sendData({ type: 'RULES_REJECT', message: err.message, payload: buildPlayerBoardState('p2') });
+    } finally {
+        if (networkBidProtocol === protocol) protocol.resolving = false;
+        rulesAutomationBusy = false;
+        renderRulesGuide();
+    }
+}
+
+function getRulesDecisionPlayer() {
+    if (!rulesGame) return null;
+    if (rulesGame.draft && rulesGame.draft.currentPlayerId) return rulesGame.draft.currentPlayerId;
+    if (rulesGame.activation && rulesGame.activation.playerId) return rulesGame.activation.playerId;
+    if (rulesGame.round && rulesGame.round.activePlayerId) return rulesGame.round.activePlayerId;
+    if (rulesGame.round && rulesGame.round.commandPlayerId) return rulesGame.round.commandPlayerId;
+    return null;
+}
+
+function commitRulesPresentation(events = [], options = {}) {
+    renderRulesGame({ rebuildBoard: true, announceEvents: false });
+    if (events.length) presentRulesEvents(projectRulesEvents(events, getConnectedRulesPlayer()), { toast: options.toast !== false });
+    localStorage.setItem(SAVE_KEY, getBoardState());
+    if (isHost) sendAuthoritativeState(events);
+}
+
+async function runVisibleForcedTransitions() {
+    if (!rulesGame || !window.SeizeTheDayRules || typeof SeizeTheDayRules.advanceForced !== 'function') return;
+    const reduceMotion = window.matchMedia
+        && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const delay = reduceMotion ? 0 : 260;
+    const generation = rulesSessionGeneration;
+
+    for (let safety = 0; safety < 80; safety += 1) {
+        if (generation !== rulesSessionGeneration || !rulesGame) break;
+        const forced = SeizeTheDayRules.advanceForced(rulesGame);
+        if (!forced || !forced.advanced) break;
+        if (delay) await new Promise(resolve => setTimeout(resolve, delay));
+        if (generation !== rulesSessionGeneration || !rulesGame) break;
+        rulesGame = forced.state;
+        const events = forced.events || (forced.event ? [forced.event] : []);
+        commitRulesPresentation(events);
+    }
+}
+
+async function dispatchRulesAction(action, options = {}) {
+    if (!rulesGame || !window.SeizeTheDayRules || !action) return false;
+    if (rulesAutomationBusy) {
+        showRulesToast('Finish watching the current automatic step first.', 'info');
+        return false;
+    }
+    if (options.source !== 'remote' && rulesRequestPending) {
+        showRulesToast('Waiting for the host to confirm your previous action.', 'info');
+        return false;
+    }
+
+    const source = options.source || 'local';
+    const connectedPlayer = getConnectedRulesPlayer();
+    const actorId = source === 'remote'
+        ? 'p2'
+        : (connectedPlayer || action.actorId || getRulesDecisionPlayer());
+    const expectedRevision = options.expectedRevision ?? action.expectedRevision ?? rulesGame.revision;
+    const normalizedAction = {
+        ...action,
+        actorId,
+        expectedRevision,
+        actionId: action.actionId || `${actorId || 'local'}-${Date.now()}-${++rulesActionSequence}`
+    };
+
+    if (source === 'local' && conn && normalizedAction.type === 'bid.submit') {
+        try {
+            return await commitNetworkBid(normalizedAction);
+        } catch (err) {
+            console.error('Unable to commit secret bid:', err);
+            showRulesToast(err.message || 'Unable to lock the secret bid.', 'warning');
+            return false;
+        }
+    }
+
+    if (source === 'local' && conn && !isHost) {
+        if (!conn.open) {
+            showRulesToast('The host connection is not ready yet.', 'warning');
+            return false;
+        }
+        rulesRequestPending = true;
+        sendData({
+            type: 'RULES_ACTION',
+            action: normalizedAction,
+            expectedRevision,
+            matchId: rulesGame.matchId
+        });
+        if (rulesRequestTimer) clearTimeout(rulesRequestTimer);
+        rulesRequestTimer = setTimeout(() => {
+            if (!rulesRequestPending) return;
+            rulesRequestPending = false;
+            sendData({ type: 'RULES_RESYNC_REQUEST' });
+            showRulesToast('The host took too long to confirm. Requesting the latest state…', 'warning');
+            renderRulesGuide();
+        }, 6000);
+        showRulesToast('Action sent to the host…', 'info', 1200);
+        renderRulesGame({ rebuildBoard: true, announceEvents: false });
+        return true;
+    }
+
+    rulesAutomationBusy = true;
+    try {
+        const result = SeizeTheDayRules.applyAction(rulesGame, normalizedAction, { autoAdvance: false });
+        if (!result || result.ok === false || !result.state) {
+            throw new Error((result && result.error) || 'The rules engine rejected that action.');
+        }
+        rulesGame = result.state;
+        commitRulesPresentation(result.events || []);
+        await runVisibleForcedTransitions();
+        renderRulesGuide();
+        return true;
+    } catch (err) {
+        console.warn('Rules action rejected:', normalizedAction, err);
+        const message = err && err.message ? err.message : 'That action is not legal right now.';
+        showRulesToast(message, 'warning');
+        renderRulesGame({ rebuildBoard: true, announceEvents: false });
+        if (source === 'remote' && conn && conn.open) {
+            sendData({
+                type: 'RULES_REJECT',
+                message,
+                payload: buildPlayerBoardState('p2')
+            });
+        }
+        return false;
+    } finally {
+        rulesAutomationBusy = false;
+        renderRulesGuide();
+    }
+}
+
+function receiveAuthoritativeState(payload, events = [], envelope = {}) {
+    try {
+        const { state } = parseBoardStateSnapshot(payload);
+        const incomingRules = state && !Array.isArray(state) ? state.rulesGame : null;
+        if (!state || Array.isArray(state) || state.mode !== 'rules' || !incomingRules
+            || !incomingRules.projection
+            || incomingRules.projection.authoritative !== false
+            || incomingRules.projection.viewerId !== 'p2') {
+            throw new Error('The host did not send a valid private Player 2 rules view.');
+        }
+        if (envelope.matchId && envelope.matchId !== incomingRules.matchId) {
+            throw new Error('The shared-state match identifier does not agree with its envelope.');
+        }
+        if (envelope.revision !== undefined && Number(envelope.revision) !== incomingRules.revision) {
+            throw new Error('The shared-state revision does not agree with its envelope.');
+        }
+        if (rulesGame && rulesGame.matchId === incomingRules.matchId
+            && Number(incomingRules.revision) < Number(rulesGame.revision)) {
+            return;
+        }
+        cancelActiveInteraction();
+        rulesSessionGeneration += 1;
+        rulesRequestPending = false;
+        if (rulesRequestTimer) clearTimeout(rulesRequestTimer);
+        rulesRequestTimer = null;
+        restoreBoardState(JSON.stringify(state), true);
+        presentRulesEvents(events);
+        renderRulesGame({ rebuildBoard: true, announceEvents: false });
+    } catch (err) {
+        console.error('Unable to restore authoritative rules state:', err);
+        showRulesToast('The shared game state could not be read. Ask the host to reconnect.', 'warning');
     }
 }
 
@@ -996,13 +1823,16 @@ function getBoardState(options = {}) {
     const isNetworkPayload = options.forNetwork === true;
     const localPlayerKey = getLocalBidPlayerKey();
     const state = {
+        schemaVersion: RULES_SAVE_SCHEMA_VERSION,
+        mode: rulesGame ? 'rules' : 'sandbox',
         pieces: [],
         cp1: document.getElementById('cp1').value,
         cp2: document.getElementById('cp2').value,
         diceCount: document.getElementById('dice-count').value,
         startingPoolCount: document.getElementById('starting-pool-count').value,
         terrainDeck: [...terrainDeck],
-        bidVisibility: getNormalizedBidVisibility()
+        bidVisibility: getNormalizedBidVisibility(),
+        rulesGame: rulesGame || null
     };
 
     if (isNetworkPayload && localPlayerKey) {
@@ -1024,19 +1854,25 @@ function getBoardState(options = {}) {
         if (el.classList.contains('ghost')) return;
         state.pieces.push({
             type: 'unit',
+            id: el.dataset.pieceId || null,
+            owner: el.dataset.owner || null,
             name: el.dataset.name,
             x: parseFloat(el.style.left),
             y: parseFloat(el.style.top),
             angle: el.dataset.angle,
             wounds: el.dataset.wounds,
+            woundsThisRound: Number(el.dataset.woundsThisRound) || 0,
+            distanceMovedThisRound: Number(el.dataset.distanceMovedThisRound) || 0,
             activated: el.dataset.activated === 'true',
             color: el.style.backgroundColor,
             stats: el._unitStats || null
         });
     });
     document.querySelectorAll('.terrain').forEach(el => {
+        if (el.classList.contains('ghost') || el.dataset.rulesTransient === 'true') return;
         state.pieces.push({
             type: 'terrain',
+            id: el.dataset.pieceId || null,
             subType: el.dataset.subType,
             x: parseFloat(el.style.left),
             y: parseFloat(el.style.top),
@@ -1048,13 +1884,60 @@ function getBoardState(options = {}) {
     return JSON.stringify(state);
 }
 
+function parseBoardStateSnapshot(snapshot) {
+    if (!snapshot) throw new Error('The board state is empty.');
+    const state = typeof snapshot === 'string'
+        ? JSON.parse(snapshot)
+        : JSON.parse(JSON.stringify(snapshot));
+    if (!state || (typeof state !== 'object' && !Array.isArray(state))) {
+        throw new Error('The board state must be an object or legacy piece array.');
+    }
+    const pieces = Array.isArray(state) ? state : state.pieces;
+    if (!Array.isArray(pieces)) throw new Error('The board state has no piece list.');
+    if (pieces.length > 500) throw new Error('The board state contains too many pieces.');
+    if (!Array.isArray(state) && state.mode === 'rules') {
+        if (!state.rulesGame || !window.SeizeTheDayRules
+            || typeof SeizeTheDayRules.assertInvariants !== 'function') {
+            throw new Error('The rules state is missing or unsupported.');
+        }
+        if (!Array.isArray(state.rulesGame.units) || !Array.isArray(state.rulesGame.terrain)) {
+            throw new Error('The rules state has invalid collections.');
+        }
+        SeizeTheDayRules.assertInvariants(state.rulesGame);
+        // Canonical rules collections are authoritative; redundant DOM pieces are ignored.
+        return { state, pieces: [] };
+    }
+    const safePieces = pieces.map((piece, index) => {
+        if (!piece || typeof piece !== 'object' || !['unit', 'terrain'].includes(piece.type)) {
+            throw new Error(`Piece ${index + 1} is not a supported unit or terrain object.`);
+        }
+        if (!Number.isFinite(Number(piece.x)) || !Number.isFinite(Number(piece.y))
+            || !Number.isFinite(Number(piece.angle ?? 0))) {
+            throw new Error(`Piece ${index + 1} has an invalid position or angle.`);
+        }
+        if (piece.type === 'unit' && (!piece.name || typeof piece.name !== 'string')) {
+            throw new Error(`Unit ${index + 1} has no valid name.`);
+        }
+        if (piece.type === 'terrain' && (!piece.subType || typeof piece.subType !== 'string'
+            || !Number.isFinite(Number(piece.w)) || Number(piece.w) <= 0
+            || !Number.isFinite(Number(piece.h)) || Number(piece.h) <= 0)) {
+            throw new Error(`Terrain ${index + 1} has invalid type or dimensions.`);
+        }
+        return piece;
+    });
+    return { state, pieces: safePieces };
+}
+
 function restoreBoardState(jsonString, suppressBroadcast = false) {
     if (!jsonString) return;
+    const { state, pieces: data } = parseBoardStateSnapshot(jsonString);
+    cancelActiveInteraction();
     clearPieceSelection();
-    table.querySelectorAll('.unit, .terrain, .ghost, .range-ring').forEach(p => p.remove());
+    table.querySelectorAll('.unit, .terrain, .ghost, .range-ring, .deployment-zone').forEach(p => p.remove());
 
-    const state = JSON.parse(jsonString);
-    const data = Array.isArray(state) ? state : state.pieces;
+    rulesGame = !Array.isArray(state) && state.mode === 'rules' && state.rulesGame
+        ? state.rulesGame
+        : null;
 
     cancelTerrainCardAnimation();
     terrainDeck = !Array.isArray(state) && Array.isArray(state.terrainDeck)
@@ -1101,21 +1984,683 @@ function restoreBoardState(jsonString, suppressBroadcast = false) {
 
     data.forEach(obj => {
         if (obj.type === 'unit') {
-            createUnitDOM(obj.name, obj.color, obj.x, obj.y, obj.angle, obj.wounds, obj.stats, obj.activated);
+            createUnitDOM(obj.name, obj.color, obj.x, obj.y, obj.angle, obj.wounds, obj.stats, obj.activated, {
+                id: obj.id,
+                owner: obj.owner,
+                woundsThisRound: obj.woundsThisRound,
+                distanceMovedThisRound: obj.distanceMovedThisRound
+            });
         } else if (obj.type === 'terrain') {
-            createTerrainDOM(obj.subType, obj.x, obj.y, obj.w, obj.h, obj.angle);
+            createTerrainDOM(obj.subType, obj.x, obj.y, obj.w, obj.h, obj.angle, { id: obj.id });
         }
     });
-    saveGame(suppressBroadcast);
+    if (rulesGame && typeof renderRulesGame === 'function') {
+        renderRulesGame({ rebuildBoard: true, announceEvents: false });
+        populateRulesLog();
+    } else if (typeof renderRulesGuide === 'function') {
+        renderRulesGuide();
+    }
+    if (rulesGame && rulesGame.projection && rulesGame.projection.authoritative === false && !isHost) {
+        localStorage.setItem(REMOTE_CACHE_KEY, getBoardState());
+    } else {
+        saveGame(suppressBroadcast);
+    }
 }
 
 function saveGame(suppressBroadcast = false) {
     rememberCpValues();
     const state = getBoardState();
-    localStorage.setItem(SAVE_KEY, state);
-    if (!suppressBroadcast) {
-        sendData({ type: 'SYNC_BOARD', payload: getBoardState({ forNetwork: true }) });
+    if (rulesGame && rulesGame.projection && rulesGame.projection.authoritative === false) {
+        localStorage.setItem(REMOTE_CACHE_KEY, state);
+        return;
     }
+    localStorage.setItem(SAVE_KEY, state);
+    if (!suppressBroadcast && !isResettingBoard) {
+        if (rulesGame) {
+            if (isHost) sendAuthoritativeState([]);
+        } else {
+            sendData({ type: 'SYNC_BOARD', payload: getBoardState({ forNetwork: true }) });
+        }
+    }
+}
+
+// --- RULES ENGINE <-> DOM ADAPTER ---
+function rulesCollectionValues(collection) {
+    if (Array.isArray(collection)) return collection;
+    if (collection && typeof collection === 'object') return Object.values(collection);
+    return [];
+}
+
+function getRulesUnit(unitId) {
+    return rulesCollectionValues(rulesGame && rulesGame.units)
+        .find(unit => unit && unit.id === unitId) || null;
+}
+
+function getRulesTerrain(terrainId) {
+    return rulesCollectionValues(rulesGame && rulesGame.terrain)
+        .find(terrain => terrain && terrain.id === terrainId) || null;
+}
+
+function getRulesPieceElement(pieceId) {
+    return Array.from(table.querySelectorAll('.piece'))
+        .find(piece => !piece.classList.contains('ghost')
+            && piece.dataset.rulesTransient !== 'true'
+            && piece.dataset.pieceId === pieceId) || null;
+}
+
+function readRulesPose(item) {
+    const pose = (item && item.pose) || {};
+    return {
+        x: Number(pose.x ?? pose.centerX ?? item.x) || 0,
+        y: Number(pose.y ?? pose.centerY ?? item.y) || 0,
+        angle: Number(pose.angle ?? item.angle) || 0
+    };
+}
+
+function readRulesOwner(unit) {
+    return (unit && (unit.ownerId || unit.owner)) || '';
+}
+
+function isRulesUnitAlive(unit) {
+    return unit && unit.destroyed !== true && unit.status !== 'destroyed' && unit.alive !== false;
+}
+
+function updateRulesUnitElement(element, unit) {
+    const stats = unit.stats || unit.profile || unit.definition || element._unitStats || {};
+    const naturalSize = getUnitSizePx(stats);
+    const size = unit.size || {};
+    const widthPx = inchesToPx(Number(size.width ?? size.w) || (naturalSize.width / SCALE));
+    const heightPx = inchesToPx(Number(size.depth ?? size.height ?? size.h) || (naturalSize.height / SCALE));
+    const pose = readRulesPose(unit);
+    const owner = readRulesOwner(unit);
+    const wounds = Number(unit.wounds) || 0;
+
+    element.dataset.pieceId = unit.id;
+    element.dataset.name = unit.name || stats.Unit || element.dataset.name || 'Unit';
+    element.dataset.owner = owner;
+    element.dataset.angle = String(pose.angle);
+    element.dataset.wounds = String(wounds);
+    element.dataset.woundsThisRound = String(Number(unit.woundsThisRound) || 0);
+    element.dataset.distanceMovedThisRound = String(Number(unit.distanceMovedThisRound) || 0);
+    element.dataset.activated = unit.activated ? 'true' : 'false';
+    element.style.width = `${widthPx}px`;
+    element.style.height = `${heightPx}px`;
+    element.style.left = `${inchesToPx(pose.x) - (widthPx / 2)}px`;
+    element.style.top = `${inchesToPx(pose.y) - (heightPx / 2)}px`;
+    element.style.transform = `rotate(${pose.angle}deg)`;
+    element.style.backgroundColor = PLAYER_COLORS[owner] || '#666';
+    element.classList.toggle('player-one', owner === 'p1');
+    element.classList.toggle('player-two', owner === 'p2');
+    element.classList.toggle('is-activated', Boolean(unit.activated));
+    element._unitStats = stats;
+
+    const label = element.querySelector('.unit-label');
+    if (label) label.textContent = element.dataset.name;
+    const checkbox = element.querySelector('.activation-checkbox');
+    if (checkbox) checkbox.checked = Boolean(unit.activated);
+    const marker = element.querySelector('.wound-marker');
+    if (marker) {
+        marker.textContent = String(wounds);
+        marker.style.display = wounds > 0 ? 'flex' : 'none';
+    }
+}
+
+function updateRulesTerrainElement(element, terrain) {
+    const pose = readRulesPose(terrain);
+    const size = terrain.size || terrain.featureSize || {};
+    const width = Number(size.width ?? size.w ?? terrain.width) || (defaultUnitSizePx.width / SCALE);
+    const height = Number(size.height ?? size.depth ?? size.h ?? terrain.height) || (defaultUnitSizePx.height / SCALE);
+    const subType = terrain.subType || terrain.type || terrain.kind || 'field';
+    element.dataset.pieceId = terrain.id;
+    element.dataset.subType = subType;
+    element.dataset.angle = String(pose.angle);
+    element.className = `piece terrain ${subType}`;
+    element.textContent = subType.charAt(0).toUpperCase() + subType.slice(1);
+    appendRotationHandle(element);
+    element.style.left = `${inchesToPx(pose.x - (width / 2))}px`;
+    element.style.top = `${inchesToPx(pose.y - (height / 2))}px`;
+    element.style.width = `${inchesToPx(width)}px`;
+    element.style.height = `${inchesToPx(height)}px`;
+    element.style.transform = `rotate(${pose.angle}deg)`;
+}
+
+function renderRulesBoard() {
+    if (!rulesGame) return;
+    const units = rulesCollectionValues(rulesGame.units).filter(isRulesUnitAlive);
+    const terrain = rulesCollectionValues(rulesGame.terrain).filter(item => item && item.status !== 'discarded');
+    const validUnitIds = new Set(units.map(unit => unit.id));
+    const validTerrainIds = new Set(terrain.map(item => item.id));
+
+    table.querySelectorAll('.unit').forEach(element => {
+        if (!validUnitIds.has(element.dataset.pieceId)) {
+            if (selectedPiece === element) clearPieceSelection();
+            element.remove();
+        }
+    });
+    table.querySelectorAll('.terrain:not([data-rules-transient="true"])').forEach(element => {
+        if (!validTerrainIds.has(element.dataset.pieceId)) element.remove();
+    });
+
+    units.forEach(unit => {
+        let element = getRulesPieceElement(unit.id);
+        if (!element) {
+            const stats = unit.stats || unit.profile || unit.definition || {};
+            const size = unit.size || {};
+            const pose = readRulesPose(unit);
+            const naturalSize = getUnitSizePx(stats);
+            const width = Number(size.width ?? size.w) || (naturalSize.width / SCALE);
+            const height = Number(size.depth ?? size.height ?? size.h) || (naturalSize.height / SCALE);
+            element = createUnitDOM(
+                unit.name || stats.Unit || 'Unit',
+                PLAYER_COLORS[readRulesOwner(unit)] || '#666',
+                inchesToPx(pose.x - (width / 2)),
+                inchesToPx(pose.y - (height / 2)),
+                pose.angle,
+                unit.wounds,
+                stats,
+                unit.activated,
+                {
+                    id: unit.id,
+                    owner: readRulesOwner(unit),
+                    woundsThisRound: unit.woundsThisRound,
+                    distanceMovedThisRound: unit.distanceMovedThisRound
+                }
+            );
+        }
+        updateRulesUnitElement(element, unit);
+    });
+
+    terrain.forEach(item => {
+        let element = getRulesPieceElement(item.id);
+        if (!element) {
+            const pose = readRulesPose(item);
+            element = createTerrainDOM(
+                item.subType || item.type || item.kind,
+                0,
+                0,
+                0,
+                0,
+                pose.angle,
+                { id: item.id }
+            );
+        }
+        updateRulesTerrainElement(element, item);
+    });
+
+    fitAllUnitLabels();
+}
+
+function getRulesActionEntityId(action, key) {
+    if (!action) return null;
+    const payload = action.payload || {};
+    return action[key] || payload[key] || null;
+}
+
+function canRulesDragPiece(piece) {
+    if (!rulesGame || !piece) return true;
+    if (rulesAutomationBusy || rulesRequestPending) return false;
+    if (piece.dataset.rulesTransient === 'true') {
+        return getVisibleRulesActions().some(action => getActionType(action) === 'draft.placeTerrain');
+    }
+    if (!piece.classList.contains('unit')) return false;
+    const pieceId = piece.dataset.pieceId;
+    return getVisibleRulesActions().some(action => {
+        const type = getActionType(action);
+        const actionUnitId = getRulesActionEntityId(action, 'unitId')
+            || (type.startsWith('activation.') && rulesGame.activation && rulesGame.activation.unitId);
+        if (actionUnitId !== pieceId) return false;
+        if (type === 'draft.deployUnit') return true;
+        return type === 'activation.move' && Boolean(rulesMoveDirection);
+    });
+}
+
+function canRulesRotatePiece(piece) {
+    if (!rulesGame || !piece) return true;
+    if (rulesAutomationBusy || rulesRequestPending) return false;
+    if (piece.dataset.rulesTransient === 'true') {
+        return getVisibleRulesActions().some(action => getActionType(action) === 'draft.placeTerrain');
+    }
+    if (!piece.classList.contains('unit')) return false;
+    const pieceId = piece.dataset.pieceId;
+    return getVisibleRulesActions().some(action => {
+        const type = getActionType(action);
+        const actionUnitId = getRulesActionEntityId(action, 'unitId')
+            || (type.startsWith('activation.') && rulesGame.activation && rulesGame.activation.unitId);
+        return actionUnitId === pieceId
+            && (type === 'activation.pivot' || type === 'draft.deployUnit');
+    });
+}
+
+function getRulesSpeed(unit) {
+    if (!unit) return 0;
+    const stats = unit.stats || unit.profile || unit.definition || {};
+    const raw = unit.speed ?? stats.speed ?? stats.Speed ?? stats.Move ?? 0;
+    const parsed = parseFloat(String(raw).replace('*', ''));
+    return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function projectRulesMove(unit, desiredCenterX, desiredCenterY, direction) {
+    const pose = readRulesPose(unit);
+    const radians = pose.angle * (Math.PI / 180);
+    const forward = { x: Math.sin(radians), y: -Math.cos(radians) };
+    const vector = direction === 'backward'
+        ? { x: -forward.x, y: -forward.y }
+        : forward;
+    const desiredInches = {
+        x: desiredCenterX / SCALE,
+        y: desiredCenterY / SCALE
+    };
+    const projectedDistance = ((desiredInches.x - pose.x) * vector.x)
+        + ((desiredInches.y - pose.y) * vector.y);
+    const maximum = getRulesSpeed(unit) * (direction === 'backward' ? 0.5 : 1);
+    const requestedDistance = Math.max(0, Math.min(maximum, projectedDistance));
+    let distance = requestedDistance;
+    const moveTemplate = getVisibleRulesActions().find(action => {
+        if (getActionType(action) !== 'activation.move') return false;
+        const actionDirection = action.direction || (action.payload && action.payload.direction);
+        return actionDirection === direction;
+    });
+    const previewAtDistance = candidateDistance => {
+        if (!moveTemplate) return null;
+        const candidatePose = {
+            x: pose.x + (vector.x * candidateDistance),
+            y: pose.y + (vector.y * candidateDistance),
+            angle: pose.angle
+        };
+        return getRulesPreviewResult({
+            ...moveTemplate,
+            direction,
+            pose: candidatePose,
+            destination: candidatePose,
+            to: candidatePose
+        });
+    };
+    const requestedPreview = previewAtDistance(requestedDistance);
+    if (requestedDistance > 0 && requestedPreview && !requestedPreview.ok) {
+        let low = 0;
+        let high = requestedDistance;
+        for (let iteration = 0; iteration < 12; iteration += 1) {
+            const middle = (low + high) / 2;
+            const preview = previewAtDistance(middle);
+            if (preview && preview.ok) low = middle;
+            else high = middle;
+        }
+        distance = low;
+    }
+    return {
+        centerX: inchesToPx(pose.x + (vector.x * distance)),
+        centerY: inchesToPx(pose.y + (vector.y * distance)),
+        distance,
+        clamped: distance < requestedDistance - 0.01
+    };
+}
+
+function getVisibleRulesActions() {
+    if (!rulesGame || !window.SeizeTheDayRules) return [];
+    const actor = getConnectedRulesPlayer() || getRulesDecisionPlayer();
+    try {
+        let actions = SeizeTheDayRules.getLegalActions(rulesGame, actor) || [];
+        if (conn) {
+            syncNetworkBidProtocol();
+            if (networkBidProtocol.secrets[actor]) {
+                actions = actions.filter(action => getActionType(action) !== 'bid.submit');
+            }
+        }
+        return actions;
+    } catch (err) {
+        console.warn('Unable to list legal actions:', err);
+        return [];
+    }
+}
+
+function renderRulesHighlights() {
+    table.querySelectorAll('.piece').forEach(piece => {
+        piece.classList.remove(
+            'rules-current', 'current-unit', 'is-current-unit',
+            'rules-legal', 'legal-unit', 'is-legal-unit',
+            'rules-target', 'legal-target', 'is-legal-target',
+            'rules-illegal', 'illegal-unit', 'illegal-target', 'is-illegal'
+        );
+    });
+    if (!rulesGame) return;
+
+    const actions = getVisibleRulesActions();
+    const legalUnitIds = new Set();
+    const targetIds = new Set();
+    actions.forEach(action => {
+        const unitId = getRulesActionEntityId(action, 'unitId');
+        const targetId = getRulesActionEntityId(action, 'targetId');
+        if (unitId) legalUnitIds.add(unitId);
+        if (targetId) targetIds.add(targetId);
+    });
+
+    const currentId = (rulesGame.activation && rulesGame.activation.unitId)
+        || (rulesGame.draft && rulesGame.draft.selectedUnitId)
+        || null;
+    if (currentId) {
+        const current = getRulesPieceElement(currentId);
+        if (current) current.classList.add('rules-current');
+    }
+    legalUnitIds.forEach(id => {
+        const piece = getRulesPieceElement(id);
+        if (piece) piece.classList.add('rules-legal');
+    });
+    targetIds.forEach(id => {
+        const piece = getRulesPieceElement(id);
+        if (piece) piece.classList.add('rules-target');
+    });
+
+    if (legalUnitIds.size || targetIds.size) {
+        table.querySelectorAll('.unit').forEach(unit => {
+            if (!legalUnitIds.has(unit.dataset.pieceId)
+                && !targetIds.has(unit.dataset.pieceId)
+                && unit.dataset.pieceId !== currentId) {
+                unit.classList.add('rules-illegal');
+            }
+        });
+    }
+}
+
+function renderDeploymentZones() {
+    table.querySelectorAll('.deployment-zone').forEach(zone => zone.remove());
+    if (!rulesGame || !rulesGame.draft || rulesGame.draft.complete) return;
+
+    ['p2', 'p1'].forEach((playerId, index) => {
+        const zone = document.createElement('div');
+        zone.className = 'deployment-zone';
+        zone.dataset.player = playerId;
+        zone.dataset.label = `${playerId === 'p1' ? 'Player 1' : 'Player 2'} deployment`;
+        zone.style.left = '0';
+        zone.style.top = `${index === 0 ? 0 : tableHeightPx - inchesToPx(DEPLOY_INCHES)}px`;
+        zone.style.width = `${tableWidthPx}px`;
+        zone.style.height = `${inchesToPx(DEPLOY_INCHES)}px`;
+        const currentPlayer = rulesGame.draft.currentPlayerId || rulesGame.draft.activePlayerId;
+        const step = rulesGame.draft.step || rulesGame.draft.stage;
+        if (currentPlayer === playerId && /deploy/i.test(step || '')) zone.classList.add('rules-current');
+        table.insertBefore(zone, table.firstChild);
+    });
+}
+
+function renderRulesGame(options = {}) {
+    if (!rulesGame) {
+        table.querySelectorAll('.deployment-zone').forEach(zone => zone.remove());
+        renderRulesHighlights();
+        renderRulesGuide();
+        return;
+    }
+    renderRulesBoard();
+    renderDeploymentZones();
+    renderRulesHighlights();
+    renderTerrainCard();
+    stagePendingRulesTerrainIfNeeded();
+    renderRulesGuide();
+    if (options.announceEvents) populateRulesLog();
+}
+
+function humanizeRulesToken(value) {
+    return String(value || '')
+        .replace(/[._-]+/g, ' ')
+        .replace(/\b\w/g, letter => letter.toUpperCase());
+}
+
+function getRulesPhaseLabel() {
+    if (!rulesGame) return 'Free Play';
+    if (rulesGame.winner || rulesGame.result) return 'Game Over';
+    const phase = rulesGame.phase || rulesGame.stage;
+    if (phase) return humanizeRulesToken(phase);
+    if (rulesGame.draft && !rulesGame.draft.complete) return 'Draft & Deploy';
+    if (rulesGame.activation) return 'Unit Activation';
+    if (rulesGame.round && rulesGame.round.window) return humanizeRulesToken(rulesGame.round.window);
+    return 'Rules Game';
+}
+
+function getRulesPromptForViewer() {
+    if (!rulesGame || !window.SeizeTheDayRules) return null;
+    const viewer = getConnectedRulesPlayer();
+    try {
+        return SeizeTheDayRules.getPrompt(rulesGame, viewer);
+    } catch (err) {
+        console.warn('Unable to read rules prompt:', err);
+        return null;
+    }
+}
+
+function promptText(prompt) {
+    if (!prompt) return '';
+    if (typeof prompt === 'string') return prompt;
+    return prompt.message || prompt.prompt || prompt.text || prompt.instruction || '';
+}
+
+function promptDetails(prompt) {
+    if (!prompt || typeof prompt === 'string') return '';
+    return prompt.details || prompt.detail || prompt.hint || '';
+}
+
+function getActionType(action) {
+    return action && String(action.type || action.action || '');
+}
+
+function makeGuideButton(label, onClick, className = 'guide-action-secondary', disabled = false) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = className;
+    button.textContent = label;
+    button.disabled = disabled;
+    button.addEventListener('click', onClick);
+    return button;
+}
+
+function getLivingRulesUnitCount(playerId) {
+    return rulesCollectionValues(rulesGame && rulesGame.units)
+        .filter(unit => isRulesUnitAlive(unit) && readRulesOwner(unit) === playerId).length;
+}
+
+function renderBidGuideAction(container, action) {
+    const actorId = action.actorId || (action.payload && action.payload.actorId) || getRulesDecisionPlayer();
+    const wrapper = document.createElement('div');
+    wrapper.className = 'guide-bid-control';
+    const label = document.createElement('label');
+    label.htmlFor = 'guide-bid-input';
+    label.textContent = 'Secret bid';
+    const input = document.createElement('input');
+    input.id = 'guide-bid-input';
+    input.type = 'number';
+    input.inputMode = 'numeric';
+    input.min = String(action.min ?? (action.payload && action.payload.min) ?? 1);
+    input.max = String(action.max ?? (action.payload && action.payload.max) ?? Math.max(1, getLivingRulesUnitCount(actorId)));
+    input.value = input.min;
+    input.setAttribute('aria-label', `${actorId === 'p2' ? 'Player 2' : 'Player 1'} secret bid`);
+    const submit = makeGuideButton('Lock Bid', () => {
+        const value = Math.max(Number(input.min), Math.min(Number(input.max), Number(input.value) || 1));
+        input.value = String(value);
+        dispatchRulesAction({
+            ...action,
+            type: 'bid.submit',
+            actorId,
+            value,
+            bid: value,
+            payload: { ...(action.payload || {}), value, bid: value }
+        });
+    }, 'guide-action-primary');
+    wrapper.append(label, input, submit);
+    container.appendChild(wrapper);
+}
+
+function renderRulesGuideActions(container, actions) {
+    container.replaceChildren();
+    if (rulesAutomationBusy || rulesRequestPending) {
+        container.appendChild(makeGuideButton(rulesRequestPending ? 'Awaiting Host…' : 'Resolving…', () => {}, 'guide-action-secondary', true));
+        return;
+    }
+
+    const actionTypes = new Set(actions.map(getActionType));
+    const terrainAction = actions.find(action => getActionType(action) === 'draft.placeTerrain');
+    if (terrainAction) {
+        if (rulesTransientTerrain && rulesTransientTerrain.isConnected) {
+            container.appendChild(makeGuideButton('Place Terrain', confirmRulesTerrainPlacement, 'guide-action-primary'));
+            container.appendChild(makeGuideButton('↺ 45°', () => rotateStagedRulesPiece(rulesTransientTerrain, -45), 'guide-action-secondary'));
+            container.appendChild(makeGuideButton('↻ 45°', () => rotateStagedRulesPiece(rulesTransientTerrain, 45), 'guide-action-secondary'));
+            container.appendChild(makeGuideButton('Snap', () => snapRulesTerrainPiece(rulesTransientTerrain, true), 'guide-action-secondary'));
+            container.appendChild(makeGuideButton('Cancel', cancelStagedRulesTerrain, 'guide-action-secondary'));
+        } else {
+            container.appendChild(makeGuideButton('Pick Up Terrain', () => stageRulesTerrainFromGuide(terrainAction), 'guide-action-primary'));
+        }
+    }
+
+    const bidAction = actions.find(action => getActionType(action) === 'bid.submit');
+    if (bidAction) renderBidGuideAction(container, bidAction);
+
+    const yieldAction = actions.find(action => getActionType(action) === 'command.yield');
+    if (yieldAction) {
+        container.appendChild(makeGuideButton('Yield Command', () => dispatchRulesAction(yieldAction), 'guide-action-primary'));
+    }
+
+    const moveActions = actions.filter(action => getActionType(action) === 'activation.move');
+    if (moveActions.length) {
+        const hasForward = moveActions.some(action => {
+            const direction = action.direction || (action.payload && action.payload.direction);
+            return !direction || direction === 'forward';
+        });
+        const hasBackward = moveActions.some(action => {
+            const direction = action.direction || (action.payload && action.payload.direction);
+            return !direction || direction === 'backward';
+        });
+        if (hasForward) {
+            container.appendChild(makeGuideButton(
+                rulesMoveDirection === 'forward' ? 'Forward ✓' : 'Move Forward',
+                () => { rulesMoveDirection = 'forward'; renderRulesGuide(); },
+                rulesMoveDirection === 'forward' ? 'guide-action-primary' : 'guide-action-secondary'
+            ));
+        }
+        if (hasBackward) {
+            container.appendChild(makeGuideButton(
+                rulesMoveDirection === 'backward' ? 'Backward ✓' : 'Move Back',
+                () => { rulesMoveDirection = 'backward'; renderRulesGuide(); },
+                rulesMoveDirection === 'backward' ? 'guide-action-primary' : 'guide-action-secondary'
+            ));
+        }
+    } else {
+        rulesMoveDirection = null;
+    }
+
+    const pivotAction = actions.find(action => getActionType(action) === 'activation.pivot');
+    if (pivotAction) {
+        [-90, -45, 45, 90].forEach(degrees => {
+            container.appendChild(makeGuideButton(
+                `${degrees < 0 ? '↺' : '↻'} ${Math.abs(degrees)}°`,
+                () => dispatchRulesAction({ ...pivotAction, degrees, delta: degrees }),
+                'guide-action-secondary'
+            ));
+        });
+    }
+
+    const deployAction = actions.find(action => getActionType(action) === 'draft.deployUnit');
+    if (deployAction) {
+        const deployPiece = getRulesPieceElement(getRulesActionEntityId(deployAction, 'unitId'));
+        if (deployPiece) {
+            container.appendChild(makeGuideButton('Face Left', () => rotateStagedRulesPiece(deployPiece, -45), 'guide-action-secondary'));
+            container.appendChild(makeGuideButton('Face Right', () => rotateStagedRulesPiece(deployPiece, 45), 'guide-action-secondary'));
+        }
+    }
+
+    const passAction = actions.find(action => getActionType(action) === 'activation.pass');
+    if (passAction) {
+        container.appendChild(makeGuideButton('Hold Position', () => {
+            rulesMoveDirection = null;
+            dispatchRulesAction(passAction);
+        }));
+    }
+
+    const endPivots = actions.find(action => getActionType(action) === 'activation.endPivots');
+    if (endPivots) {
+        container.appendChild(makeGuideButton('Finish Activation', () => dispatchRulesAction(endPivots), 'guide-action-primary'));
+    }
+
+    const skipStrike = actions.find(action => getActionType(action) === 'activation.skipStrike');
+    if (skipStrike) {
+        container.appendChild(makeGuideButton('Skip Strike', () => dispatchRulesAction(skipStrike)));
+    }
+
+    if (rulesGame && (rulesGame.winner || rulesGame.result)) {
+        container.appendChild(makeGuideButton('New Rules Game', () => window.startRulesGame(), 'guide-action-primary'));
+    }
+
+    const handledTypes = new Set([
+        'bid.submit', 'command.yield', 'activation.move', 'activation.pass',
+        'activation.endPivots', 'activation.skipStrike', 'draft.chooseUnit',
+        'draft.placeTerrain', 'draft.deployUnit', 'activation.selectUnit',
+        'activation.pivot', 'activation.shoot', 'activation.strike'
+    ]);
+    actions.forEach(action => {
+        const type = getActionType(action);
+        if (!type || handledTypes.has(type)) return;
+        container.appendChild(makeGuideButton(
+            action.label || humanizeRulesToken(type),
+            () => dispatchRulesAction(action)
+        ));
+    });
+
+    if (!container.children.length && actionTypes.size === 0 && conn && rulesGame) {
+        container.appendChild(makeGuideButton('Waiting for opponent…', () => {}, 'guide-action-secondary', true));
+    }
+}
+
+function renderRulesGuide() {
+    const guide = document.getElementById('game-guide');
+    const mode = document.getElementById('guide-mode');
+    const phase = document.getElementById('guide-phase');
+    const round = document.getElementById('guide-round');
+    const player = document.getElementById('guide-player');
+    const promptElement = document.getElementById('guide-prompt');
+    const details = document.getElementById('guide-details');
+    const actionsContainer = document.getElementById('guide-actions');
+    if (!guide || !mode || !phase || !round || !player || !promptElement || !details || !actionsContainer) return;
+
+    ['new-rules-game-btn', 'sandbox-quick-deploy-btn'].forEach(id => {
+        const button = document.getElementById(id);
+        if (button) button.disabled = rulesAutomationBusy || isResettingBoard || Boolean(conn && !isHost);
+    });
+
+    document.body.classList.toggle('rules-mode', Boolean(rulesGame));
+    if (!rulesGame) {
+        guide.dataset.mode = 'sandbox';
+        guide.classList.remove('rules-active');
+        mode.textContent = 'Sandbox';
+        phase.textContent = 'Free Play';
+        round.textContent = 'Round —';
+        player.textContent = conn ? (isHost ? 'You are Player 1' : 'You are Player 2') : 'Either player';
+        promptElement.textContent = 'Move any piece, or start a rules game when you are ready.';
+        details.textContent = 'Sandbox keeps free movement, manual wounds, dice, activation markers, and undo.';
+        actionsContainer.replaceChildren();
+        return;
+    }
+
+    const prompt = getRulesPromptForViewer();
+    if (conn) syncNetworkBidProtocol();
+    const decisionPlayer = (prompt && typeof prompt === 'object' && (prompt.actorId || prompt.playerId))
+        || getRulesDecisionPlayer();
+    const viewer = getConnectedRulesPlayer();
+    const legalActions = getVisibleRulesActions();
+    guide.dataset.mode = 'rules';
+    guide.classList.add('rules-active');
+    mode.textContent = 'Rules On';
+    phase.textContent = getRulesPhaseLabel();
+    round.textContent = `Round ${rulesGame.round && rulesGame.round.number ? rulesGame.round.number : '—'}`;
+    player.textContent = decisionPlayer
+        ? `${decisionPlayer === 'p2' ? 'Player 2' : 'Player 1'}${viewer === decisionPlayer ? ' · Your choice' : ''}`
+        : 'Automatic step';
+    const localBidCommitted = viewer && conn && networkBidProtocol.roundKey === getNetworkBidRoundKey()
+        && Boolean(networkBidProtocol.secrets[viewer]);
+    promptElement.textContent = (localBidCommitted && rulesGame.phase === 'bid'
+        ? 'Your secret bid is committed. Waiting for the other player…'
+        : promptText(prompt))
+        || (rulesAutomationBusy ? 'Resolving the next required step…' : 'Choose one of the highlighted legal actions.');
+    details.textContent = promptDetails(prompt)
+        || (viewer && decisionPlayer && viewer !== decisionPlayer
+            ? 'Your opponent is choosing. You can still inspect units and measure.'
+            : 'Only legal pieces and targets are highlighted. Invalid moves return to their starting point.');
+    renderRulesGuideActions(actionsContainer, legalActions);
+    requestAnimationFrame(fitTableToScreen);
 }
 
 // --- DOM FACTORIES ---
@@ -1178,7 +2723,7 @@ function fitUnitLabelText(unitEl) {
     fitAllUnitLabels();
 }
 
-function createUnitDOM(name, color, x, y, angle, wounds, stats = null, activated = false) {
+function createUnitDOM(name, color, x, y, angle, wounds, stats = null, activated = false, metadata = {}) {
     const div = document.createElement('div');
     const unitStats = stats
         ? { ...(unitStatsDB[name] || {}), ...normalizeStatsRow(stats) }
@@ -1200,6 +2745,12 @@ function createUnitDOM(name, color, x, y, angle, wounds, stats = null, activated
     div.style.transform = `rotate(${angle}deg)`;
     div.dataset.wounds = wounds || 0;
     div.dataset.activated = activated ? 'true' : 'false';
+    div.dataset.pieceId = metadata.id || metadata.pieceId || '';
+    div.dataset.owner = metadata.owner || '';
+    div.dataset.woundsThisRound = String(metadata.woundsThisRound || 0);
+    div.dataset.distanceMovedThisRound = String(metadata.distanceMovedThisRound || 0);
+    div.classList.toggle('player-one', div.dataset.owner === 'p1');
+    div.classList.toggle('player-two', div.dataset.owner === 'p2');
     div._unitStats = unitStats;
     applyUnitTheme(div, name);
 
@@ -1216,6 +2767,11 @@ function createUnitDOM(name, color, x, y, angle, wounds, stats = null, activated
             checkbox.addEventListener('click', e => e.stopPropagation());
             checkbox.addEventListener('dblclick', e => e.stopPropagation());
             checkbox.addEventListener('change', () => {
+                if (rulesGame) {
+                    checkbox.checked = div.dataset.activated === 'true';
+                    showRulesToast('Activations are tracked automatically in rules mode.', 'info');
+                    return;
+                }
                 const nextActivated = checkbox.checked;
                 checkbox.checked = !nextActivated;
                 div.dataset.activated = checkbox.checked ? 'true' : 'false';
@@ -1271,10 +2827,10 @@ function createUnitDOM(name, color, x, y, angle, wounds, stats = null, activated
     return div;
 }
 
-function createTerrainDOM(subType, x, y, _w, _h, angle) {
+function createTerrainDOM(subType, x, y, _w, _h, angle, metadata = {}) {
     if (!subType || subType === "undefined" || subType === "rough") subType = "field";
-    const finalW = defaultUnitSizePx.width;
-    const finalH = defaultUnitSizePx.height;
+    const finalW = Number.isFinite(Number(_w)) && Number(_w) > 0 ? Number(_w) : defaultUnitSizePx.width;
+    const finalH = Number.isFinite(Number(_h)) && Number(_h) > 0 ? Number(_h) : defaultUnitSizePx.height;
 
     const div = document.createElement('div');
     div.classList.add('piece', 'terrain', subType);
@@ -1285,6 +2841,7 @@ function createTerrainDOM(subType, x, y, _w, _h, angle) {
     div.style.height = `${finalH}px`;
     div.dataset.subType = subType;
     div.dataset.angle = angle || 0;
+    div.dataset.pieceId = metadata.id || metadata.pieceId || '';
     div.style.transform = `rotate(${angle}deg)`;
 
     appendRotationHandle(div);
@@ -1303,15 +2860,24 @@ function pushUndo() {
 }
 
 window.undo = function () {
+    if (rulesGame) {
+        showRulesToast(conn
+            ? 'Undo is disabled in network rules games so both players stay in sync.'
+            : 'Use Sandbox mode for free-form undo.', 'info');
+        return;
+    }
     if (undoStack.length === 0) return;
     const previousState = undoStack.pop();
     restoreBoardState(previousState);
 };
 
-async function resetBoard(createUnits, shouldCreateTerrain = true) {
+async function resetBoard(createUnits, shouldCreateTerrain = true, shouldSave = true) {
+    rulesSessionGeneration += 1;
+    cancelActiveInteraction();
+    rulesGame = null;
     localStorage.removeItem(SAVE_KEY);
 
-    table.querySelectorAll('.unit, .terrain, .ghost, .range-ring').forEach(p => p.remove());
+    table.querySelectorAll('.unit, .terrain, .ghost, .range-ring, .deployment-zone').forEach(p => p.remove());
     undoStack.length = 0;
     hoveredUnit = null;
     hoveredTerrain = null;
@@ -1344,21 +2910,151 @@ async function resetBoard(createUnits, shouldCreateTerrain = true) {
     if (shouldCreateTerrain) {
         createDefaultTerrain();
     }
-    saveGame();
+    if (shouldSave) saveGame();
 }
 
-window.resetGame = async function () {
+function createRulesSeed() {
+    if (window.crypto && window.crypto.getRandomValues) {
+        const value = new Uint32Array(1);
+        window.crypto.getRandomValues(value);
+        return value[0] || 1;
+    }
+    return (Date.now() >>> 0) || 1;
+}
+
+function createRulesMatchId() {
+    if (window.crypto && window.crypto.getRandomValues) {
+        const values = new Uint32Array(3);
+        window.crypto.getRandomValues(values);
+        return `match-${Array.from(values, value => value.toString(36)).join('-')}`;
+    }
+    return `match-${Date.now().toString(36)}`;
+}
+
+function collectSetupUnitsForRules() {
+    return Array.from(table.querySelectorAll('.unit')).map((unit, index) => {
+        const width = unit.offsetWidth / SCALE;
+        const depth = unit.offsetHeight / SCALE;
+        const left = (parseFloat(unit.style.left) || 0) / SCALE;
+        const top = (parseFloat(unit.style.top) || 0) / SCALE;
+        const id = unit.dataset.pieceId || `unit-${index + 1}`;
+        unit.dataset.pieceId = id;
+        return {
+            id,
+            name: unit.dataset.name,
+            ownerId: null,
+            owner: null,
+            stats: unit._unitStats ? { ...unit._unitStats } : {},
+            size: { width, depth },
+            pose: {
+                x: left + (width / 2),
+                y: top + (depth / 2),
+                angle: Number(unit.dataset.angle) || 0
+            }
+        };
+    });
+}
+
+window.startRulesGame = async function () {
+    if (rulesAutomationBusy || isResettingBoard) {
+        showRulesToast('Wait for the current automatic step to finish.', 'info');
+        return;
+    }
+    if (conn && !isHost) {
+        showRulesToast('Only the host can start a new shared game.', 'warning');
+        return;
+    }
+    if (!window.SeizeTheDayRules) {
+        showRulesToast('The rules engine did not load. Refresh and try again.', 'warning');
+        return;
+    }
+
+    isResettingBoard = true;
     cancelTerrainCardAnimation();
-    terrainDeck = createShuffledTerrainDeck();
-    renderTerrainCard();
-    await resetBoard(createDefaultUnits, false);
+    try {
+        document.getElementById('starting-pool-count').value = DEFAULT_DRAFT_POOL_SIZE;
+        await resetBoard(() => createDefaultUnits({ rulesReadyOnly: true }), false, false);
+        const units = collectSetupUnitsForRules();
+        if (units.length !== DEFAULT_DRAFT_POOL_SIZE) {
+            throw new Error(`A rules game needs ${DEFAULT_DRAFT_POOL_SIZE} complete unit profiles; ${units.length} are available.`);
+        }
+
+        const seed = createRulesSeed();
+        rulesGame = SeizeTheDayRules.createGame({
+            matchId: createRulesMatchId(),
+            seed,
+            units,
+            table: {
+                width: 48,
+                height: 36,
+                deploymentDepth: DEPLOY_INCHES,
+                terrainSize: {
+                    width: defaultUnitSizePx.width / SCALE,
+                    height: defaultUnitSizePx.height / SCALE
+                }
+            }
+        });
+        latestRulesEventRevision = 0;
+        rulesTransientTerrain = null;
+        rulesRequestPending = false;
+        renderRulesGame({ rebuildBoard: true, announceEvents: true });
+    } catch (err) {
+        console.error('Unable to start rules game:', err);
+        rulesGame = null;
+        showRulesToast(err.message || 'Unable to start the rules game.', 'warning');
+    } finally {
+        isResettingBoard = false;
+    }
+    renderRulesGuide();
+    saveGame();
 };
 
+window.startSandboxGame = async function () {
+    if (rulesAutomationBusy || isResettingBoard) {
+        showRulesToast('Wait for the current automatic step to finish.', 'info');
+        return;
+    }
+    if (conn && !isHost) {
+        showRulesToast('Only the host can replace the shared battlefield.', 'warning');
+        return;
+    }
+    isResettingBoard = true;
+    try {
+        cancelTerrainCardAnimation();
+        terrainDeck = createShuffledTerrainDeck();
+        renderTerrainCard();
+        await resetBoard(createDefaultUnits, false);
+        renderRulesGuide();
+    } finally {
+        isResettingBoard = false;
+    }
+    renderRulesGuide();
+    saveGame();
+};
+
+window.resetGame = window.startRulesGame;
+
 window.resetLongSideDeployment = async function () {
-    cancelTerrainCardAnimation();
-    terrainDeck = [];
-    renderTerrainCard();
-    await resetBoard(createLongSideDeploymentUnits);
+    if (rulesAutomationBusy || isResettingBoard) {
+        showRulesToast('Wait for the current automatic step to finish.', 'info');
+        return;
+    }
+    if (conn && !isHost) {
+        showRulesToast('Only the host can replace the shared battlefield.', 'warning');
+        return;
+    }
+    isResettingBoard = true;
+    try {
+        cancelTerrainCardAnimation();
+        terrainDeck = [];
+        renderTerrainCard();
+        await resetBoard(createLongSideDeploymentUnits);
+        renderRulesGuide();
+    } finally {
+        isResettingBoard = false;
+    }
+    renderRulesGuide();
+    saveGame();
 };
 
 // --- DICE ---
@@ -1441,6 +3137,10 @@ function renderDiceRoll(rolls) {
 }
 
 function rollDice() {
+    if (rulesGame) {
+        showRulesToast('Attack dice roll automatically when you choose a target.', 'info');
+        return;
+    }
     const count = normalizeDiceCount(false);
     const rolls = sortDiceHighestFirst(Array.from({ length: count }, () => Math.floor(Math.random() * 6) + 1));
 
@@ -1458,11 +3158,16 @@ async function initGame() {
 
     const saved = localStorage.getItem(SAVE_KEY);
     if (saved) {
-        restoreBoardState(saved, true);
+        try {
+            restoreBoardState(saved, true);
+        } catch (err) {
+            console.warn('The saved game is no longer valid and will be replaced:', err);
+            localStorage.removeItem(SAVE_KEY);
+            showRulesToast('The old saved game could not be resumed. Starting a fresh rules game.', 'warning', 4000);
+            await window.startRulesGame();
+        }
     } else {
-        createDefaultUnits();
-        createDefaultTerrain();
-        saveGame(true);
+        await window.startRulesGame();
     }
 }
 
@@ -1489,7 +3194,8 @@ function parseCombatStat(stats, columnNames) {
     const rawValue = getFirstStatsColumnValue(stats, columnNames);
     if (rawValue === undefined || rawValue === null || `${rawValue}`.trim() === '') return null;
 
-    const parsedValue = Number(`${rawValue}`.trim().replace(/,/g, ''));
+    const match = `${rawValue}`.trim().replace(/,/g, '').match(/-?\d+(?:\.\d+)?/);
+    const parsedValue = match ? Number(match[0]) : NaN;
     return Number.isFinite(parsedValue) && parsedValue >= 0 ? parsedValue : null;
 }
 
@@ -1749,8 +3455,21 @@ function getUnitQuantity(unitStats) {
     return quantity;
 }
 
-function createRandomUnitPool(count) {
-    const remainingUnits = availableUnitRows.map(unitStats => ({
+function isRulesReadyUnitStats(unitStats) {
+    const name = unitStats && String(unitStats.Unit || '').trim();
+    const speed = parseCombatStat(unitStats, ['Speed', 'Move']);
+    const drill = parseCombatStat(unitStats, ['Drill']);
+    const strike = parseCombatStat(unitStats, ['Melee', 'Strike']);
+    const defence = parseCombatStat(unitStats, ['Def', 'Def.', 'Defence', 'Defense']);
+    return Boolean(name && speed !== null && drill !== null && strike !== null
+        && defence !== null && defence >= 1);
+}
+
+function createRandomUnitPool(count, options = {}) {
+    const sourceRows = options.rulesReadyOnly
+        ? availableUnitRows.filter(isRulesReadyUnitStats)
+        : availableUnitRows;
+    const remainingUnits = sourceRows.map(unitStats => ({
         unitStats,
         copies: getUnitQuantity(unitStats)
     })).filter(entry => entry.copies > 0);
@@ -1776,8 +3495,11 @@ function createRandomUnitPool(count) {
     return unitPool;
 }
 
-function createDefaultUnits() {
-    const draftPool = createRandomUnitPool(normalizeStartingPoolCount(false));
+function createDefaultUnits(options = {}) {
+    const draftPool = createRandomUnitPool(
+        normalizeStartingPoolCount(false),
+        { rulesReadyOnly: options.rulesReadyOnly === true }
+    );
     if (draftPool.length === 0) {
         console.warn("No units were available in the spreadsheet, so no draft pool was created.");
         return;
@@ -1787,7 +3509,8 @@ function createDefaultUnits() {
     const rows = Math.ceil(draftPool.length / cols);
     const unitSizes = draftPool.map(getUnitSizePx);
     const shortEdgeClearance = inchesToPx(2);
-    const longEdgeClearance = inchesToPx(DEPLOY_INCHES);
+    // Leave a visible gap: draft cards may not even touch a deployment zone.
+    const longEdgeClearance = inchesToPx(DEPLOY_INCHES + 0.5);
     const rowHeights = Array.from({ length: rows }, (_, row) => {
         const rowStart = row * cols;
         return Math.max(...unitSizes.slice(rowStart, rowStart + cols).map(size => size.height));
@@ -1905,7 +3628,7 @@ function createLongSideDeploymentUnits() {
 function createShuffledTerrainDeck() {
     const deck = [
         ...TERRAIN_TYPES.flatMap(type => [type, type]),
-        ...Array(10).fill(TERRAIN_NO_FEATURE_CARD)
+        ...Array(2).fill(TERRAIN_NO_FEATURE_CARD)
     ];
 
     for (let i = deck.length - 1; i > 0; i--) {
@@ -1985,28 +3708,48 @@ function renderTerrainCard() {
         'is-empty'
     );
 
-    const revealedCard = terrainDeck[0];
+    const pendingRulesTerrain = rulesGame && rulesGame.draft
+        ? (rulesGame.draft.pendingTerrainType
+            || rulesGame.draft.drawnTerrainType
+            || (rulesGame.draft.pendingTerrain && (rulesGame.draft.pendingTerrain.type || rulesGame.draft.pendingTerrain.subType))
+            || null)
+        : null;
+    const visibleRulesTop = rulesGame && rulesGame.draft
+        ? rulesGame.draft.terrainDeck[0] || null
+        : null;
+    const isRulesPreview = Boolean(rulesGame && !pendingRulesTerrain && visibleRulesTop);
+    const revealedCard = rulesGame ? (pendingRulesTerrain || visibleRulesTop) : terrainDeck[0];
     if (!revealedCard) {
         card.classList.add('is-empty');
         card.dataset.cardType = '';
         card.setAttribute('aria-disabled', 'true');
-        card.setAttribute('aria-label', 'Terrain deck empty. Use Reset Board to create a new deck.');
-        title.textContent = 'Deck Empty';
-        note.textContent = 'Use Reset Board';
+        if (rulesGame && rulesGame.draft && !rulesGame.draft.complete) {
+            card.setAttribute('aria-label', 'Terrain deck empty.');
+            title.textContent = 'Terrain Deck';
+            note.textContent = 'No tile available';
+        } else {
+            card.setAttribute('aria-label', 'Terrain deck empty. Use Sandbox to create a new deck.');
+            title.textContent = 'Deck Empty';
+            note.textContent = 'Start a new game';
+        }
         return;
     }
 
     const label = getTerrainCardLabel(revealedCard);
     card.classList.add(`terrain-card-${revealedCard}`);
     card.dataset.cardType = revealedCard;
-    card.setAttribute('aria-disabled', 'false');
-    card.setAttribute('aria-label', revealedCard === TERRAIN_NO_FEATURE_CARD
-        ? 'Revealed X card. Drag to discard it and reveal the next card.'
-        : `Revealed ${label} card. Drag it onto the battlefield.`);
+    card.setAttribute('aria-disabled', String(isRulesPreview));
+    card.setAttribute('aria-label', isRulesPreview
+        ? `Top of terrain deck: ${label}. This visible tile will be taken after the next unit is chosen.`
+        : revealedCard === TERRAIN_NO_FEATURE_CARD
+            ? 'Revealed X card. It is discarded automatically.'
+            : `Revealed ${label} card. Drag it onto the battlefield.`);
     title.textContent = label;
-    note.textContent = revealedCard === TERRAIN_NO_FEATURE_CARD
-        ? 'Discard — no terrain'
-        : 'Drag onto battlefield';
+    note.textContent = isRulesPreview
+        ? (revealedCard === TERRAIN_NO_FEATURE_CARD ? 'Next · open ground' : 'Next · choose a unit')
+        : revealedCard === TERRAIN_NO_FEATURE_CARD
+            ? 'Discarding automatically'
+            : 'Drag onto battlefield';
 }
 
 function createDefaultTerrain() {
@@ -2021,7 +3764,7 @@ function createDefaultTerrain() {
     });
 }
 
-function beginTerrainDrag(type, event, shouldPushUndo = true) {
+function beginTerrainDrag(type, event, shouldPushUndo = true, rulesSize = null) {
     if (event && event.button !== 0) return;
     if (event) {
         event.preventDefault();
@@ -2029,10 +3772,16 @@ function beginTerrainDrag(type, event, shouldPushUndo = true) {
     }
 
     clearPieceSelection();
-    if (shouldPushUndo) pushUndo();
-    const w = defaultUnitSizePx.width;
-    const h = defaultUnitSizePx.height;
+    if (shouldPushUndo && !rulesGame) pushUndo();
+    const w = rulesSize && rulesSize.width ? inchesToPx(rulesSize.width) : defaultUnitSizePx.width;
+    const h = rulesSize && (rulesSize.height || rulesSize.depth)
+        ? inchesToPx(rulesSize.height || rulesSize.depth)
+        : defaultUnitSizePx.height;
     const div = createTerrainDOM(type, (tableWidthPx - w) / 2, (tableHeightPx - h) / 2, w, h, 0);
+    if (rulesGame) {
+        div.dataset.rulesTransient = 'true';
+        rulesTransientTerrain = div;
+    }
     activePiece = div;
     pendingDragPiece = null;
     ghostPiece = null;
@@ -2041,11 +3790,15 @@ function beginTerrainDrag(type, event, shouldPushUndo = true) {
     div.dataset.offsetY = h / 2;
     isDraggingPiece = true;
     activePointerId = event ? event.pointerId : null;
+    if (event) {
+        pointerStartX = event.clientX;
+        pointerStartY = event.clientY;
+    }
     suppressUnitTooltip(Number.MAX_SAFE_INTEGER);
     if (event && event.currentTarget.setPointerCapture) {
         event.currentTarget.setPointerCapture(event.pointerId);
     }
-    saveGame();
+    if (!rulesGame) saveGame();
 }
 
 window.spawnTerrain = function (type, event) {
@@ -2053,13 +3806,26 @@ window.spawnTerrain = function (type, event) {
 };
 
 window.playTerrainCard = function (event) {
-    if (activePointerId !== null || isTerrainCardAnimating || !terrainDeck.length) return;
+    if (activePointerId !== null || isTerrainCardAnimating) return;
     if (event && (event.button !== 0 || event.isPrimary === false)) return;
     if (event) {
         event.preventDefault();
         event.stopPropagation();
     }
 
+    if (rulesGame) {
+        const placeAction = getVisibleRulesActions().find(action => getActionType(action) === 'draft.placeTerrain');
+        const card = document.getElementById('terrain-card');
+        const revealedType = card && card.dataset.cardType;
+        if (!placeAction || !revealedType || revealedType === TERRAIN_NO_FEATURE_CARD) {
+            showRulesToast('Choose a unit first; the visible top tile is taken automatically.', 'info');
+            return;
+        }
+        beginTerrainDrag(revealedType, event, false, placeAction.size || (placeAction.payload && placeAction.payload.size));
+        return;
+    }
+
+    if (!terrainDeck.length) return;
     pushUndo();
     const revealedCard = terrainDeck.shift();
     animateTerrainCardAdvance();
@@ -2102,6 +3868,10 @@ window.addEventListener('keydown', (e) => {
         const target = activePiece || hoveredUnit || hoveredTerrain;
         if (target) {
             e.preventDefault();
+            if (rulesGame) {
+                showRulesToast('Drag the selected unit’s rotation handle to make one complete pivot.', 'info');
+                return;
+            }
             const step = e.shiftKey ? 1 : 2;
             rotatePiece(target, e.key === 'ArrowRight' ? step : -step);
             return;
@@ -2218,6 +3988,10 @@ function onRotationHandlePointerDown(e) {
 
     const piece = e.currentTarget.closest('.piece');
     if (!piece) return;
+    if (rulesGame && !canRulesRotatePiece(piece)) {
+        showRulesToast('That piece cannot pivot during this step.', 'warning');
+        return;
+    }
 
     selectPiece(piece);
     activeTableRect = table.getBoundingClientRect();
@@ -2253,18 +4027,26 @@ function updateRotationFromPointer(e) {
     if (Math.abs(normalizeAngle(nextAngle - currentAngle)) < 0.15) return;
 
     if (!rotationDragUndoPushed) {
-        pushUndo();
+        if (!rulesGame) pushUndo();
         rotationDragUndoPushed = true;
     }
 
     setPieceAngle(rotatingPiece, nextAngle, nextAngle - rotationDragStartAngle);
 }
 
-function finishRotationDrag() {
+function finishRotationDrag(shouldCommit = true) {
     if (!rotatingPiece) return false;
 
+    const completedPiece = rotatingPiece;
+    const completedAngle = parseFloat(completedPiece.dataset.angle) || 0;
+    const completedDelta = completedAngle - rotationDragStartAngle;
+    const didRotate = rotationDragUndoPushed;
+    if (!shouldCommit) {
+        completedPiece.dataset.angle = String(rotationDragStartAngle);
+        completedPiece.style.transform = `rotate(${rotationDragStartAngle}deg)`;
+    }
     suppressUnitTooltip();
-    if (rotationDragUndoPushed) {
+    if (rotationDragUndoPushed && !rulesGame && shouldCommit) {
         saveGame();
     }
 
@@ -2281,6 +4063,34 @@ function finishRotationDrag() {
     resetRotationPivot();
     positionPieceControls();
 
+    if (rulesGame && didRotate && shouldCommit) {
+        if (completedPiece.dataset.rulesTransient === 'true') {
+            if (!updateRulesTerrainPreview(completedPiece)) snapRulesTerrainPiece(completedPiece, false);
+            selectPiece(completedPiece);
+            renderRulesGuide();
+        } else {
+            const pivotAction = getVisibleRulesActions().find(action => getActionType(action) === 'activation.pivot');
+            if (pivotAction) {
+            dispatchRulesAction({
+                ...pivotAction,
+                unitId: completedPiece.dataset.pieceId,
+                angle: completedAngle,
+                delta: completedDelta,
+                degrees: completedDelta,
+                payload: {
+                    ...(pivotAction.payload || {}),
+                    unitId: completedPiece.dataset.pieceId,
+                    angle: completedAngle,
+                    delta: completedDelta,
+                    degrees: completedDelta
+                }
+            });
+            }
+        }
+    } else if (rulesGame && !shouldCommit) {
+        renderRulesGame({ rebuildBoard: true, announceEvents: false });
+    }
+
     return true;
 }
 
@@ -2296,9 +4106,9 @@ function onPiecePointerDown(e) {
     pointerStartX = e.clientX;
     pointerStartY = e.clientY;
     isDraggingPiece = false;
-    const rect = pendingDragPiece.getBoundingClientRect();
-    pendingDragPiece.dataset.offsetX = (e.clientX - rect.left) / currentScale;
-    pendingDragPiece.dataset.offsetY = (e.clientY - rect.top) / currentScale;
+    const pointer = getTablePointerPosition(e);
+    pendingDragPiece.dataset.offsetX = pointer.x - (parseFloat(pendingDragPiece.style.left) || 0);
+    pendingDragPiece.dataset.offsetY = pointer.y - (parseFloat(pendingDragPiece.style.top) || 0);
 
     if (pendingDragPiece.setPointerCapture) {
         pendingDragPiece.setPointerCapture(e.pointerId);
@@ -2312,8 +4122,18 @@ function onPiecePointerDown(e) {
 function startPieceDrag() {
     if (!pendingDragPiece) return;
 
+    if (rulesGame && !canRulesDragPiece(pendingDragPiece)) {
+        const inspectedPiece = pendingDragPiece;
+        pendingDragPiece = null;
+        selectPiece(inspectedPiece);
+        showRulesToast(rulesMoveDirection
+            ? 'Only the highlighted unit can move now.'
+            : 'Choose a legal action before moving that piece.', 'info');
+        return;
+    }
+
     suppressUnitTooltip(Number.MAX_SAFE_INTEGER);
-    pushUndo();
+    if (!rulesGame) pushUndo();
     activePiece = pendingDragPiece;
     pendingDragPiece = null;
     isDraggingPiece = true;
@@ -2332,6 +4152,260 @@ function startPieceDrag() {
     anchorY = ((rect.top - tableRect.top) + (rect.height / 2)) / currentScale;
     showLine(anchorX, anchorY, anchorX, anchorY);
     positionPieceControls();
+}
+
+function buildRulesDragAction(piece) {
+    if (!rulesGame || !piece) return null;
+    const actions = getVisibleRulesActions();
+    const center = {
+        x: ((parseFloat(piece.style.left) || 0) + (piece.offsetWidth / 2)) / SCALE,
+        y: ((parseFloat(piece.style.top) || 0) + (piece.offsetHeight / 2)) / SCALE,
+        angle: Number(piece.dataset.angle) || 0
+    };
+
+    if (piece.dataset.rulesTransient === 'true') {
+        const template = actions.find(action => getActionType(action) === 'draft.placeTerrain');
+        if (!template) return null;
+        const terrainType = piece.dataset.subType;
+        const size = { width: piece.offsetWidth / SCALE, height: piece.offsetHeight / SCALE };
+        return {
+            ...template,
+            type: 'draft.placeTerrain',
+            terrainType,
+            subType: terrainType,
+            pose: center,
+            size,
+            payload: { ...(template.payload || {}), terrainType, subType: terrainType, pose: center, size }
+        };
+    }
+
+    const unitId = piece.dataset.pieceId;
+    const deploy = actions.find(action => getActionType(action) === 'draft.deployUnit'
+        && (!getRulesActionEntityId(action, 'unitId') || getRulesActionEntityId(action, 'unitId') === unitId));
+    if (deploy) {
+        return {
+            ...deploy,
+            type: 'draft.deployUnit',
+            unitId,
+            pose: center,
+            destination: center,
+            payload: { ...(deploy.payload || {}), unitId, pose: center, destination: center }
+        };
+    }
+
+    const move = actions.find(action => {
+        if (getActionType(action) !== 'activation.move') return false;
+        const direction = action.direction || (action.payload && action.payload.direction);
+        return !direction || direction === rulesMoveDirection;
+    });
+    if (move) {
+        const unit = getRulesUnit(unitId);
+        const startPose = readRulesPose(unit);
+        const distance = Math.hypot(center.x - startPose.x, center.y - startPose.y);
+        return {
+            ...move,
+            type: 'activation.move',
+            unitId,
+            direction: rulesMoveDirection,
+            distance,
+            pose: center,
+            destination: center,
+            to: center,
+            payload: {
+                ...(move.payload || {}),
+                unitId,
+                direction: rulesMoveDirection,
+                distance,
+                pose: center,
+                destination: center,
+                to: center
+            }
+        };
+    }
+    return null;
+}
+
+function getRulesPreviewResult(action) {
+    if (!rulesGame || !action || !window.SeizeTheDayRules
+        || typeof SeizeTheDayRules.validateAction !== 'function') return null;
+    try {
+        return SeizeTheDayRules.validateAction(rulesGame, {
+            ...action,
+            actorId: action.actorId || getConnectedRulesPlayer() || getRulesDecisionPlayer(),
+            expectedRevision: rulesGame.revision
+        });
+    } catch (err) {
+        return { ok: false, message: err.message };
+    }
+}
+
+function getRulesAxes(angle) {
+    const radians = (Number(angle) || 0) * Math.PI / 180;
+    return {
+        right: { x: Math.cos(radians), y: Math.sin(radians) },
+        forward: { x: Math.sin(radians), y: -Math.cos(radians) }
+    };
+}
+
+function getRulesProjectionRadius(size, angle, axis) {
+    const axes = getRulesAxes(angle);
+    const width = Number(size && (size.width ?? size.w)) || 0;
+    const height = Number(size && (size.height ?? size.depth ?? size.h)) || 0;
+    return (Math.abs((axes.right.x * axis.x) + (axes.right.y * axis.y)) * width / 2)
+        + (Math.abs((axes.forward.x * axis.x) + (axes.forward.y * axis.y)) * height / 2);
+}
+
+function setRulesPiecePose(piece, pose) {
+    if (!piece || !pose) return;
+    piece.dataset.angle = String(pose.angle || 0);
+    piece.style.left = `${inchesToPx(pose.x) - (piece.offsetWidth / 2)}px`;
+    piece.style.top = `${inchesToPx(pose.y) - (piece.offsetHeight / 2)}px`;
+    piece.style.transform = `rotate(${pose.angle || 0}deg)`;
+}
+
+function findRulesTerrainSnapPose(piece) {
+    if (!piece || !rulesGame || !rulesGame.draft || !rulesGame.draft.selectedUnitId) return null;
+    const selected = getRulesUnit(rulesGame.draft.selectedUnitId);
+    const template = getVisibleRulesActions().find(action => getActionType(action) === 'draft.placeTerrain');
+    if (!selected || !template) return null;
+    const selectedPose = readRulesPose(selected);
+    const selectedSize = selected.size || {};
+    const terrainSize = {
+        width: piece.offsetWidth / SCALE,
+        height: piece.offsetHeight / SCALE
+    };
+    const desired = {
+        x: ((parseFloat(piece.style.left) || 0) + (piece.offsetWidth / 2)) / SCALE,
+        y: ((parseFloat(piece.style.top) || 0) + (piece.offsetHeight / 2)) / SCALE
+    };
+    const angle = Number(piece.dataset.angle) || 0;
+    const selectedAxes = getRulesAxes(selectedPose.angle);
+    const directions = [
+        selectedAxes.right,
+        { x: -selectedAxes.right.x, y: -selectedAxes.right.y },
+        selectedAxes.forward,
+        { x: -selectedAxes.forward.x, y: -selectedAxes.forward.y }
+    ];
+    const candidates = [];
+    directions.forEach(normal => {
+        const tangent = { x: -normal.y, y: normal.x };
+        const separation = getRulesProjectionRadius(selectedSize, selectedPose.angle, normal)
+            + getRulesProjectionRadius(terrainSize, angle, normal);
+        const tangentReach = Math.max(0, getRulesProjectionRadius(selectedSize, selectedPose.angle, tangent)
+            + getRulesProjectionRadius(terrainSize, angle, tangent) - 0.02);
+        const desiredShift = ((desired.x - selectedPose.x) * tangent.x)
+            + ((desired.y - selectedPose.y) * tangent.y);
+        const clampedShift = Math.max(-tangentReach, Math.min(tangentReach, desiredShift));
+        const shifts = [clampedShift, 0, -tangentReach, tangentReach, -tangentReach / 2, tangentReach / 2];
+        shifts.forEach(shift => {
+            const pose = {
+                x: selectedPose.x + (normal.x * separation) + (tangent.x * shift),
+                y: selectedPose.y + (normal.y * separation) + (tangent.y * shift),
+                angle
+            };
+            const action = {
+                ...template,
+                pose,
+                size: terrainSize,
+                payload: { ...(template.payload || {}), pose, size: terrainSize }
+            };
+            const preview = getRulesPreviewResult(action);
+            if (preview && preview.ok) {
+                candidates.push({
+                    pose,
+                    distance: Math.hypot(pose.x - desired.x, pose.y - desired.y)
+                });
+            }
+        });
+    });
+    candidates.sort((first, second) => first.distance - second.distance);
+    return candidates.length ? candidates[0].pose : null;
+}
+
+function updateRulesTerrainPreview(piece) {
+    if (!piece) return false;
+    const preview = getRulesPreviewResult(buildRulesDragAction(piece));
+    const valid = Boolean(preview && preview.ok);
+    piece.classList.toggle('rules-placement-valid', valid);
+    piece.classList.toggle('rules-placement-invalid', !valid);
+    return valid;
+}
+
+function snapRulesTerrainPiece(piece, showFeedback = false) {
+    const pose = findRulesTerrainSnapPose(piece);
+    if (!pose) {
+        updateRulesTerrainPreview(piece);
+        if (showFeedback) showRulesToast('No legal touching position is available on that side. Move another terrain tile first.', 'warning');
+        return false;
+    }
+    setRulesPiecePose(piece, pose);
+    updateRulesTerrainPreview(piece);
+    selectPiece(piece);
+    renderRulesGuide();
+    if (showFeedback) showRulesToast('Terrain snapped to the nearest legal touching position.', 'info');
+    return true;
+}
+
+function stageRulesTerrainFromGuide(action) {
+    if (!action || rulesTransientTerrain || activePointerId !== null) return;
+    const type = action.terrainType || (action.payload && action.payload.terrainType)
+        || (rulesGame && rulesGame.draft && rulesGame.draft.pendingTerrainType);
+    beginTerrainDrag(type, null, false, action.size || (action.payload && action.payload.size));
+    const staged = activePiece;
+    activePiece = null;
+    isDraggingPiece = false;
+    activePieceHalfWidth = 0;
+    activePieceHalfHeight = 0;
+    rulesTransientTerrain = staged;
+    snapRulesTerrainPiece(staged, false);
+    selectPiece(staged);
+    renderRulesGuide();
+}
+
+function stagePendingRulesTerrainIfNeeded() {
+    if (!rulesGame || rulesTransientTerrain || activePointerId !== null) return;
+    const action = getVisibleRulesActions().find(candidate => getActionType(candidate) === 'draft.placeTerrain');
+    if (action) stageRulesTerrainFromGuide(action);
+}
+
+function rotateStagedRulesPiece(piece, degrees) {
+    if (!piece || rulesAutomationBusy || rulesRequestPending) return;
+    const nextAngle = normalizeAngle((Number(piece.dataset.angle) || 0) + degrees);
+    piece.dataset.angle = String(nextAngle);
+    piece.style.transform = `rotate(${nextAngle}deg)`;
+    if (piece.dataset.rulesTransient === 'true' && !updateRulesTerrainPreview(piece)) {
+        snapRulesTerrainPiece(piece, false);
+    }
+    selectPiece(piece);
+    renderRulesGuide();
+}
+
+function cancelStagedRulesTerrain() {
+    if (rulesTransientTerrain) rulesTransientTerrain.remove();
+    if (selectedPiece === rulesTransientTerrain) clearPieceSelection();
+    rulesTransientTerrain = null;
+    renderRulesGuide();
+    showRulesToast('Terrain placement cancelled. The revealed tile remains available.', 'info');
+}
+
+function confirmRulesTerrainPlacement() {
+    const piece = rulesTransientTerrain;
+    if (!piece || rulesAutomationBusy || rulesRequestPending) return;
+    if (!updateRulesTerrainPreview(piece) && !snapRulesTerrainPiece(piece, false)) {
+        const preview = getRulesPreviewResult(buildRulesDragAction(piece));
+        showRulesToast((preview && preview.message) || 'Place the terrain touching the chosen unit without overlapping deployed units or terrain.', 'warning');
+        return;
+    }
+    const action = buildRulesDragAction(piece);
+    const preview = getRulesPreviewResult(action);
+    if (!preview || !preview.ok) {
+        showRulesToast((preview && preview.message) || 'That terrain placement is not legal.', 'warning');
+        return;
+    }
+    clearPieceSelection();
+    piece.remove();
+    rulesTransientTerrain = null;
+    dispatchRulesAction(action);
 }
 
 table.addEventListener('pointerdown', (e) => {
@@ -2411,8 +4485,16 @@ function handlePointerMove(e) {
     if (activePiece) {
         const offX = parseFloat(activePiece.dataset.offsetX);
         const offY = parseFloat(activePiece.dataset.offsetY);
-        const newLeft = pointer.x - offX;
-        const newTop = pointer.y - offY;
+        let newLeft = pointer.x - offX;
+        let newTop = pointer.y - offY;
+        if (rulesGame && activePiece.classList.contains('unit') && rulesMoveDirection) {
+            const unit = getRulesUnit(activePiece.dataset.pieceId);
+            const desiredCenterX = newLeft + activePieceHalfWidth;
+            const desiredCenterY = newTop + activePieceHalfHeight;
+            const projected = projectRulesMove(unit, desiredCenterX, desiredCenterY, rulesMoveDirection);
+            newLeft = projected.centerX - activePieceHalfWidth;
+            newTop = projected.centerY - activePieceHalfHeight;
+        }
         activePiece.style.left = `${newLeft}px`;
         activePiece.style.top = `${newTop}px`;
         targetX = newLeft + activePieceHalfWidth;
@@ -2436,7 +4518,7 @@ function onPointerUp(e) {
     flushPendingPointerMove();
 
     if (rotatingPiece) {
-        finishRotationDrag();
+        finishRotationDrag(e.type !== 'pointercancel');
         return;
     }
 
@@ -2444,9 +4526,24 @@ function onPointerUp(e) {
         handlePieceTap(pendingDragPiece, e);
     }
 
+    const completedRulesPiece = rulesGame && activePiece ? activePiece : null;
+    const transientWasMoved = !completedRulesPiece
+        || completedRulesPiece.dataset.rulesTransient !== 'true'
+        || Math.hypot(e.clientX - pointerStartX, e.clientY - pointerStartY) >= DRAG_THRESHOLD_PX;
+    const isTransientRulesPiece = completedRulesPiece
+        && completedRulesPiece.dataset.rulesTransient === 'true';
+    const completedRulesAction = completedRulesPiece && !isTransientRulesPiece
+        && e.type !== 'pointercancel' && transientWasMoved
+        ? buildRulesDragAction(completedRulesPiece)
+        : null;
     if (activePiece) {
         activePiece.classList.remove('is-dragging');
-        saveGame();
+        if (e.type === 'pointercancel' && ghostPiece && (!rulesGame || isTransientRulesPiece)) {
+            activePiece.style.left = ghostPiece.style.left;
+            activePiece.style.top = ghostPiece.style.top;
+        } else if (!rulesGame) {
+            saveGame();
+        }
     }
     activePiece = null;
     pendingDragPiece = null;
@@ -2465,11 +4562,36 @@ function onPointerUp(e) {
         suppressUnitTooltip();
     }
     positionPieceControls();
+
+    if (completedRulesPiece) {
+        if (isTransientRulesPiece) {
+            rulesTransientTerrain = completedRulesPiece;
+            if (e.type !== 'pointercancel' && !updateRulesTerrainPreview(completedRulesPiece)) {
+                snapRulesTerrainPiece(completedRulesPiece, false);
+            }
+            updateRulesTerrainPreview(completedRulesPiece);
+            selectPiece(completedRulesPiece);
+            renderRulesGuide();
+            showRulesToast('Adjust or rotate the terrain, then choose Place Terrain.', 'info');
+            return;
+        }
+        if (completedRulesAction) {
+            rulesMoveDirection = null;
+            dispatchRulesAction(completedRulesAction);
+        } else {
+            renderRulesGame({ rebuildBoard: true, announceEvents: false });
+            showRulesToast('That placement is not available in this step.', 'warning');
+        }
+    }
 }
 
 function onWheel(e) {
     e.preventDefault(); e.stopPropagation();
     const piece = e.currentTarget;
+    if (rulesGame) {
+        showRulesToast('Drag the rotation handle to commit one pivot of up to 90°.', 'info');
+        return;
+    }
     rotatePiece(piece, e.deltaY > 0 ? 2 : -2);
 }
 
@@ -2484,8 +4606,11 @@ function fitTableToScreen() {
     const table = document.getElementById('game-table');
     if (!container || !table) return;
 
+    const guide = document.getElementById('game-guide');
+    const guideReserve = guide ? Math.ceil(guide.offsetTop + guide.offsetHeight + 10) : 0;
+    container.style.paddingTop = `${guideReserve}px`;
     const availableWidth = Math.max(container.clientWidth - 20, 1);
-    const availableHeight = Math.max(container.clientHeight - 20, 1);
+    const availableHeight = Math.max(container.clientHeight - guideReserve - 20, 1);
     const tableWidth = tableWidthPx;
     const tableHeight = tableHeightPx;
 
