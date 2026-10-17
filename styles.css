@@ -1324,7 +1324,8 @@ input::placeholder {
     z-index: 20;
 }
 
-#measure-line {
+#measure-line,
+#remote-measure-line {
     stroke: #f3cf7f;
     stroke-width: 4;
     stroke-dasharray: 12, 6;
@@ -1332,7 +1333,12 @@ input::placeholder {
     filter: drop-shadow(0 0 5px rgba(0, 0, 0, 0.75));
 }
 
-#measure-text {
+#remote-measure-line {
+    stroke: #e6b761;
+}
+
+#measure-text,
+#remote-measure-text {
     font-size: 20px;
     font-weight: bold;
     fill: #ffe2a1;
@@ -1343,7 +1349,8 @@ input::placeholder {
     stroke-width: 2px;
 }
 
-#angle-indicator {
+#angle-indicator,
+#remote-angle-indicator {
     position: absolute;
     min-width: 58px;
     padding: 6px 10px;
@@ -1363,7 +1370,8 @@ input::placeholder {
     box-shadow: 0 12px 22px rgba(0, 0, 0, 0.28);
 }
 
-#angle-indicator.visible {
+#angle-indicator.visible,
+#remote-angle-indicator.visible {
     opacity: 1;
 }
 
@@ -1620,7 +1628,8 @@ input::placeholder {
     transform: translateX(-50%) rotate(180deg);
 }
 
-#game-table.is-flipped #angle-indicator {
+#game-table.is-flipped #angle-indicator,
+#game-table.is-flipped #remote-angle-indicator {
     transform: translate(-50%, -50%) rotate(180deg);
 }
 

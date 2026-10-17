@@ -1208,7 +1208,8 @@ function rotatePiece(piece, delta) {
         sendData({
             type: 'PIECE_ROTATE',
             pieceId: pieceId,
-            angle: nextAngle
+            angle: nextAngle,
+            delta: delta
         });
     }
     saveGame();
@@ -1678,6 +1679,7 @@ function findPieceById(pieceId) {
     const pieces = table.querySelectorAll ? table.querySelectorAll('.piece') : [];
     for (let i = 0; i < pieces.length; i++) {
         const p = pieces[i];
+        if (p.classList && p.classList.contains('ghost')) continue;
         if (p.dataset && (p.dataset.unitId === pieceId || p.dataset.pieceId === pieceId)) {
             return p;
         }
@@ -1688,8 +1690,74 @@ function findPieceById(pieceId) {
 let lastPieceMoveSendTime = 0;
 let pendingPieceMoveData = null;
 let pieceMoveBroadcastTimer = null;
+let remoteGhostPiece = null;
+let remoteAngleIndicatorTimer = null;
 
-function broadcastPieceMoveThrottled(piece, x, y) {
+function showRemoteLine(x1, y1, x2, y2) {
+    const line = document.getElementById('remote-measure-line') || lineElement;
+    const text = document.getElementById('remote-measure-text') || measureTextElement;
+    if (!line || !text) return;
+
+    line.style.opacity = 1;
+    text.style.opacity = 1;
+    line.setAttribute('x1', x1);
+    line.setAttribute('y1', y1);
+    line.setAttribute('x2', x2);
+    line.setAttribute('y2', y2);
+
+    const dx = x2 - x1;
+    const dy = y2 - y1;
+    const distancePx = Math.sqrt(dx * dx + dy * dy);
+    text.textContent = `${pxToInches(distancePx)}"`;
+
+    const textX = x1 + (dx / 2) + 10;
+    const textY = y1 + (dy / 2) - 10;
+    text.setAttribute('x', textX);
+    text.setAttribute('y', textY);
+
+    if (!isHost) {
+        text.setAttribute('transform', `rotate(180, ${textX}, ${textY})`);
+    } else if (text.removeAttribute) {
+        text.removeAttribute('transform');
+    }
+}
+
+function hideRemoteLine() {
+    const line = document.getElementById('remote-measure-line');
+    const text = document.getElementById('remote-measure-text');
+    if (line) line.style.opacity = 0;
+    if (text) text.style.opacity = 0;
+    if (remoteGhostPiece) {
+        remoteGhostPiece.remove();
+        remoteGhostPiece = null;
+    }
+}
+
+function showRemoteAngleIndicator(piece, angleDelta) {
+    const indicator = document.getElementById('remote-angle-indicator') || document.getElementById('angle-indicator');
+    if (!indicator || !piece) return;
+
+    const normalizedAngle = normalizeAngle(angleDelta);
+    const left = (parseFloat(piece.style.left) || 0) + (piece.offsetWidth / 2);
+    const top = (parseFloat(piece.style.top) || 0) - 18;
+
+    indicator.innerText = `${normalizedAngle > 0 ? '+' : ''}${normalizedAngle.toFixed(0)}°`;
+    indicator.style.left = `${left}px`;
+    indicator.style.top = `${Math.max(20, top)}px`;
+    indicator.setAttribute('aria-hidden', 'false');
+    indicator.classList.add('visible');
+
+    if (remoteAngleIndicatorTimer) {
+        clearTimeout(remoteAngleIndicatorTimer);
+    }
+
+    remoteAngleIndicatorTimer = setTimeout(() => {
+        indicator.classList.remove('visible');
+        indicator.setAttribute('aria-hidden', 'true');
+    }, 700);
+}
+
+function broadcastPieceMoveThrottled(piece, x, y, anchorX, anchorY, targetX, targetY) {
     const pieceId = getPieceId(piece);
     if (!pieceId) return;
 
@@ -1697,7 +1765,11 @@ function broadcastPieceMoveThrottled(piece, x, y) {
         type: 'PIECE_DRAG_MOVE',
         pieceId: pieceId,
         x: Math.round(x),
-        y: Math.round(y)
+        y: Math.round(y),
+        anchorX: Math.round(anchorX ?? x),
+        anchorY: Math.round(anchorY ?? y),
+        targetX: Math.round(targetX ?? x),
+        targetY: Math.round(targetY ?? y)
     };
 
     const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
@@ -1722,14 +1794,15 @@ let lastPieceRotateSendTime = 0;
 let pendingPieceRotateData = null;
 let pieceRotateBroadcastTimer = null;
 
-function broadcastPieceRotateThrottled(piece, angle) {
+function broadcastPieceRotateThrottled(piece, angle, delta = 0) {
     const pieceId = getPieceId(piece);
     if (!pieceId) return;
 
     pendingPieceRotateData = {
         type: 'PIECE_ROTATE',
         pieceId: pieceId,
-        angle: Math.round(angle * 10) / 10
+        angle: Math.round(angle * 10) / 10,
+        delta: Math.round(delta * 10) / 10
     };
 
     const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
@@ -1762,6 +1835,18 @@ function handleIncomingData(data) {
                 piece.style.left = `${data.x}px`;
                 piece.style.top = `${data.y}px`;
             }
+            if (data.anchorX !== undefined && data.anchorY !== undefined) {
+                showRemoteLine(data.anchorX, data.anchorY, data.anchorX, data.anchorY);
+                if (remoteGhostPiece) { remoteGhostPiece.remove(); remoteGhostPiece = null; }
+                if (piece.cloneNode && table && table.insertBefore) {
+                    remoteGhostPiece = piece.cloneNode(true);
+                    remoteGhostPiece.classList.add('ghost');
+                    remoteGhostPiece.classList.remove('is-selected', 'is-remote-moving');
+                    if (remoteGhostPiece.removeAttribute) remoteGhostPiece.removeAttribute('id');
+                    remoteGhostPiece.style.transform = piece.style.transform;
+                    table.insertBefore(remoteGhostPiece, piece);
+                }
+            }
             if (selectedPiece === piece) positionPieceControls();
         }
     } else if (data.type === 'PIECE_DRAG_MOVE') {
@@ -1770,6 +1855,9 @@ function handleIncomingData(data) {
             piece.classList.add('is-remote-moving');
             piece.style.left = `${data.x}px`;
             piece.style.top = `${data.y}px`;
+            if (data.anchorX !== undefined && data.anchorY !== undefined && data.targetX !== undefined && data.targetY !== undefined) {
+                showRemoteLine(data.anchorX, data.anchorY, data.targetX, data.targetY);
+            }
             if (selectedPiece === piece) positionPieceControls();
         }
     } else if (data.type === 'PIECE_DRAG_END') {
@@ -1780,6 +1868,7 @@ function handleIncomingData(data) {
                 piece.style.left = `${data.x}px`;
                 piece.style.top = `${data.y}px`;
             }
+            hideRemoteLine();
             if (selectedPiece === piece) positionPieceControls();
         }
     } else if (data.type === 'PIECE_ROTATE_START' || data.type === 'PIECE_ROTATE') {
@@ -1788,6 +1877,7 @@ function handleIncomingData(data) {
             piece.classList.add('is-remote-rotating');
             piece.dataset.angle = data.angle;
             piece.style.transform = `rotate(${data.angle}deg)`;
+            showRemoteAngleIndicator(piece, data.delta !== undefined ? data.delta : data.angle);
             if (selectedPiece === piece) positionPieceControls();
         }
     } else if (data.type === 'PIECE_ROTATE_END') {
@@ -3308,7 +3398,8 @@ function onRotationHandlePointerDown(e) {
         sendData({
             type: 'PIECE_ROTATE_START',
             pieceId: pieceId,
-            angle: rotationDragStartAngle
+            angle: rotationDragStartAngle,
+            delta: 0
         });
     }
 
@@ -3333,8 +3424,9 @@ function updateRotationFromPointer(e) {
         rotationDragUndoPushed = true;
     }
 
-    setPieceAngle(rotatingPiece, nextAngle, nextAngle - rotationDragStartAngle);
-    broadcastPieceRotateThrottled(rotatingPiece, nextAngle);
+    const delta = nextAngle - rotationDragStartAngle;
+    setPieceAngle(rotatingPiece, nextAngle, delta);
+    broadcastPieceRotateThrottled(rotatingPiece, nextAngle, delta);
 }
 
 function finishRotationDrag() {
@@ -3425,7 +3517,9 @@ function startPieceDrag() {
             type: 'PIECE_DRAG_START',
             pieceId: pieceId,
             x: Math.round(parseFloat(activePiece.style.left) || 0),
-            y: Math.round(parseFloat(activePiece.style.top) || 0)
+            y: Math.round(parseFloat(activePiece.style.top) || 0),
+            anchorX: Math.round(anchorX),
+            anchorY: Math.round(anchorY)
         });
     }
 }
@@ -3513,7 +3607,7 @@ function handlePointerMove(e) {
         activePiece.style.top = `${newTop}px`;
         targetX = newLeft + activePieceHalfWidth;
         targetY = newTop + activePieceHalfHeight;
-        broadcastPieceMoveThrottled(activePiece, newLeft, newTop);
+        broadcastPieceMoveThrottled(activePiece, newLeft, newTop, anchorX, anchorY, targetX, targetY);
     }
 
     if (anchorX > -1) {
