@@ -85,7 +85,7 @@ test('E2E UI Simulation: hover popup disabled, wound controls active, commands s
         'unit-tooltip', 'stats-panel', 'range-ring', 'terrain-card', 'right-sidebar',
         'right-sidebar-toggle', 'fullscreen-btn', 'turn-indicator-badge', 'pass-turn-btn',
         'my-role-label', 'opp-role-label', 'mt-badge-wrap', 'player-banner', 'player-banner-top',
-        'stats-content', 'landing-join-code'
+        'stats-content', 'landing-join-code', 'left-sidebar'
     ];
     expectedIds.forEach(id => getOrCreateEl(id));
 
@@ -175,4 +175,31 @@ test('E2E UI Simulation: hover popup disabled, wound controls active, commands s
     global.window.joinGameFromLanding();
     assert.equal(tableEl.classList.contains('is-flipped'), true, 'Challenger table must have is-flipped class');
     assert.match(tableEl.style.transform, /rotate\(180deg\)/, 'Challenger table transform must have rotate(180deg)');
+
+    // 6. Test dynamic left sidebar sizing to fill space left of the battlefield
+    const containerEl = elements['container'];
+    const leftSidebarEl = elements['left-sidebar'];
+    const rightSidebarEl = elements['right-sidebar'];
+    containerEl.clientWidth = 1920;
+    containerEl.clientHeight = 960;
+    rightSidebarEl.offsetWidth = 210;
+    rightSidebarEl.classList.remove('sidebar-hidden');
+
+    global.window.fitTableToScreen();
+    const widthWithRightSidebar = parseInt(leftSidebarEl.style.width, 10);
+    assert.ok(widthWithRightSidebar >= 260, `Left sidebar width should be at least 260px (got ${widthWithRightSidebar}px)`);
+
+    // When right sidebar is hidden, left sidebar expands to claim the freed battlefield space
+    rightSidebarEl.classList.add('sidebar-hidden');
+    global.window.fitTableToScreen();
+    const widthWithoutRightSidebar = parseInt(leftSidebarEl.style.width, 10);
+    assert.ok(widthWithoutRightSidebar > widthWithRightSidebar, 'Left sidebar should expand when right sidebar is hidden');
+    assert.ok(widthWithoutRightSidebar <= 440, 'Left sidebar should be capped at sensible max');
+
+    // 7. Verify CSS styles for bottom-left command dock and bid inputs
+    const cssContent = fs.readFileSync('styles.css', 'utf8');
+    assert.match(cssContent, /\.unit-command-dock\s*\{[^}]*bottom:\s*-8px/, 'unit-command-dock must be positioned with bottom: -8px');
+    assert.match(cssContent, /\.unit-command-dock\s*\{[^}]*left:\s*-8px/, 'unit-command-dock must be positioned with left: -8px');
+    assert.match(cssContent, /#left-sidebar\s*\{[^}]*min-width:\s*2[56]0px/, '#left-sidebar must have min-width at least 250px');
+    assert.match(cssContent, /\.bid-input-wrap\s+input[^}]*appearance:\s*textfield/, 'bid input must remove browser spin buttons for maximum visibility');
 });

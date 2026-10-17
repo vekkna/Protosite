@@ -527,6 +527,8 @@ function updateRightSidebarUI() {
     const toggleBtn = document.getElementById('right-sidebar-toggle');
     if (!rightSidebar || !toggleBtn) return;
 
+    rightSidebar.classList.toggle('sidebar-hidden', isRightSidebarHidden);
+
     const toggleSpan = toggleBtn.querySelector('span');
     if (toggleSpan) toggleSpan.innerText = isRightSidebarHidden ? '<' : '>';
     toggleBtn.setAttribute('aria-expanded', String(!isRightSidebarHidden));
@@ -3689,9 +3691,34 @@ window.addEventListener('pointercancel', onPointerUp);
 // --- RESPONSIVE TABLE SCALE & BOOTSTRAP ---
 let currentScale = 1;
 function fitTableToScreen() {
+    const appContainer = document.getElementById('container');
     const container = document.getElementById('table-container');
     const table = document.getElementById('game-table');
+    const leftSidebar = document.getElementById('left-sidebar');
+    const rightSidebar = document.getElementById('right-sidebar');
     if (!container || !table) return;
+
+    if (appContainer && leftSidebar && appContainer.clientWidth > 400 && appContainer.clientHeight > 300) {
+        const totalWidth = appContainer.clientWidth;
+        const totalHeight = appContainer.clientHeight;
+        const isRightHidden = isRightSidebarHidden || (rightSidebar && rightSidebar.classList.contains('sidebar-hidden'));
+        const rightWidth = (rightSidebar && !isRightHidden) ? (rightSidebar.offsetWidth || 210) : 0;
+        const gap = 8;
+        const numGaps = rightWidth > 0 ? 2 : 1;
+
+        // Container borders / padding take ~4px vertically
+        const availableHeight = Math.max(totalHeight - 4, 1);
+        const idealScale = availableHeight / tableHeightPx;
+        const idealTableWidth = tableWidthPx * idealScale;
+        const spaceForLeft = totalWidth - idealTableWidth - rightWidth - (numGaps * gap);
+
+        const minSidebarWidth = 260;
+        const maxSidebarWidth = 440;
+        if (!isNaN(spaceForLeft)) {
+            const targetLeftWidth = Math.max(minSidebarWidth, Math.min(Math.floor(spaceForLeft), maxSidebarWidth));
+            leftSidebar.style.width = `${targetLeftWidth}px`;
+        }
+    }
 
     const availableWidth = Math.max(container.clientWidth - 4, 1);
     const availableHeight = Math.max(container.clientHeight - 4, 1);
@@ -3777,6 +3804,7 @@ window.unlockLocalBid = unlockLocalBid;
 window.triggerRevealBids = triggerRevealBids;
 window.handlePassTurn = handlePassTurn;
 window.toggleFullscreen = toggleFullscreen;
+window.fitTableToScreen = fitTableToScreen;
 window.getBiddingState = () => biddingState;
 window.handlePeerData = handleIncomingData;
 window.getPieceId = getPieceId;
