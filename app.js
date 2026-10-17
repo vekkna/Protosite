@@ -317,6 +317,14 @@ function updateOpponentBidStatusUI() {
     const text = document.getElementById('opponent-bid-text');
     if (!dot || !text) return;
 
+    const isPeerConnected = Boolean(conn && conn.open);
+    if (!isPeerConnected) {
+        dot.classList.remove('is-ready');
+        text.textContent = 'Solo / Sandbox';
+        text.title = 'No peer connected yet. Setting your bid enables Reveal.';
+        return;
+    }
+
     if (biddingState[oppKey].ready) {
         dot.classList.add('is-ready');
         text.textContent = 'Ready ✓';
@@ -329,7 +337,11 @@ function updateOpponentBidStatusUI() {
 function checkRevealReadiness() {
     const btn = document.getElementById('reveal-bids-btn');
     if (!btn) return;
-    const canReveal = biddingState.p1.ready && biddingState.p2.ready;
+    const localKey = getLocalBidPlayerKey();
+    const isPeerConnected = Boolean(conn && conn.open);
+    const canReveal = isPeerConnected
+        ? (biddingState.p1.ready && biddingState.p2.ready)
+        : Boolean(biddingState[localKey].ready);
     btn.disabled = !canReveal;
 }
 
@@ -360,6 +372,13 @@ function triggerRevealBids() {
 
 function executeRevealBids() {
     biddingState.revealed = true;
+    const localKey = getLocalBidPlayerKey();
+    const oppKey = getOpponentPlayerKey();
+    const isPeerConnected = Boolean(conn && conn.open);
+    if (!isPeerConnected && !biddingState[oppKey].ready) {
+        biddingState[oppKey].value = biddingState[oppKey].value || biddingState[localKey].value || 2;
+        biddingState[oppKey].ready = true;
+    }
     const p1 = biddingState.p1.value || 1;
     const p2 = biddingState.p2.value || 1;
 
@@ -1182,7 +1201,16 @@ function rotatePiece(piece, delta) {
     suppressUnitTooltip();
     pushUndo();
     const previousAngle = parseFloat(piece.dataset.angle) || 0;
-    setPieceAngle(piece, previousAngle + delta);
+    const nextAngle = previousAngle + delta;
+    setPieceAngle(piece, nextAngle);
+    const pieceId = getPieceId(piece);
+    if (pieceId) {
+        sendData({
+            type: 'PIECE_ROTATE',
+            pieceId: pieceId,
+            angle: nextAngle
+        });
+    }
     saveGame();
 }
 
@@ -1634,10 +1662,142 @@ function setupConnection() {
     });
 }
 
+function getPieceId(piece) {
+    if (!piece) return null;
+    if (piece.dataset && piece.dataset.unitId) return piece.dataset.unitId;
+    if (piece.dataset && piece.dataset.pieceId) return piece.dataset.pieceId;
+    if (piece.dataset) {
+        piece.dataset.pieceId = 'p_' + Math.random().toString(36).slice(2, 9);
+        return piece.dataset.pieceId;
+    }
+    return null;
+}
+
+function findPieceById(pieceId) {
+    if (!pieceId || !table) return null;
+    const pieces = table.querySelectorAll ? table.querySelectorAll('.piece') : [];
+    for (let i = 0; i < pieces.length; i++) {
+        const p = pieces[i];
+        if (p.dataset && (p.dataset.unitId === pieceId || p.dataset.pieceId === pieceId)) {
+            return p;
+        }
+    }
+    return null;
+}
+
+let lastPieceMoveSendTime = 0;
+let pendingPieceMoveData = null;
+let pieceMoveBroadcastTimer = null;
+
+function broadcastPieceMoveThrottled(piece, x, y) {
+    const pieceId = getPieceId(piece);
+    if (!pieceId) return;
+
+    pendingPieceMoveData = {
+        type: 'PIECE_DRAG_MOVE',
+        pieceId: pieceId,
+        x: Math.round(x),
+        y: Math.round(y)
+    };
+
+    const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
+    const elapsed = now - lastPieceMoveSendTime;
+    if (elapsed >= 25) {
+        lastPieceMoveSendTime = now;
+        sendData(pendingPieceMoveData);
+        pendingPieceMoveData = null;
+    } else if (!pieceMoveBroadcastTimer) {
+        pieceMoveBroadcastTimer = setTimeout(() => {
+            pieceMoveBroadcastTimer = null;
+            if (pendingPieceMoveData) {
+                lastPieceMoveSendTime = typeof performance !== 'undefined' ? performance.now() : Date.now();
+                sendData(pendingPieceMoveData);
+                pendingPieceMoveData = null;
+            }
+        }, 25 - elapsed);
+    }
+}
+
+let lastPieceRotateSendTime = 0;
+let pendingPieceRotateData = null;
+let pieceRotateBroadcastTimer = null;
+
+function broadcastPieceRotateThrottled(piece, angle) {
+    const pieceId = getPieceId(piece);
+    if (!pieceId) return;
+
+    pendingPieceRotateData = {
+        type: 'PIECE_ROTATE',
+        pieceId: pieceId,
+        angle: Math.round(angle * 10) / 10
+    };
+
+    const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
+    const elapsed = now - lastPieceRotateSendTime;
+    if (elapsed >= 25) {
+        lastPieceRotateSendTime = now;
+        sendData(pendingPieceRotateData);
+        pendingPieceRotateData = null;
+    } else if (!pieceRotateBroadcastTimer) {
+        pieceRotateBroadcastTimer = setTimeout(() => {
+            pieceRotateBroadcastTimer = null;
+            if (pendingPieceRotateData) {
+                lastPieceRotateSendTime = typeof performance !== 'undefined' ? performance.now() : Date.now();
+                sendData(pendingPieceRotateData);
+                pendingPieceRotateData = null;
+            }
+        }, 25 - elapsed);
+    }
+}
+
 function handleIncomingData(data) {
     if (!data) return;
     if (data.type === 'SYNC_BOARD') {
         restoreBoardState(data.payload, true);
+    } else if (data.type === 'PIECE_DRAG_START') {
+        const piece = findPieceById(data.pieceId);
+        if (piece) {
+            piece.classList.add('is-remote-moving');
+            if (data.x !== undefined && data.y !== undefined) {
+                piece.style.left = `${data.x}px`;
+                piece.style.top = `${data.y}px`;
+            }
+            if (selectedPiece === piece) positionPieceControls();
+        }
+    } else if (data.type === 'PIECE_DRAG_MOVE') {
+        const piece = findPieceById(data.pieceId);
+        if (piece) {
+            piece.classList.add('is-remote-moving');
+            piece.style.left = `${data.x}px`;
+            piece.style.top = `${data.y}px`;
+            if (selectedPiece === piece) positionPieceControls();
+        }
+    } else if (data.type === 'PIECE_DRAG_END') {
+        const piece = findPieceById(data.pieceId);
+        if (piece) {
+            piece.classList.remove('is-remote-moving');
+            if (data.x !== undefined && data.y !== undefined) {
+                piece.style.left = `${data.x}px`;
+                piece.style.top = `${data.y}px`;
+            }
+            if (selectedPiece === piece) positionPieceControls();
+        }
+    } else if (data.type === 'PIECE_ROTATE_START' || data.type === 'PIECE_ROTATE') {
+        const piece = findPieceById(data.pieceId);
+        if (piece) {
+            piece.classList.add('is-remote-rotating');
+            piece.dataset.angle = data.angle;
+            piece.style.transform = `rotate(${data.angle}deg)`;
+            if (selectedPiece === piece) positionPieceControls();
+        }
+    } else if (data.type === 'PIECE_ROTATE_END') {
+        const piece = findPieceById(data.pieceId);
+        if (piece) {
+            piece.classList.remove('is-remote-rotating');
+            piece.dataset.angle = data.angle;
+            piece.style.transform = `rotate(${data.angle}deg)`;
+            if (selectedPiece === piece) positionPieceControls();
+        }
     } else if (data.type === 'ROLL_DICE') {
         const incomingRolls = Array.isArray(data.rolls) ? data.rolls : [];
         renderDiceRoll(incomingRolls.length ? incomingRolls : createPlaceholderRoll(data.count || 2));
@@ -1821,11 +1981,20 @@ function renderAllCommandTokens() {
         const placeholder = yourTray.querySelector('.tray-placeholder');
         if (placeholder) {
             if (!biddingState.revealed) {
-                placeholder.textContent = 'Reveal bids to show commands.';
+                placeholder.textContent = 'Set your bid above and reveal to show commands.';
                 placeholder.style.display = 'block';
+                placeholder.classList.add('clickable');
+                placeholder.title = 'Click to jump to Bidding Area';
+                placeholder.onclick = () => {
+                    const panel = document.getElementById('bidding-turn-panel');
+                    if (panel && panel.scrollIntoView) panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+                };
             } else {
                 placeholder.textContent = 'All commands assigned.';
                 placeholder.style.display = yourTrayTokensCount === 0 ? 'block' : 'none';
+                placeholder.classList.remove('clickable');
+                placeholder.title = '';
+                placeholder.onclick = null;
             }
         }
     }
@@ -1834,11 +2003,13 @@ function renderAllCommandTokens() {
         const placeholder = oppTray.querySelector('.tray-placeholder');
         if (placeholder) {
             if (!biddingState.revealed) {
-                placeholder.textContent = 'Reveal bids to show commands.';
+                placeholder.textContent = 'Awaiting bids reveal to show commands.';
                 placeholder.style.display = 'block';
+                placeholder.classList.remove('clickable');
             } else {
                 placeholder.textContent = 'All commands assigned.';
                 placeholder.style.display = oppTrayTokensCount === 0 ? 'block' : 'none';
+                placeholder.classList.remove('clickable');
             }
         }
     }
@@ -1899,6 +2070,7 @@ function getBoardState(options = {}) {
     document.querySelectorAll('.terrain').forEach(el => {
         state.pieces.push({
             type: 'terrain',
+            pieceId: el.dataset.pieceId || getPieceId(el),
             subType: el.dataset.subType,
             x: parseFloat(el.style.left),
             y: parseFloat(el.style.top),
@@ -1984,7 +2156,8 @@ function restoreBoardState(jsonString, suppressBroadcast = false) {
             const unit = createUnitDOM(obj.name, obj.color, obj.x, obj.y, obj.angle, obj.wounds, obj.stats, false, obj.owner);
             if (obj.unitId) unit.dataset.unitId = obj.unitId;
         } else if (obj.type === 'terrain') {
-            createTerrainDOM(obj.subType, obj.x, obj.y, obj.w, obj.h, obj.angle);
+            const piece = createTerrainDOM(obj.subType, obj.x, obj.y, obj.w, obj.h, obj.angle, obj.pieceId);
+            if (obj.pieceId) piece.dataset.pieceId = obj.pieceId;
         }
     });
 
@@ -2147,7 +2320,7 @@ function createUnitDOM(name, color, x, y, angle, wounds, stats = null, activated
     return div;
 }
 
-function createTerrainDOM(subType, x, y, _w, _h, angle) {
+function createTerrainDOM(subType, x, y, _w, _h, angle, pieceId = null) {
     if (!subType || subType === "undefined" || subType === "rough") subType = "field";
     const finalW = defaultUnitSizePx.width;
     const finalH = defaultUnitSizePx.height;
@@ -2161,6 +2334,7 @@ function createTerrainDOM(subType, x, y, _w, _h, angle) {
     div.style.height = `${finalH}px`;
     div.dataset.subType = subType;
     div.dataset.angle = angle || 0;
+    div.dataset.pieceId = pieceId || ('t_' + Math.random().toString(36).slice(2, 9));
     div.style.transform = `rotate(${angle}deg)`;
 
     appendRotationHandle(div);
@@ -3129,6 +3303,15 @@ function onRotationHandlePointerDown(e) {
     hideUnitTooltip();
     positionPieceControls();
 
+    const pieceId = getPieceId(piece);
+    if (pieceId) {
+        sendData({
+            type: 'PIECE_ROTATE_START',
+            pieceId: pieceId,
+            angle: rotationDragStartAngle
+        });
+    }
+
     if (e.currentTarget.setPointerCapture) {
         e.currentTarget.setPointerCapture(e.pointerId);
     }
@@ -3151,12 +3334,22 @@ function updateRotationFromPointer(e) {
     }
 
     setPieceAngle(rotatingPiece, nextAngle, nextAngle - rotationDragStartAngle);
+    broadcastPieceRotateThrottled(rotatingPiece, nextAngle);
 }
 
 function finishRotationDrag() {
     if (!rotatingPiece) return false;
 
     suppressUnitTooltip();
+    const pieceId = getPieceId(rotatingPiece);
+    const finalAngle = parseFloat(rotatingPiece.dataset.angle) || 0;
+    if (pieceId) {
+        sendData({
+            type: 'PIECE_ROTATE_END',
+            pieceId: pieceId,
+            angle: finalAngle
+        });
+    }
     if (rotationDragUndoPushed) {
         saveGame();
     }
@@ -3225,6 +3418,16 @@ function startPieceDrag() {
     anchorY = (parseFloat(activePiece.style.top) || 0) + activePieceHalfHeight;
     showLine(anchorX, anchorY, anchorX, anchorY);
     positionPieceControls();
+
+    const pieceId = getPieceId(activePiece);
+    if (pieceId) {
+        sendData({
+            type: 'PIECE_DRAG_START',
+            pieceId: pieceId,
+            x: Math.round(parseFloat(activePiece.style.left) || 0),
+            y: Math.round(parseFloat(activePiece.style.top) || 0)
+        });
+    }
 }
 
 table.addEventListener('pointerdown', (e) => {
@@ -3310,6 +3513,7 @@ function handlePointerMove(e) {
         activePiece.style.top = `${newTop}px`;
         targetX = newLeft + activePieceHalfWidth;
         targetY = newTop + activePieceHalfHeight;
+        broadcastPieceMoveThrottled(activePiece, newLeft, newTop);
     }
 
     if (anchorX > -1) {
@@ -3346,6 +3550,17 @@ function onPointerUp(e) {
 
     if (activePiece) {
         activePiece.classList.remove('is-dragging');
+        const pieceId = getPieceId(activePiece);
+        const finalLeft = parseFloat(activePiece.style.left) || 0;
+        const finalTop = parseFloat(activePiece.style.top) || 0;
+        if (pieceId) {
+            sendData({
+                type: 'PIECE_DRAG_END',
+                pieceId: pieceId,
+                x: Math.round(finalLeft),
+                y: Math.round(finalTop)
+            });
+        }
         saveGame();
     }
     activePiece = null;
@@ -3470,5 +3685,7 @@ window.handlePassTurn = handlePassTurn;
 window.toggleFullscreen = toggleFullscreen;
 window.getBiddingState = () => biddingState;
 window.handlePeerData = handleIncomingData;
+window.getPieceId = getPieceId;
+window.findPieceById = findPieceById;
 
 initGame();

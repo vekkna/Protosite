@@ -1084,9 +1084,25 @@ input::placeholder {
     transform: translateX(-50%) scaleY(1);
 }
 
-.piece.is-dragging .rotation-handle {
+.piece.is-dragging .rotation-handle,
+.piece.is-remote-moving .rotation-handle {
     opacity: 0;
     pointer-events: none;
+}
+
+.piece.is-remote-moving {
+    z-index: 20 !important;
+    box-shadow: 0 0 16px rgba(216, 179, 109, 0.85), 0 10px 22px rgba(0, 0, 0, 0.5) !important;
+    border-color: var(--gold) !important;
+    transition: none !important;
+    pointer-events: none;
+}
+
+.piece.is-remote-rotating {
+    z-index: 20 !important;
+    box-shadow: 0 0 16px rgba(216, 179, 109, 0.85), 0 10px 22px rgba(0, 0, 0, 0.5) !important;
+    border-color: var(--gold) !important;
+    transition: none !important;
 }
 
 .rotation-handle:active {
@@ -2477,10 +2493,11 @@ input::placeholder {
 #bidding-turn-panel {
     display: flex;
     flex-direction: column;
-    gap: 10px;
-    padding: 12px 0;
-    border-top: 1px solid var(--panel-border);
-    border-bottom: 1px solid var(--panel-border);
+    gap: 8px;
+    padding: 10px;
+    background: rgba(22, 16, 12, 0.75);
+    border: 1px solid rgba(216, 179, 109, 0.3);
+    border-radius: 12px;
 }
 
 .bidding-zone {
@@ -2739,6 +2756,16 @@ input::placeholder {
     color: var(--ink-muted);
     text-align: center;
     width: 100%;
+}
+
+.tray-placeholder.clickable {
+    cursor: pointer;
+    text-decoration: underline dotted;
+    transition: color 0.15s ease;
+}
+
+.tray-placeholder.clickable:hover {
+    color: var(--gold);
 }
 
 /* --- COMMAND TOKENS --- */
