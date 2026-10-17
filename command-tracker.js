@@ -21,7 +21,7 @@ const CommandTracker = {
             bids: { ...bids }, remaining: { ...bids } };
     },
     pass(state, player) {
-        if (this.activePlayer(state) !== player || !player) throw new Error('Only the active player can pass.');
+        if (player && this.activePlayer(state) !== player) throw new Error('Only the active player can pass.');
         if (state.window === 2) return { ...state, phase: 'complete', remaining: { p1: 0, p2: 0 } };
         return { ...state, window: state.window + 1 };
     },

@@ -32,15 +32,17 @@ const mmToInches = (mm) => mm / 25.4;
 const inchesToPx = (inch) => inch * SCALE;
 const pxToInches = (px) => (px / SCALE).toFixed(1);
 
-// --- UI STATE & SHELL CONTROLS ---
-let bidVisibility = {
-    p1: true,
-    p2: true
+// --- REMOTE SANDBOX STATE & SHELL CONTROLS ---
+let currentRoomCode = '';
+let biddingState = {
+    p1: { value: 2, ready: false },
+    p2: { value: 2, ready: false },
+    revealed: false,
+    master: null,
+    round: 1,
+    turnStep: 0 // 0: MT 1st Turn, 1: Player X Turn, 2: MT 2nd Turn
 };
-let lastKnownCpValues = {
-    p1: '1',
-    p2: '1'
-};
+let commandTokens = [];
 let statsTooltipTimer = null;
 let isRightSidebarHidden = false;
 let isMultiplayerPanelCollapsed = false;
@@ -65,108 +67,222 @@ function saveUIState() {
 }
 
 function getLocalBidPlayerKey() {
-    if (!conn) return null;
     return isHost ? 'p1' : 'p2';
 }
 
-function getBidInput(playerKey) {
-    return document.getElementById(playerKey === 'p1' ? 'cp1' : 'cp2');
+function getOpponentPlayerKey() {
+    return isHost ? 'p2' : 'p1';
 }
 
-function rememberCpValue(playerKey) {
-    const input = getBidInput(playerKey);
-    if (input) {
-        lastKnownCpValues[playerKey] = input.value;
+function updateBiddingUI() {
+    const localKey = getLocalBidPlayerKey();
+    const biddingZone = document.getElementById('bidding-zone');
+    const turnZone = document.getElementById('turn-zone');
+    if (!biddingZone || !turnZone) return;
+
+    if (biddingState.revealed) {
+        biddingZone.style.display = 'none';
+        turnZone.style.display = 'flex';
+        updateTurnZoneUI();
+    } else {
+        biddingZone.style.display = 'flex';
+        turnZone.style.display = 'none';
+
+        const inputWrap = document.getElementById('bid-input-wrap');
+        const lockedWrap = document.getElementById('bid-locked-wrap');
+        const myLockedVal = document.getElementById('my-locked-bid-val');
+        const myInput = document.getElementById('my-bid-input');
+
+        if (inputWrap && lockedWrap && myLockedVal && myInput) {
+            if (biddingState[localKey].ready) {
+                inputWrap.style.display = 'none';
+                lockedWrap.style.display = 'flex';
+                myLockedVal.textContent = biddingState[localKey].value;
+            } else {
+                inputWrap.style.display = 'flex';
+                lockedWrap.style.display = 'none';
+                myInput.value = biddingState[localKey].value || 2;
+            }
+        }
+
+        updateOpponentBidStatusUI();
+        checkRevealReadiness();
     }
 }
 
-function rememberCpValues() {
-    rememberCpValue('p1');
-    rememberCpValue('p2');
+function updateOpponentBidStatusUI() {
+    const oppKey = getOpponentPlayerKey();
+    const dot = document.getElementById('opponent-status-dot');
+    const text = document.getElementById('opponent-bid-text');
+    if (!dot || !text) return;
+
+    if (biddingState[oppKey].ready) {
+        dot.classList.add('is-ready');
+        text.textContent = 'Ready ✓';
+    } else {
+        dot.classList.remove('is-ready');
+        text.textContent = 'Waiting...';
+    }
 }
 
-function getNormalizedBidVisibility(nextVisibility = bidVisibility) {
-    return {
-        p1: nextVisibility && nextVisibility.p1 === false ? false : true,
-        p2: nextVisibility && nextVisibility.p2 === false ? false : true
-    };
+function checkRevealReadiness() {
+    const btn = document.getElementById('reveal-bids-btn');
+    if (!btn) return;
+    const canReveal = biddingState.p1.ready && biddingState.p2.ready;
+    btn.disabled = !canReveal;
+}
+
+function lockLocalBid() {
+    const localKey = getLocalBidPlayerKey();
+    const input = document.getElementById('my-bid-input');
+    const val = Math.max(1, Math.min(24, parseInt(input.value, 10) || 2));
+    biddingState[localKey].value = val;
+    biddingState[localKey].ready = true;
+    updateBiddingUI();
+    sendData({ type: 'BID_READY', player: localKey, ready: true });
+    saveGame();
+}
+
+function unlockLocalBid() {
+    const localKey = getLocalBidPlayerKey();
+    biddingState[localKey].ready = false;
+    updateBiddingUI();
+    sendData({ type: 'BID_READY', player: localKey, ready: false });
+    saveGame();
+}
+
+function triggerRevealBids() {
+    const localKey = getLocalBidPlayerKey();
+    sendData({ type: 'REVEAL_BIDS', player: localKey, bid: biddingState[localKey].value });
+    executeRevealBids();
+}
+
+function executeRevealBids() {
+    biddingState.revealed = true;
+    const p1 = biddingState.p1.value || 1;
+    const p2 = biddingState.p2.value || 1;
+
+    let master;
+    if (p1 < p2) {
+        master = 'p1';
+    } else if (p2 < p1) {
+        master = 'p2';
+    } else {
+        // Tied bid
+        if (biddingState.round <= 1) {
+            master = 'p2'; // In first round, player who picked second in draft wins ties (P2)
+        } else {
+            master = roundState.master || 'p2'; // In subsequent rounds, previous MT keeps the title
+        }
+    }
+    biddingState.master = master;
+    biddingState.turnStep = 0;
+
+    try {
+        roundState = CommandTracker.start(roundState, { p1, p2 }, { p1: 24, p2: 24 });
+    } catch(err) {
+        console.warn('CommandTracker.start note:', err);
+    }
+
+    // Spawn command tokens equal to each player's bid
+    commandTokens = [];
+    for (let i = 0; i < p1; i++) {
+        commandTokens.push({
+            id: `cmd-p1-${i}`,
+            player: 'p1',
+            num: i + 1,
+            status: 'tray'
+        });
+    }
+    for (let i = 0; i < p2; i++) {
+        commandTokens.push({
+            id: `cmd-p2-${i}`,
+            player: 'p2',
+            num: i + 1,
+            status: 'tray'
+        });
+    }
+
+    updateBiddingUI();
+    renderAllCommandTokens();
+    saveGame();
+}
+
+function updateTurnZoneUI() {
+    const masterLabel = document.getElementById('mt-player-label');
+    const bidsSummary = document.getElementById('mt-bids-summary');
+    const turnTitle = document.getElementById('current-turn-title');
+    const passBtn = document.getElementById('pass-turn-btn');
+
+    if (!masterLabel || !bidsSummary || !turnTitle || !passBtn) return;
+
+    const masterName = biddingState.master === 'p1' ? 'Player 1' : 'Player 2';
+    const nonMasterName = biddingState.master === 'p1' ? 'Player 2' : 'Player 1';
+    masterLabel.textContent = `${masterName} is Master Tactician`;
+    bidsSummary.textContent = `P1: ${biddingState.p1.value} · P2: ${biddingState.p2.value}`;
+
+    if (biddingState.turnStep === 0) {
+        turnTitle.textContent = `Master Tactician's 1st Turn (${masterName})`;
+        passBtn.textContent = 'Pass';
+    } else if (biddingState.turnStep === 1) {
+        turnTitle.textContent = `${nonMasterName}'s Turn`;
+        passBtn.textContent = 'Pass';
+    } else if (biddingState.turnStep === 2) {
+        turnTitle.textContent = `Master Tactician's 2nd Turn (${masterName})`;
+        passBtn.textContent = 'Pass (End Round)';
+    }
+}
+
+function handlePassTurn() {
+    if (biddingState.turnStep === 0) {
+        biddingState.turnStep = 1;
+        try { roundState = CommandTracker.pass(roundState); } catch(e) {}
+        sendData({ type: 'PASS_TURN', turnStep: 1 });
+        updateTurnZoneUI();
+        saveGame();
+    } else if (biddingState.turnStep === 1) {
+        biddingState.turnStep = 2;
+        try { roundState = CommandTracker.pass(roundState); } catch(e) {}
+        sendData({ type: 'PASS_TURN', turnStep: 2 });
+        updateTurnZoneUI();
+        saveGame();
+    } else if (biddingState.turnStep === 2) {
+        // MT passes after their second turn -> Round ends!
+        endRoundAndResetBidding(true);
+    }
+}
+
+function endRoundAndResetBidding(shouldBroadcast = true) {
+    try {
+        roundState = CommandTracker.pass(roundState);
+        roundState = CommandTracker.next(roundState);
+    } catch(e) {}
+
+    // When the MT passes after his second turn, the round ends, all command markers go away, and the bidding zone is reset.
+    commandTokens = [];
+    renderAllCommandTokens();
+
+    biddingState.round = roundState.round || (biddingState.round + 1);
+    biddingState.revealed = false;
+    biddingState.turnStep = 0;
+    biddingState.p1.ready = false;
+    biddingState.p2.ready = false;
+
+    updateBiddingUI();
+
+    if (shouldBroadcast) {
+        sendData({ type: 'ROUND_RESET' });
+    }
+    saveGame();
 }
 
 function updateBidUI() {
-    bidVisibility = getNormalizedBidVisibility();
-
-    const btn = document.getElementById('toggle-bids-btn');
-    const localPlayerKey = getLocalBidPlayerKey();
-    const isMultiplayer = Boolean(localPlayerKey);
-
-    ['p1', 'p2'].forEach(playerKey => {
-        const input = getBidInput(playerKey);
-        const field = document.querySelector(`[data-bid-player="${playerKey}"]`);
-        if (!input || !field) return;
-
-        const isOwnBid = playerKey === localPlayerKey;
-        const isVisible = bidVisibility[playerKey];
-        const isHiddenFromViewer = !isVisible && (!isMultiplayer || !isOwnBid);
-        const isPrivateToViewer = isMultiplayer && isOwnBid && !isVisible;
-
-        field.classList.toggle('bid-hidden', isHiddenFromViewer);
-        field.classList.toggle('bid-private', isPrivateToViewer);
-        input.readOnly = (isMultiplayer && !isOwnBid) || ['commands', 'complete'].includes(roundState.phase);
-        input.setAttribute('aria-label', `${playerKey === 'p1' ? 'Player 1' : 'Player 2'} command point bid${isHiddenFromViewer ? ' hidden' : ''}`);
-    });
-
-    if (!btn) return;
-
-    if (isMultiplayer) {
-        const isOwnBidVisible = bidVisibility[localPlayerKey];
-        btn.innerText = isOwnBidVisible ? 'Hide My Bid' : 'Reveal My Bid';
-        btn.title = isOwnBidVisible
-            ? 'Hide your command point bid from your opponent'
-            : 'Reveal your command point bid to your opponent';
-        btn.setAttribute('aria-pressed', String(!isOwnBidVisible));
-        return;
-    }
-
-    const areBidsVisible = bidVisibility.p1 && bidVisibility.p2;
-    btn.innerText = areBidsVisible ? 'Hide Bids' : 'Reveal Bids';
-    btn.title = areBidsVisible ? 'Hide both command point bids' : 'Reveal both command point bids';
-    btn.setAttribute('aria-pressed', String(!areBidsVisible));
+    updateBiddingUI();
 }
 
-function toggleBidVisibility() {
-    const localPlayerKey = getLocalBidPlayerKey();
-
-    if (localPlayerKey) {
-        bidVisibility[localPlayerKey] = !bidVisibility[localPlayerKey];
-    } else {
-        const nextVisibility = !(bidVisibility.p1 && bidVisibility.p2);
-        bidVisibility.p1 = nextVisibility;
-        bidVisibility.p2 = nextVisibility;
-    }
-
-    updateBidUI();
-    saveGame();
-}
-
-function handleCpBidChange(playerKey) {
-    const localPlayerKey = getLocalBidPlayerKey();
-    if (localPlayerKey && playerKey !== localPlayerKey) {
-        const input = getBidInput(playerKey);
-        if (input) {
-            const previousValue = playerKey === 'p1'
-                ? (lastKnownCpValues.p1 || '1')
-                : (lastKnownCpValues.p2 || '1');
-            input.value = previousValue;
-        }
-        return;
-    }
-
-    if (['commands', 'complete'].includes(roundState.phase)) {
-        getBidInput(playerKey).value = roundState.bids[playerKey];
-        return;
-    }
-    rememberCpValue(playerKey);
-    saveGame();
+function updateRoundUI() {
+    updateBiddingUI();
+    updateTurnZoneUI();
 }
 
 function updateRightSidebarUI() {
@@ -884,10 +1000,9 @@ function handleSelectedPieceControlClick(event) {
 pieceControls.addEventListener('click', handleSelectedPieceControlClick);
 unitTooltip.addEventListener('click', handleSelectedPieceControlClick);
 
-// --- NETWORKING FUNCTIONS ---
-
+// --- NETWORKING & REMOTE SANDBOX FLOW ---
 function generateShortId() {
-    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
     let result = '';
     for (let i = 0; i < 4; i++) {
         result += chars.charAt(Math.floor(Math.random() * chars.length));
@@ -895,17 +1010,106 @@ function generateShortId() {
     return result;
 }
 
+function hostGameFromLanding() {
+    document.getElementById('landing-screen').style.display = 'none';
+    document.getElementById('container').style.display = 'flex';
+    fitTableToScreen();
+    hostGame();
+}
+
+function joinGameFromLanding() {
+    const input = document.getElementById('landing-join-code');
+    const code = (input ? input.value : '').trim().toUpperCase();
+    if (!code) {
+        alert('Please enter a 4-letter room code.');
+        if (input) input.focus();
+        return;
+    }
+    document.getElementById('landing-screen').style.display = 'none';
+    document.getElementById('container').style.display = 'flex';
+    fitTableToScreen();
+    joinGameWithCode(code);
+}
+
+function exitToLanding() {
+    if (conn) {
+        try { conn.close(); } catch(e) {}
+        conn = null;
+    }
+    if (peer) {
+        try { peer.destroy(); } catch(e) {}
+        peer = null;
+    }
+    isHost = false;
+    currentRoomCode = '';
+    document.getElementById('container').style.display = 'none';
+    document.getElementById('landing-screen').style.display = 'flex';
+}
+
+function copyRoomLink() {
+    const code = currentRoomCode || (document.getElementById('landing-join-code') ? document.getElementById('landing-join-code').value : '');
+    if (!code) return;
+    const url = window.location.origin + window.location.pathname + '?join=' + encodeURIComponent(code);
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(url).then(() => {
+            const btn = document.getElementById('copy-room-link-btn');
+            if (btn) {
+                const original = btn.textContent;
+                btn.textContent = 'Copied!';
+                setTimeout(() => { btn.textContent = original; }, 1500);
+            }
+        }).catch(() => {
+            prompt('Copy room link:', url);
+        });
+    } else {
+        prompt('Copy room link:', url);
+    }
+}
+
+function updatePlayerBanner() {
+    const badge = document.getElementById('player-role-badge');
+    const roomText = document.getElementById('room-code-text');
+    const statusText = document.getElementById('network-status');
+
+    if (!badge || !roomText || !statusText) return;
+
+    if (isHost) {
+        badge.textContent = 'Player 1 (Host)';
+        badge.className = 'player-role-badge badge-p1';
+        roomText.textContent = `Code: ${currentRoomCode || '----'}`;
+        if (conn && conn.open) {
+            statusText.textContent = 'Opponent Connected ✓';
+            statusText.className = 'network-status is-connected';
+        } else {
+            statusText.textContent = 'Waiting for Player 2...';
+            statusText.className = 'network-status';
+        }
+    } else {
+        badge.textContent = 'Player 2 (Challenger)';
+        badge.className = 'player-role-badge badge-p2';
+        roomText.textContent = `Room: ${currentRoomCode || '----'}`;
+        if (conn && conn.open) {
+            statusText.textContent = 'Connected to Host ✓';
+            statusText.className = 'network-status is-connected';
+        } else {
+            statusText.textContent = 'Connecting...';
+            statusText.className = 'network-status';
+        }
+    }
+}
+
 function hostGame() {
     if (peer) return;
-    updateStatus("Initializing...");
     const shortId = generateShortId();
+    currentRoomCode = shortId;
+    isHost = true;
+    updatePlayerBanner();
+
     peer = new Peer(shortId);
 
     peer.on('open', (id) => {
-        updateStatus("Hosting");
-        document.getElementById('my-id-display').value = id;
-        isHost = true;
-        updateMultiplayerControlsUI();
+        currentRoomCode = id;
+        updatePlayerBanner();
     });
 
     peer.on('connection', (c) => {
@@ -913,6 +1117,7 @@ function hostGame() {
         setupConnection();
         setTimeout(() => sendData({ type: 'SYNC_BOARD', payload: getBoardState({ forNetwork: true }) }), 500);
     });
+
     peer.on('error', (err) => {
         console.error(err);
         if (err.type === 'unavailable-id') {
@@ -922,62 +1127,67 @@ function hostGame() {
     });
 }
 
-function joinGame() {
-    const hostId = document.getElementById('join-input').value.trim();
-    if (!hostId) return alert("Enter a Host ID");
-    updateStatus("Connecting...");
+function joinGameWithCode(hostId) {
+    currentRoomCode = hostId;
+    isHost = false;
+    updatePlayerBanner();
+
     peer = new Peer();
     peer.on('open', () => {
         conn = peer.connect(hostId);
         setupConnection();
     });
     peer.on('error', (err) => {
-        updateStatus("Error");
-        alert("Could not connect. Check ID.");
+        console.error(err);
+        alert('Could not connect to room: ' + hostId + '. Please check the code.');
+        exitToLanding();
     });
 }
 
 function setupConnection() {
     if (!conn) return;
     conn.on('open', () => {
-        updateStatus("Connected!");
-        updateRoundUI();
-        document.getElementById('status-indicator').classList.add('status-connected');
-        updateBidUI();
+        updatePlayerBanner();
+        if (isHost) {
+            sendData({ type: 'SYNC_BOARD', payload: getBoardState({ forNetwork: true }) });
+        }
     });
     conn.on('data', (data) => {
         handleIncomingData(data);
     });
     conn.on('close', () => {
-        updateStatus("Disconnected");
-        document.getElementById('status-indicator').classList.remove('status-connected');
         conn = null;
-        isHost = false;
-        updateRoundUI();
-        updateMultiplayerControlsUI();
-        updateBidUI();
+        updatePlayerBanner();
     });
 }
 
 function handleIncomingData(data) {
+    if (!data) return;
     if (data.type === 'SYNC_BOARD') {
         restoreBoardState(data.payload, true);
-    }
-    else if (data.type === 'ROLL_DICE') {
+    } else if (data.type === 'ROLL_DICE') {
         const incomingRolls = Array.isArray(data.rolls) ? data.rolls : [];
         renderDiceRoll(incomingRolls.length ? incomingRolls : createPlaceholderRoll(data.count || 2));
-    }
-    else if (data.type === 'BID_VISIBILITY') {
-        bidVisibility = getNormalizedBidVisibility({
-            ...bidVisibility,
-            [data.player]: data.visible !== false
-        });
-        updateBidUI();
-    }
-    else if (data.type === 'TOGGLE_BIDS') {
-        const legacyVisible = data.payload !== true;
-        bidVisibility = { p1: legacyVisible, p2: legacyVisible };
-        updateBidUI();
+    } else if (data.type === 'BID_READY') {
+        const oppKey = isHost ? 'p2' : 'p1';
+        if (data.player === oppKey) {
+            biddingState[oppKey].ready = Boolean(data.ready);
+            updateOpponentBidStatusUI();
+            checkRevealReadiness();
+        }
+    } else if (data.type === 'REVEAL_BIDS') {
+        const oppKey = isHost ? 'p2' : 'p1';
+        biddingState[oppKey].value = Number(data.bid);
+        biddingState[oppKey].ready = true;
+        const localKey = isHost ? 'p1' : 'p2';
+        if (biddingState[localKey].ready) {
+            executeRevealBids();
+        }
+    } else if (data.type === 'PASS_TURN') {
+        biddingState.turnStep = data.turnStep;
+        updateTurnZoneUI();
+    } else if (data.type === 'ROUND_RESET') {
+        endRoundAndResetBidding(false);
     }
 }
 
@@ -988,19 +1198,143 @@ function sendData(dataObj) {
 }
 
 function updateStatus(msg) {
-    document.getElementById('status-indicator').innerText = msg;
+    const statusText = document.getElementById('network-status');
+    if (statusText) statusText.textContent = msg;
 }
 
-function copyId() {
-    const copyText = document.getElementById("my-id-display");
-    copyText.select();
-    navigator.clipboard.writeText(copyText.value);
-    alert("ID Copied to Clipboard!");
+// --- COMMAND TOKENS (DRAGGABLE CIRCLES) ---
+let activeDraggedToken = null;
+let floatingTokenEl = null;
+let hoveredUnitTarget = null;
+
+function onCommandTokenPointerDown(e, token) {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    e.stopPropagation();
+
+    activeDraggedToken = token;
+
+    floatingTokenEl = document.createElement('div');
+    floatingTokenEl.className = `command-token token-${token.player} is-floating`;
+    floatingTokenEl.textContent = token.num;
+    floatingTokenEl.style.left = `${e.clientX}px`;
+    floatingTokenEl.style.top = `${e.clientY}px`;
+    document.body.appendChild(floatingTokenEl);
+
+    const onMove = (moveEv) => {
+        if (!activeDraggedToken || !floatingTokenEl) return;
+        floatingTokenEl.style.left = `${moveEv.clientX}px`;
+        floatingTokenEl.style.top = `${moveEv.clientY}px`;
+
+        const elements = document.elementsFromPoint(moveEv.clientX, moveEv.clientY);
+        const unitEl = elements.find(el => el.classList && el.classList.contains('unit') && !el.classList.contains('ghost'));
+
+        if (unitEl !== hoveredUnitTarget) {
+            if (hoveredUnitTarget) hoveredUnitTarget.classList.remove('unit-drop-target');
+            hoveredUnitTarget = unitEl || null;
+            if (hoveredUnitTarget) hoveredUnitTarget.classList.add('unit-drop-target');
+        }
+    };
+
+    const onUp = (upEv) => {
+        window.removeEventListener('pointermove', onMove);
+        window.removeEventListener('pointerup', onUp);
+        window.removeEventListener('pointercancel', onUp);
+
+        if (hoveredUnitTarget) {
+            hoveredUnitTarget.classList.remove('unit-drop-target');
+        }
+
+        if (floatingTokenEl) {
+            floatingTokenEl.remove();
+            floatingTokenEl = null;
+        }
+
+        if (!activeDraggedToken) return;
+
+        const elements = document.elementsFromPoint(upEv.clientX, upEv.clientY);
+        const unitEl = elements.find(el => el.classList && el.classList.contains('unit') && !el.classList.contains('ghost'));
+        const tableEl = elements.find(el => el.id === 'game-table' || el.id === 'ui-layer');
+
+        if (unitEl) {
+            activeDraggedToken.status = 'unit';
+            activeDraggedToken.unitId = unitEl.dataset.unitId;
+            delete activeDraggedToken.x;
+            delete activeDraggedToken.y;
+        } else if (tableEl) {
+            const tableRect = table.getBoundingClientRect();
+            const tableX = (upEv.clientX - tableRect.left) / currentScale;
+            const tableY = (upEv.clientY - tableRect.top) / currentScale;
+            activeDraggedToken.status = 'table';
+            activeDraggedToken.x = Math.round(tableX);
+            activeDraggedToken.y = Math.round(tableY);
+            delete activeDraggedToken.unitId;
+        } else {
+            activeDraggedToken.status = 'tray';
+            delete activeDraggedToken.unitId;
+            delete activeDraggedToken.x;
+            delete activeDraggedToken.y;
+        }
+
+        activeDraggedToken = null;
+        hoveredUnitTarget = null;
+        renderAllCommandTokens();
+        saveGame();
+    };
+
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+    window.addEventListener('pointercancel', onUp);
 }
 
-// --- ROUND & COMMAND TRACKING ---
-function setCommandFeedback(message) {
-    document.getElementById('command-feedback').textContent = message;
+function renderAllCommandTokens() {
+    const tray = document.getElementById('command-tray');
+    if (tray) {
+        tray.querySelectorAll('.command-token').forEach(el => el.remove());
+        const placeholder = tray.querySelector('.tray-placeholder');
+        if (placeholder) {
+            placeholder.style.display = commandTokens.length === 0 ? 'block' : 'none';
+        }
+    }
+    table.querySelectorAll('.unit-command-dock').forEach(dock => dock.replaceChildren());
+    table.querySelectorAll('.command-token-table').forEach(el => el.remove());
+
+    commandTokens.forEach(token => {
+        const tokenEl = document.createElement('div');
+        tokenEl.className = `command-token token-${token.player}`;
+        tokenEl.dataset.tokenId = token.id;
+        tokenEl.textContent = token.num;
+        tokenEl.setAttribute('role', 'button');
+        tokenEl.setAttribute('aria-label', `${token.player === 'p1' ? 'Player 1' : 'Player 2'} command ${token.num}`);
+        tokenEl.title = 'Drag command marker to attach or move';
+        tokenEl.addEventListener('pointerdown', (e) => onCommandTokenPointerDown(e, token));
+
+        if (token.status === 'unit' && token.unitId) {
+            const unit = table.querySelector(`.unit[data-unit-id="${token.unitId}"]`);
+            if (unit) {
+                let dock = unit.querySelector('.unit-command-dock');
+                if (!dock) {
+                    dock = document.createElement('div');
+                    dock.className = 'unit-command-dock';
+                    unit.appendChild(dock);
+                }
+                dock.appendChild(tokenEl);
+                return;
+            }
+        }
+
+        if (token.status === 'table' && token.x !== undefined && token.y !== undefined) {
+            tokenEl.classList.add('piece', 'command-token-table');
+            tokenEl.style.left = `${token.x - 16}px`;
+            tokenEl.style.top = `${token.y - 16}px`;
+            table.appendChild(tokenEl);
+            return;
+        }
+
+        if (tray) {
+            tray.appendChild(tokenEl);
+        }
+    });
 }
 
 function getAssignedPlayer(unit) {
@@ -1009,206 +1343,50 @@ function getAssignedPlayer(unit) {
     return centerY >= tableHeightPx / 2 ? 'p1' : 'p2';
 }
 
-function setFirstRoundTie(player) {
-    if (roundState.round > 0 || !['p1', 'p2'].includes(player)) return;
-    pushUndo();
-    roundState = { ...roundState, firstTie: player };
-    saveGame();
-}
-
-function assignUnitOwner(index, owner) {
-    if (!['setup', 'bidding'].includes(roundState.phase)) return;
-    const unit = [...table.querySelectorAll('.unit:not(.ghost)')][index];
-    if (!unit || !['', 'p1', 'p2'].includes(owner)) return;
-    pushUndo();
-    if (owner) unit.dataset.owner = owner;
-    else delete unit.dataset.owner;
-    saveGame();
-}
-
-function advanceRound() {
-    try {
-        if (roundState.phase === 'complete') {
-            pushUndo();
-            roundState = CommandTracker.next(roundState);
-            table.querySelectorAll('.unit:not(.ghost)').forEach(unit => {
-                unit.dataset.activated = 'false';
-                unit.querySelector('.activation-checkbox').checked = false;
-            });
-        } else {
-            if (!bidVisibility.p1 || !bidVisibility.p2) throw new Error('Reveal both bids before starting commands.');
-            const units = [...table.querySelectorAll('.unit:not(.ghost)')];
-            const counts = { p1: 0, p2: 0 };
-            units.forEach(unit => counts[getAssignedPlayer(unit)]++);
-            const bids = { p1: Number(getBidInput('p1').value), p2: Number(getBidInput('p2').value) };
-            const nextState = CommandTracker.start(roundState, bids, counts);
-            pushUndo();
-            roundState = nextState;
-            units.forEach(unit => {
-                unit.dataset.owner = getAssignedPlayer(unit);
-                unit.dataset.activated = 'false';
-                unit.querySelector('.activation-checkbox').checked = false;
-            });
-        }
-        setCommandFeedback('');
-        saveGame();
-    } catch (error) {
-        setCommandFeedback(error.message);
-    }
-}
-
-function passCommandWindow() {
-    try {
-        const activePlayer = CommandTracker.activePlayer(roundState);
-        const localPlayer = getLocalBidPlayerKey();
-        if (localPlayer && activePlayer !== localPlayer) throw new Error('Only the active player can pass.');
-        const nextState = CommandTracker.pass(roundState, activePlayer);
-        pushUndo();
-        roundState = nextState;
-        setCommandFeedback('');
-        saveGame();
-    } catch (error) {
-        setCommandFeedback(error.message);
-    }
-}
-
-function updateRoundUI() {
-    const panel = document.getElementById('round-panel');
-    if (!panel) return;
-    const state = roundState;
-    const activePlayer = CommandTracker.activePlayer(state);
-    const localPlayer = getLocalBidPlayerKey();
-    const units = [...table.querySelectorAll('.unit:not(.ghost)')];
-    const isAssigning = ['setup', 'bidding'].includes(state.phase);
-    document.getElementById('round-title').textContent = state.round ? `Round ${state.round}` : 'Battle setup';
-    const status = document.getElementById('round-status');
-    if (state.phase === 'commands') {
-        status.textContent = `${state.master.toUpperCase()} is Master Tactician. ${activePlayer.toUpperCase()} may activate or pass.`;
-    } else if (state.phase === 'complete') {
-        status.textContent = `Round complete. Unspent commands are lost. ${state.master.toUpperCase()} keeps Master Tactician on a tied bid next round.`;
-    } else {
-        status.textContent = state.phase === 'setup'
-            ? 'Deploy armies, set bids, then start round 1.'
-            : `Set and reveal bids. ${state.master.toUpperCase()} keeps Master Tactician on a tie.`;
-    }
-    const windows = document.getElementById('command-windows');
-    windows.replaceChildren();
-    if (state.master && ['commands', 'complete'].includes(state.phase)) {
-        const opponent = state.master === 'p1' ? 'p2' : 'p1';
-        [state.master, opponent, state.master].forEach((player, index) => {
-            const item = document.createElement('li');
-            item.textContent = `${player.toUpperCase()}${index === 1 ? '' : ' · Master Tactician'}${index === 2 ? ' · final window' : ''}`;
-            if (state.phase === 'commands' && index === state.window) {
-                item.className = 'current-window';
-                item.setAttribute('aria-current', 'step');
-            } else if (state.phase === 'complete' || index < state.window) item.className = 'closed-window';
-            windows.appendChild(item);
-        });
-    }
-    const totals = document.getElementById('command-totals');
-    totals.replaceChildren();
-    for (const player of ['p1', 'p2']) {
-        const army = units.filter(unit => getAssignedPlayer(unit) === player);
-        const activated = army.filter(unit => unit.dataset.activated === 'true');
-        const line = document.createElement('p');
-        line.textContent = `${player.toUpperCase()}: ${state.remaining[player]} command${state.remaining[player] === 1 ? '' : 's'} · ${activated.length}/${army.length} activated`;
-        totals.appendChild(line);
-    }
-    const action = document.getElementById('round-action-btn');
-    action.hidden = state.phase === 'commands';
-    action.textContent = state.phase === 'setup' ? 'Start round 1'
-        : state.phase === 'complete' ? `Next round (${state.round + 1})` : 'Resolve bids & start commands';
-    const pass = document.getElementById('pass-command-btn');
-    pass.hidden = state.phase !== 'commands';
-    pass.disabled = Boolean(localPlayer && localPlayer !== activePlayer);
-    pass.textContent = activePlayer ? `${activePlayer.toUpperCase()} passes${state.window === 2 ? ' · end round' : ''}` : 'Pass';
-    document.getElementById('tracker-bids').hidden = !isAssigning;
-    document.getElementById('first-tie-field').hidden = state.round > 0;
-    document.getElementById('first-tie-player').value = state.firstTie;
-    const roster = document.getElementById('army-roster');
-    roster.replaceChildren();
-    units.forEach((unit, index) => {
-        const player = getAssignedPlayer(unit);
-        let badge = unit.querySelector('.owner-badge');
-        if (!badge) {
-            badge = document.createElement('span');
-            badge.className = 'owner-badge';
-            unit.appendChild(badge);
-        }
-        badge.textContent = unit.dataset.owner ? player.toUpperCase() : '';
-        unit.classList.toggle('has-command', unit.dataset.activated === 'true');
-        const checkbox = unit.querySelector('.activation-checkbox');
-        checkbox.disabled = state.phase !== 'commands' || activePlayer !== player
-            || Boolean(localPlayer && localPlayer !== player)
-            || (unit.dataset.activated !== 'true' && state.remaining[player] === 0);
-        checkbox.setAttribute('aria-label', `${player.toUpperCase()} ${unit.dataset.name}: activated this round`);
-        checkbox.title = checkbox.disabled ? 'Activate during your window with a command available' : 'Spend or return one command';
-        const row = document.createElement('label');
-        row.className = 'army-roster-row';
-        const name = document.createElement('span');
-        name.textContent = `${unit.dataset.activated === 'true' ? '✓ ' : ''}${unit.dataset.name}`;
-        const select = document.createElement('select');
-        [['', 'Position'], ['p1', 'P1'], ['p2', 'P2']].forEach(([value, text]) => {
-            const option = document.createElement('option');
-            option.value = value;
-            option.textContent = text;
-            select.appendChild(option);
-        });
-        select.value = unit.dataset.owner || '';
-        select.disabled = !isAssigning;
-        select.setAttribute('aria-label', `Owner of ${unit.dataset.name}, unit ${index + 1}`);
-        select.addEventListener('change', () => assignUnitOwner(index, select.value));
-        row.append(name, select);
-        roster.appendChild(row);
-    });
-    updateBidUI();
-}
-
 // --- SERIALIZATION ---
 function getBoardState(options = {}) {
     const isNetworkPayload = options.forNetwork === true;
     const localPlayerKey = getLocalBidPlayerKey();
+    const diceInput = document.getElementById('dice-count');
+
     const state = {
         pieces: [],
-        cp1: document.getElementById('cp1').value,
-        cp2: document.getElementById('cp2').value,
-        diceCount: document.getElementById('dice-count').value,
-        startingPoolCount: document.getElementById('starting-pool-count').value,
+        diceCount: diceInput ? diceInput.value : 2,
         terrainDeck: [...terrainDeck],
         roundState,
-        bidVisibility: getNormalizedBidVisibility()
+        biddingState: {
+            round: biddingState.round,
+            revealed: biddingState.revealed,
+            master: biddingState.master,
+            turnStep: biddingState.turnStep,
+            p1: { ready: biddingState.p1.ready, value: biddingState.p1.value },
+            p2: { ready: biddingState.p2.ready, value: biddingState.p2.value }
+        },
+        commandTokens: commandTokens.map(t => ({ ...t }))
     };
 
-    if (isNetworkPayload && localPlayerKey) {
-        state.bidOwner = localPlayerKey;
-
-        if (localPlayerKey === 'p1') {
-            delete state.cp2;
-            if (!bidVisibility.p1) {
-                delete state.cp1;
-            }
-        } else if (localPlayerKey === 'p2') {
-            delete state.cp1;
-            if (!bidVisibility.p2) {
-                delete state.cp2;
-            }
-        }
+    // If unrevealed network payload, conceal opponent's secret bid value
+    if (isNetworkPayload && !biddingState.revealed) {
+        const oppKey = localPlayerKey === 'p1' ? 'p2' : 'p1';
+        delete state.biddingState[oppKey].value;
     }
+
     document.querySelectorAll('.unit').forEach(el => {
         if (el.classList.contains('ghost')) return;
         state.pieces.push({
             type: 'unit',
+            unitId: el.dataset.unitId,
             name: el.dataset.name,
             x: parseFloat(el.style.left),
             y: parseFloat(el.style.top),
             angle: el.dataset.angle,
             wounds: el.dataset.wounds,
-            activated: el.dataset.activated === 'true',
             owner: el.dataset.owner || null,
             color: el.style.backgroundColor,
             stats: el._unitStats || null
         });
     });
+
     document.querySelectorAll('.terrain').forEach(el => {
         state.pieces.push({
             type: 'terrain',
@@ -1220,13 +1398,14 @@ function getBoardState(options = {}) {
             angle: el.dataset.angle
         });
     });
+
     return JSON.stringify(state);
 }
 
 function restoreBoardState(jsonString, suppressBroadcast = false) {
     if (!jsonString) return;
     clearPieceSelection();
-    table.querySelectorAll('.unit, .terrain, .ghost, .range-ring').forEach(p => p.remove());
+    table.querySelectorAll('.unit, .terrain, .ghost, .range-ring, .command-token-table').forEach(p => p.remove());
 
     const state = JSON.parse(jsonString);
     const data = Array.isArray(state) ? state : state.pieces;
@@ -1239,57 +1418,68 @@ function restoreBoardState(jsonString, suppressBroadcast = false) {
     renderTerrainCard();
 
     if (!Array.isArray(state)) {
-        const bidOwner = state.bidOwner === 'p1' || state.bidOwner === 'p2'
-            ? state.bidOwner
-            : null;
+        if (state.diceCount !== undefined && document.getElementById('dice-count')) {
+            document.getElementById('dice-count').value = state.diceCount;
+            normalizeDiceCount(false);
+        }
 
-        if (state.cp1 !== undefined && (!bidOwner || bidOwner === 'p1')) {
-            document.getElementById('cp1').value = state.cp1;
-            rememberCpValue('p1');
+        if (state.biddingState) {
+            const localKey = isHost ? 'p1' : 'p2';
+            const oppKey = isHost ? 'p2' : 'p1';
+
+            // Preserve local player's private bid if not revealed
+            const myPrevVal = biddingState[localKey].value;
+            const myPrevReady = biddingState[localKey].ready;
+
+            biddingState.round = state.biddingState.round || 1;
+            biddingState.revealed = Boolean(state.biddingState.revealed);
+            biddingState.master = state.biddingState.master || null;
+            biddingState.turnStep = state.biddingState.turnStep || 0;
+
+            if (state.biddingState[oppKey]) {
+                biddingState[oppKey].ready = Boolean(state.biddingState[oppKey].ready);
+                if (state.biddingState[oppKey].value !== undefined) {
+                    biddingState[oppKey].value = state.biddingState[oppKey].value;
+                }
+            }
+
+            if (!biddingState.revealed) {
+                biddingState[localKey].value = myPrevVal;
+                biddingState[localKey].ready = myPrevReady;
+            } else {
+                if (state.biddingState[localKey]) {
+                    biddingState[localKey].value = state.biddingState[localKey].value;
+                    biddingState[localKey].ready = state.biddingState[localKey].ready;
+                }
+            }
+
+            updateBiddingUI();
         }
-        if (state.cp2 !== undefined && (!bidOwner || bidOwner === 'p2')) {
-            document.getElementById('cp2').value = state.cp2;
-            rememberCpValue('p2');
-        }
-        if (state.diceCount !== undefined) document.getElementById('dice-count').value = state.diceCount;
-        normalizeDiceCount(false);
-        if (state.startingPoolCount !== undefined) document.getElementById('starting-pool-count').value = state.startingPoolCount;
-        normalizeStartingPoolCount(false);
-        if (bidOwner && state.bidVisibility) {
-            const incomingVisibility = getNormalizedBidVisibility({
-                ...bidVisibility,
-                ...state.bidVisibility
-            });
-            bidVisibility = {
-                ...bidVisibility,
-                [bidOwner]: incomingVisibility[bidOwner]
-            };
-        } else if (state.bidVisibility) {
-            bidVisibility = getNormalizedBidVisibility(state.bidVisibility);
-        } else if (state.bidsHidden !== undefined) {
-            const legacyVisible = state.bidsHidden !== true;
-            bidVisibility = { p1: legacyVisible, p2: legacyVisible };
+
+        if (Array.isArray(state.commandTokens)) {
+            commandTokens = state.commandTokens;
         } else {
-            bidVisibility = { p1: true, p2: true };
+            commandTokens = [];
         }
-        updateBidUI();
     }
 
     data.forEach(obj => {
         if (obj.type === 'unit') {
-            createUnitDOM(obj.name, obj.color, obj.x, obj.y, obj.angle, obj.wounds, obj.stats, obj.activated, obj.owner);
+            const unit = createUnitDOM(obj.name, obj.color, obj.x, obj.y, obj.angle, obj.wounds, obj.stats, false, obj.owner);
+            if (obj.unitId) unit.dataset.unitId = obj.unitId;
         } else if (obj.type === 'terrain') {
             createTerrainDOM(obj.subType, obj.x, obj.y, obj.w, obj.h, obj.angle);
         }
     });
+
+    renderAllCommandTokens();
     saveGame(suppressBroadcast);
 }
 
 function saveGame(suppressBroadcast = false) {
-    rememberCpValues();
     const state = getBoardState();
     localStorage.setItem(SAVE_KEY, state);
-    updateRoundUI();
+    updateBiddingUI();
     if (!suppressBroadcast) {
         sendData({ type: 'SYNC_BOARD', payload: getBoardState({ forNetwork: true }) });
     }
@@ -1378,43 +1568,17 @@ function createUnitDOM(name, color, x, y, angle, wounds, stats = null, activated
     div.style.transform = `rotate(${angle}deg)`;
     div.dataset.wounds = wounds || 0;
     div.dataset.activated = activated ? 'true' : 'false';
+    div.dataset.unitId = div.dataset.unitId || ('u_' + Math.random().toString(36).slice(2, 9));
     div._unitStats = unitStats;
     applyUnitTheme(div, name);
 
-    const appendActivationCheckbox = () => {
-        let checkbox = div.querySelector('.activation-checkbox');
-        if (!checkbox) {
-            checkbox = document.createElement('input');
-            checkbox.type = 'checkbox';
-            checkbox.classList.add('activation-checkbox');
-            checkbox.setAttribute('aria-label', 'Activated this round');
-            checkbox.title = 'Activated this round';
-            checkbox.addEventListener('mousedown', e => e.stopPropagation());
-            checkbox.addEventListener('pointerdown', e => e.stopPropagation());
-            checkbox.addEventListener('click', e => e.stopPropagation());
-            checkbox.addEventListener('dblclick', e => e.stopPropagation());
-            checkbox.addEventListener('change', () => {
-                const nextActivated = checkbox.checked;
-                checkbox.checked = !nextActivated;
-                try {
-                    const player = div.dataset.owner;
-                    const localPlayer = getLocalBidPlayerKey();
-                    if (localPlayer && player !== localPlayer) throw new Error('You can only activate your own units.');
-                    const nextState = CommandTracker.activate(roundState, player, nextActivated);
-                    pushUndo();
-                    roundState = nextState;
-                    checkbox.checked = nextActivated;
-                    div.dataset.activated = String(nextActivated);
-                    setCommandFeedback('');
-                    saveGame();
-                } catch (error) {
-                    setCommandFeedback(error.message);
-                }
-            });
-            div.appendChild(checkbox);
+    const appendCommandDock = () => {
+        let dock = div.querySelector('.unit-command-dock');
+        if (!dock) {
+            dock = document.createElement('div');
+            dock.className = 'unit-command-dock';
+            div.appendChild(dock);
         }
-
-        checkbox.checked = div.dataset.activated === 'true';
     };
 
     const appendMarker = () => {
@@ -1448,7 +1612,7 @@ function createUnitDOM(name, color, x, y, angle, wounds, stats = null, activated
         }
     });
 
-    appendActivationCheckbox();
+    appendCommandDock();
     appendMarker();
     appendRotationHandle(div);
     attachListeners(div);
@@ -2695,6 +2859,19 @@ if (document.fonts && document.fonts.ready) {
     });
 }
 
+function checkUrlAutoJoin() {
+    try {
+        const params = new URLSearchParams(window.location.search);
+        const joinCode = params.get('join') || params.get('room');
+        if (joinCode) {
+            const input = document.getElementById('landing-join-code');
+            if (input) {
+                input.value = joinCode.toUpperCase().slice(0, 4);
+            }
+        }
+    } catch(e) {}
+}
+
 const originalRestoreBoardState = restoreBoardState;
 restoreBoardState = function (jsonString, suppressBroadcast = false) {
     originalRestoreBoardState(jsonString, suppressBroadcast);
@@ -2703,21 +2880,20 @@ restoreBoardState = function (jsonString, suppressBroadcast = false) {
 };
 
 loadUIState();
-updateMultiplayerPanelUI();
-updateMultiplayerControlsUI();
+checkUrlAutoJoin();
+updatePlayerBanner();
 updateFullscreenUI();
 updateRightSidebarUI();
-updateBidUI();
+updateBiddingUI();
 renderTerrainCard();
-updateRoundUI();
 
 const originalInitGame = initGame;
 initGame = async function () {
     await originalInitGame();
-    updateBidUI();
+    updateBiddingUI();
+    renderAllCommandTokens();
     fitTableToScreen();
     fitAllUnitLabels();
-    // Second call to ensure layout is settled
     setTimeout(() => {
         fitTableToScreen();
         fitAllUnitLabels();

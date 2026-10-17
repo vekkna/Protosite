@@ -11,102 +11,132 @@
 </head>
 
 <body>
-    <div id="container">
-        <div class="sidebar">
-            <span class="sidebar-kicker">War Council</span>
-            <section id="round-panel" aria-label="Round and commands">
-                <span class="sidebar-kicker">Round &amp; Commands</span>
-                <h3 id="round-title">Battle setup</h3>
-                <p id="round-status" role="status" aria-live="polite"></p>
-                <ol id="command-windows" aria-label="Activation windows"></ol>
-                <div id="command-totals"></div>
-                <div id="tracker-bids">
+    <!-- Landing Screen -->
+    <div id="landing-screen" class="landing-screen">
+        <div class="landing-card">
+            <span class="landing-kicker">Tabletop Sandbox</span>
+            <h1 class="landing-title">SEIZE THE DAY</h1>
+            <p class="landing-subtitle">A two-player tactical wargame of positioning, timing, and initiative.</p>
+
+            <div class="landing-grid">
+                <div class="landing-option host-option">
+                    <span class="option-badge badge-p1">Player 1</span>
+                    <h3>Host Battle</h3>
+                    <p>Create a game room and get a 4-letter code to share with your opponent.</p>
+                    <button id="landing-host-btn" class="btn-blue landing-action-btn" onclick="hostGameFromLanding()">Host New Game</button>
+                </div>
+
+                <div class="landing-option join-option">
+                    <span class="option-badge badge-p2">Player 2</span>
+                    <h3>Join Battle</h3>
+                    <p>Enter the 4-letter game code from your opponent.</p>
+                    <div class="join-input-group">
+                        <input type="text" id="landing-join-code" maxlength="4" placeholder="CODE" autocomplete="off" spellcheck="false">
+                        <button id="landing-join-btn" class="btn-blue landing-action-btn" onclick="joinGameFromLanding()">Join</button>
+                    </div>
+                </div>
+
+                <div class="landing-option hotseat-option is-disabled">
+                    <span class="option-badge">Local</span>
+                    <h3>Play Hotseat</h3>
+                    <p>Pass-and-play on a single device screen.</p>
+                    <button class="btn-grey landing-action-btn" disabled>Hotseat (Coming Soon)</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="container" style="display: none;">
+        <div class="sidebar" id="left-sidebar">
+            <!-- Player Identity & Room Card -->
+            <div id="player-banner" class="player-banner">
+                <div class="player-role-badge badge-p1" id="player-role-badge">Player 1</div>
+                <div class="room-code-badge" id="room-code-badge">
+                    <span id="room-code-text">Code: ----</span>
+                    <button id="copy-room-link-btn" class="btn-copy-sm" onclick="copyRoomLink()" title="Copy invite link">Copy Link</button>
+                </div>
+                <div id="network-status" class="network-status">Waiting for opponent...</div>
+                <button id="exit-game-btn" class="btn-text-sm" onclick="exitToLanding()">Exit to Menu</button>
+            </div>
+
+            <!-- Top Left Bids & Turn Section -->
+            <section id="bidding-turn-panel" aria-label="Bidding and Turn Management">
+                <div id="bidding-zone" class="bidding-zone">
                     <span class="sidebar-kicker">Bid for Initiative</span>
-                    <div class="cp-container">
-                        <div class="cp-field" data-bid-player="p1">
-                            <span class="cp-label">P1 CP</span>
-                            <input type="number" id="cp1" value="1" min="1" onchange="handleCpBidChange('p1')">
+                    <div class="bid-cards-row">
+                        <div class="bid-card my-bid-card">
+                            <span class="bid-card-label">Your Bid</span>
+                            <div id="bid-input-wrap" class="bid-input-wrap">
+                                <input type="number" id="my-bid-input" min="1" max="24" value="2">
+                                <button id="lock-bid-btn" class="btn-blue btn-sm" onclick="lockLocalBid()">Set</button>
+                            </div>
+                            <div id="bid-locked-wrap" class="bid-locked-wrap" style="display: none;">
+                                <span id="my-locked-bid-val" class="locked-val">2</span>
+                                <button class="btn-grey btn-xs" onclick="unlockLocalBid()">Edit</button>
+                            </div>
                         </div>
-                        <div class="cp-field" data-bid-player="p2">
-                            <span class="cp-label">P2 CP</span>
-                            <input type="number" id="cp2" value="1" min="1" onchange="handleCpBidChange('p2')">
+
+                        <div class="bid-card opponent-bid-card">
+                            <span class="bid-card-label">Opponent</span>
+                            <div id="opponent-bid-status" class="opponent-bid-status">
+                                <span id="opponent-status-dot" class="status-dot"></span>
+                                <span id="opponent-bid-text">Waiting...</span>
+                            </div>
                         </div>
                     </div>
-                    <button id="toggle-bids-btn" class="btn-grey" onclick="toggleBidVisibility()">Hide My Bid</button>
+                    <button id="reveal-bids-btn" class="btn-gold" onclick="triggerRevealBids()" disabled>Reveal Bids</button>
                 </div>
-                <label id="first-tie-field" class="tracker-field">Picked second in draft
-                    <select id="first-tie-player" onchange="setFirstRoundTie(this.value)">
-                        <option value="p2">P2 (wins first-round ties)</option>
-                        <option value="p1">P1 (wins first-round ties)</option>
-                    </select>
-                </label>
-                <button id="round-action-btn" type="button" class="btn-blue" onclick="advanceRound()">Start round 1</button>
-                <button id="pass-command-btn" type="button" class="btn-grey" onclick="passCommandWindow()" hidden>Pass</button>
-                <details id="army-assignment">
-                    <summary>Army assignment</summary>
-                    <p class="sidebar-description">Position assigns P1 to the bottom half and P2 to the top half when round 1 starts. Override below before resolving bids.</p>
-                    <div id="army-roster"></div>
-                </details>
-                <p id="command-feedback" role="alert"></p>
+
+                <!-- Turn Sequence Zone (shown once revealed) -->
+                <div id="turn-zone" class="turn-zone" style="display: none;">
+                    <div id="master-tactician-banner" class="master-tactician-banner">
+                        <span class="mt-crown">👑</span>
+                        <div class="mt-details">
+                            <strong id="mt-player-label">P1 is Master Tactician</strong>
+                            <span id="mt-bids-summary" class="mt-bids-summary">P1: 2 · P2: 4</span>
+                        </div>
+                    </div>
+
+                    <div class="turn-status-card">
+                        <span class="turn-phase-kicker">Current Turn</span>
+                        <h4 id="current-turn-title">Master Tactician's 1st Turn</h4>
+                        <button id="pass-turn-btn" class="btn-blue pass-btn" onclick="handlePassTurn()">Pass</button>
+                    </div>
+                </div>
             </section>
-            <div class="section-header">
-                <h3 style="margin-top:0">Game Setup</h3>
-                <button id="multiplayer-toggle" type="button" class="btn-grey section-toggle"
-                    onclick="toggleMultiplayerPanel()" aria-controls="multiplayer-panel" aria-expanded="true"
-                    aria-label="Hide game setup section" title="Hide game setup section">
-                    <span>▾</span>
-                </button>
-            </div>
-            <div id="multiplayer-panel" class="collapsible-section">
-                <span class="sidebar-kicker">Multiplayer</span>
-                <p class="sidebar-description">Host or join a battle.</p>
-                <div id="status-indicator">OFFLINE</div>
-                <button id="host-btn" class="btn-blue" onclick="hostGame()">Host Game</button>
-                <input type="text" id="my-id-display" placeholder="Your ID will appear here" readonly
-                    style="display:none;">
-                <button id="copy-btn" class="btn-grey" onclick="copyId()" style="display:none; margin-bottom:10px;">Copy
-                    ID</button>
-                <div class="panel-divider"></div>
-                <input type="text" id="join-input" placeholder="Enter Host ID">
-                <button id="join-btn" class="btn-blue" onclick="joinGame()">Join Game</button>
-                <div class="panel-divider"></div>
-                <span class="sidebar-kicker">Starting Pool</span>
-                <div class="pool-controls">
-                    <div class="dice-count-field pool-count-field">
-                        <label for="starting-pool-count">Units</label>
-                        <input type="number" id="starting-pool-count" value="12" min="2" step="2"
-                            onchange="normalizeStartingPoolCount()">
-                    </div>
-                    <div class="pool-actions">
-                        <button onclick="resetGame()" class="btn-grey">Reset Board</button>
-                        <button onclick="resetLongSideDeployment()" class="btn-blue">Reset Long Sides</button>
-                    </div>
+
+            <!-- Command Staging Zone (to the left of the battlefield) -->
+            <section id="command-staging-panel" class="command-staging-panel">
+                <span class="sidebar-kicker">Command Markers</span>
+                <p class="staging-hint">Drag onto your units</p>
+                <div id="command-tray" class="command-tray">
+                    <span class="tray-placeholder">Reveal bids to show commands.</span>
                 </div>
-            </div>
-            <span class="sidebar-kicker">Battle Tools</span>
-            <h3 style="margin-top:20px">Tools</h3>
-            <button id="fullscreen-btn" type="button" class="btn-grey" onclick="toggleFullscreen()">Full Screen</button>
-            <button id="matchup-analysis-btn" type="button" class="btn-blue" onclick="openMatchupAnalysis()"
-                aria-haspopup="dialog" aria-controls="matchup-modal">Matchup Analysis</button>
-            <span class="sidebar-kicker">Roll Dice</span>
-            <div class="dice-controls">
-                <div class="dice-count-field">
-                    <label for="dice-count">Number of d6</label>
-                    <div class="dice-count-adjuster">
-                        <button type="button" class="btn-grey dice-step-button" onclick="adjustDiceCount(-1)"
-                            aria-label="Decrease number of dice">&#9660;</button>
-                        <input type="number" id="dice-count" value="2" min="1" max="20" onchange="normalizeDiceCount()">
-                        <button type="button" class="btn-grey dice-step-button" onclick="adjustDiceCount(1)"
-                            aria-label="Increase number of dice">&#9650;</button>
+            </section>
+
+            <!-- Battle Tools: Full Screen & Roll Dice -->
+            <section class="battle-tools-section">
+                <span class="sidebar-kicker">Battle Tools</span>
+                <button id="fullscreen-btn" type="button" class="btn-grey" onclick="toggleFullscreen()">Full Screen</button>
+                <div class="dice-controls">
+                    <div class="dice-count-field">
+                        <label for="dice-count">Number of d6</label>
+                        <div class="dice-count-adjuster">
+                            <button type="button" class="btn-grey dice-step-button" onclick="adjustDiceCount(-1)"
+                                aria-label="Decrease number of dice">&#9660;</button>
+                            <input type="number" id="dice-count" value="2" min="1" max="20" onchange="normalizeDiceCount()">
+                            <button type="button" class="btn-grey dice-step-button" onclick="adjustDiceCount(1)"
+                                aria-label="Increase number of dice">&#9650;</button>
+                        </div>
+                    </div>
+                    <button id="dice-btn" class="btn-red" onclick="rollDice()">Roll</button>
+                </div>
+                <div id="dice-roll-card" class="dice-roll-card">
+                    <div id="dice-values" class="dice-values">
+                        <span class="die-face empty">-</span>
                     </div>
                 </div>
-                <button id="dice-btn" class="btn-red" onclick="rollDice()">Roll</button>
-            </div>
-            <div id="dice-roll-card" class="dice-roll-card">
-                <div id="dice-values" class="dice-values">
-                    <span class="die-face empty">-</span>
-                </div>
-            </div>
+            </section>
         </div>
         <div id="table-container">
             <div id="game-table">
@@ -173,11 +203,9 @@
                     <div class="controls-group mouse-only">
                         <span class="controls-group-label">Mouse and Keyboard</span>
                         <ul class="controls-help-list">
-                            <li>Host a game and give your opponent the code to join</li>
-                            <li>Set the game up with Reset Board</li>
-                            <li>Hide your bid, set it, then reveal it. Start the round after both bids are revealed.</li>
-                            <li>Check a unit’s activation box to spend a command. Pass to advance the highlighted activation window.</li>
-                            <li>After the final pass, use Next round to clear activation markers and bid again.</li>
+                            <li>Lock your bid, and reveal when both players are ready.</li>
+                            <li>Drag command circles onto units to activate them.</li>
+                            <li>Pass to advance the turn between Master Tactician and Player X.</li>
                             <li>Drag a unit or terrain to move it.</li>
                             <li>Drag on the battlefield to measure distance.</li>
                             <li>Mouse wheel, arrow keys, or the pop-up bar rotate pieces.</li>
@@ -190,29 +218,13 @@
                         <span class="controls-group-label">Touch</span>
                         <ul class="controls-help-list">
                             <li>Drag units or terrain with one finger.</li>
+                            <li>Drag command circles onto units.</li>
                             <li>Select a piece to show movement controls.</li>
-                            <li>Check a unit’s activation box to spend a command. Use Pass to advance the round’s activation windows.</li>
+                            <li>Use Pass to advance the round’s turns.</li>
                             <li>Use the pop-up controls to rotate pieces or adjust wounds.</li>
                             <li>Drag empty battlefield space to measure distance.</li>
                         </ul>
                     </div>
-                </div>
-            </div>
-        </div>
-    </div>
-    <div id="matchup-modal" class="modal-overlay" onclick="closeMatchupAnalysis()" aria-hidden="true">
-        <div class="modal-content matchup-modal-content" role="dialog" aria-modal="true"
-            aria-labelledby="matchup-modal-title" onclick="event.stopPropagation()">
-            <div class="modal-header matchup-modal-header">
-                <div>
-                    <span class="matchup-modal-kicker">Expected-Value Combat</span>
-                    <h2 id="matchup-modal-title">Matchup Analysis</h2>
-                </div>
-                <button class="btn-red" onclick="closeMatchupAnalysis()" aria-label="Close matchup analysis">X</button>
-            </div>
-            <div class="modal-body matchup-modal-body">
-                <div id="matchup-results" aria-live="polite">
-                    <p class="matchup-status">Loading unit profiles…</p>
                 </div>
             </div>
         </div>
