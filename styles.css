@@ -1545,49 +1545,26 @@ input::placeholder {
     top: 0;
     left: 0;
     width: max-content;
-    max-width: min(220px, calc(100% - 24px));
-    padding: 11px;
-    border-radius: 16px;
-    border: 1px solid rgba(216, 179, 109, 0.32);
+    padding: 6px 8px;
+    border-radius: 12px;
+    border: 1px solid rgba(216, 179, 109, 0.45);
     background:
-        linear-gradient(180deg, rgba(66, 49, 32, 0.82), rgba(20, 14, 10, 0.84)),
-        radial-gradient(circle at top, rgba(238, 214, 158, 0.08), transparent 40%);
-    box-shadow: 0 18px 34px rgba(0, 0, 0, 0.34), inset 0 1px 0 rgba(255, 246, 223, 0.1);
+        linear-gradient(180deg, rgba(66, 49, 32, 0.95), rgba(20, 14, 10, 0.96)),
+        radial-gradient(circle at top, rgba(238, 214, 158, 0.12), transparent 40%);
+    box-shadow: 0 14px 26px rgba(0, 0, 0, 0.45), inset 0 1px 0 rgba(255, 246, 223, 0.15);
     color: var(--ink-soft);
     pointer-events: none;
     z-index: 35;
     opacity: 0;
     visibility: hidden;
     transform: translateY(8px) scale(0.97);
-    transform-origin: bottom left;
+    transform-origin: center center;
     transition: opacity 0.18s ease, transform 0.18s ease, visibility 0.18s ease;
 }
 
 #unit-tooltip.interactive {
-    max-width: min(220px, calc(100% - 24px));
     pointer-events: auto;
     touch-action: manipulation;
-}
-
-#unit-tooltip::before {
-    content: "";
-    position: absolute;
-    inset: 5px;
-    border-radius: 12px;
-    border: 1px solid rgba(255, 244, 214, 0.08);
-}
-
-#unit-tooltip::after {
-    content: "";
-    position: absolute;
-    left: 18px;
-    bottom: -8px;
-    width: 16px;
-    height: 16px;
-    background: linear-gradient(135deg, rgba(73, 54, 35, 0.97), rgba(28, 19, 13, 0.97));
-    border-right: 1px solid rgba(216, 179, 109, 0.28);
-    border-bottom: 1px solid rgba(216, 179, 109, 0.28);
-    transform: rotate(45deg);
 }
 
 #unit-tooltip.visible {
@@ -1596,54 +1573,51 @@ input::placeholder {
     transform: translateY(0) scale(1);
 }
 
-#unit-tooltip .stats-card {
-    gap: 8px;
-    width: max-content;
-    max-width: 100%;
-    position: relative;
-    z-index: 1;
-}
-
-#unit-tooltip .stats-unit-name {
-    font-size: 0.92rem;
-    padding-bottom: 6px;
-}
-
-#unit-tooltip .stat-chip {
-    background: rgba(255, 248, 230, 0.05);
-}
-
-#unit-tooltip .rule-line {
-    font-size: 0.92rem;
-}
-
 .unit-popup-controls {
-    display: grid;
-    gap: 6px;
-    padding-top: 8px;
-    margin-top: 2px;
-    border-top: 1px solid rgba(216, 179, 109, 0.18);
+    display: flex;
     position: relative;
     z-index: 1;
 }
 
 .unit-popup-controls .piece-control-row {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    display: flex;
     gap: 6px;
+    align-items: center;
 }
 
 .unit-popup-controls button {
-    width: 100%;
-    min-height: 40px;
-    padding: 7px 5px;
-    font-size: 0.7rem;
+    width: 44px;
+    min-height: 38px;
+    padding: 0;
+    font-size: 1.5rem;
+    font-weight: bold;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    line-height: 1;
+    cursor: pointer;
+    border-radius: 8px;
 }
 
-.unit-popup-controls [data-wound-step] {
-    font-size: 1.9rem;
-    line-height: 1;
-    padding: 5px;
+/* Flipped board perspective for Challenger (Player 2) */
+#game-table.is-flipped #piece-controls {
+    transform: translateX(-50%) rotate(180deg);
+}
+
+#game-table.is-flipped #angle-indicator {
+    transform: translate(-50%, -50%) rotate(180deg);
+}
+
+#game-table.is-flipped #unit-tooltip {
+    transform: translateY(8px) scale(0.97) rotate(180deg);
+}
+
+#game-table.is-flipped #unit-tooltip.visible {
+    transform: translateY(0) scale(1) rotate(180deg);
+}
+
+#game-table.is-flipped .command-token-table {
+    transform: rotate(180deg);
 }
 
 .controls-modal-content {
@@ -2725,21 +2699,43 @@ input::placeholder {
     color: var(--ink-muted);
 }
 
+.command-group {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    margin-top: 4px;
+}
+
+.command-group-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+
+.command-group-title {
+    font-size: 0.74rem;
+    font-weight: 700;
+    color: var(--gold-light, #f1d7b8);
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    font-family: var(--font-display);
+}
+
 .command-tray {
     background: rgba(18, 13, 10, 0.7);
     border: 1px dashed rgba(216, 179, 109, 0.35);
-    border-radius: 14px;
-    padding: 10px;
-    min-height: 72px;
+    border-radius: 12px;
+    padding: 8px;
+    min-height: 48px;
     display: flex;
     flex-wrap: wrap;
-    gap: 8px;
+    gap: 6px;
     align-items: center;
     justify-content: flex-start;
 }
 
 .tray-placeholder {
-    font-size: 0.8rem;
+    font-size: 0.78rem;
     color: var(--ink-muted);
     text-align: center;
     width: 100%;

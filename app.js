@@ -231,13 +231,13 @@ function updateDraftNoticeUI() {
     const text = document.getElementById('draft-notice-text');
     if (!banner || !text) return;
 
-    const firstPick = biddingState.firstDraftPick || 'p1';
-    const localKey = getLocalBidPlayerKey();
-
-    if (biddingState.round > 1 && biddingState.revealed) {
+    if (biddingState.round > 1 || biddingState.revealed) {
         banner.style.display = 'none';
         return;
     }
+
+    const firstPick = biddingState.firstDraftPick || 'p1';
+    const localKey = getLocalBidPlayerKey();
 
     banner.style.display = 'block';
     if (firstPick === localKey) {
@@ -275,6 +275,7 @@ function getOpponentPlayerKey() {
 }
 
 function updateBiddingUI() {
+    updateDraftNoticeUI();
     const localKey = getLocalBidPlayerKey();
     const biddingZone = document.getElementById('bidding-zone');
     const turnZone = document.getElementById('turn-zone');
@@ -507,8 +508,8 @@ function updateRightSidebarUI() {
     const toggleBtn = document.getElementById('right-sidebar-toggle');
     if (!rightSidebar || !toggleBtn) return;
 
-    rightSidebar.classList.toggle('sidebar-hidden', isRightSidebarHidden);
-    toggleBtn.querySelector('span').innerText = isRightSidebarHidden ? '<' : '>';
+    const toggleSpan = toggleBtn.querySelector('span');
+    if (toggleSpan) toggleSpan.innerText = isRightSidebarHidden ? '<' : '>';
     toggleBtn.setAttribute('aria-expanded', String(!isRightSidebarHidden));
     toggleBtn.setAttribute('aria-label', isRightSidebarHidden ? 'Show right sidebar' : 'Hide right sidebar');
     toggleBtn.title = isRightSidebarHidden ? 'Show right sidebar' : 'Hide right sidebar';
@@ -1048,6 +1049,7 @@ function suppressUnitTooltip(durationMs = TOOLTIP_SUPPRESS_AFTER_MANIPULATION_MS
 
 function positionUnitTooltip(unitEl) {
     const tooltip = document.getElementById('unit-tooltip');
+    if (!tooltip || !unitEl) return;
     const unitRect = {
         left: parseFloat(unitEl.style.left) || 0,
         top: parseFloat(unitEl.style.top) || 0,
@@ -1055,41 +1057,36 @@ function positionUnitTooltip(unitEl) {
         height: unitEl.offsetHeight
     };
 
-    const offsetX = 18;
-    const offsetY = 14;
-    const maxLeft = Math.max(12, table.clientWidth - tooltip.offsetWidth - 12);
-    const preferredLeft = unitRect.left + unitRect.width + offsetX;
-    const clampedLeft = Math.min(Math.max(12, preferredLeft), maxLeft);
+    const tooltipWidth = tooltip.offsetWidth || 100;
+    const tooltipHeight = tooltip.offsetHeight || 50;
 
-    let top = unitRect.top - tooltip.offsetHeight - offsetY;
+    const centerX = unitRect.left + (unitRect.width / 2);
+    let left = centerX - (tooltipWidth / 2);
+    left = Math.min(Math.max(12, left), tableWidthPx - tooltipWidth - 12);
+
+    let top = unitRect.top - tooltipHeight - 12;
     if (top < 12) {
-        top = Math.min(table.clientHeight - tooltip.offsetHeight - 18, unitRect.top + unitRect.height + 12);
+        top = unitRect.top + unitRect.height + 12;
     }
 
-    tooltip.style.left = `${clampedLeft}px`;
-    tooltip.style.top = `${Math.max(12, top)}px`;
+    tooltip.style.left = `${left}px`;
+    tooltip.style.top = `${top}px`;
 }
 
 function showUnitTooltip(unitEl, interactive = false) {
-    if (!unitEl || (!interactive && (activePiece || Date.now() < suppressTooltipUntil))) return;
+    if (!interactive || !unitEl) return;
 
     const tooltip = document.getElementById('unit-tooltip');
-    tooltip.innerHTML = buildStatsMarkup(unitEl) + (interactive ? buildUnitControlsMarkup() : '');
-    tooltip.classList.toggle('interactive', interactive);
+    tooltip.innerHTML = buildUnitControlsMarkup();
+    tooltip.classList.toggle('interactive', true);
     tooltip.setAttribute('aria-hidden', 'false');
     positionUnitTooltip(unitEl);
     tooltip.classList.add('visible');
 }
 
 function queueUnitTooltip(unitEl) {
-    if (!unitEl || selectedPiece || activePiece || Date.now() < suppressTooltipUntil) return;
-    hideUnitTooltip();
-    statsTooltipTimer = setTimeout(() => {
-        statsTooltipTimer = null;
-        if (!selectedPiece && hoveredUnit === unitEl && !activePiece && Date.now() >= suppressTooltipUntil) {
-            showUnitTooltip(unitEl);
-        }
-    }, TOOLTIP_HOVER_DELAY_MS);
+    // Hover tooltip over battlefield removed per user request
+    return;
 }
 
 // --- SELECTION & PIECE CONTROLS ---
@@ -1740,12 +1737,10 @@ function onCommandTokenPointerDown(e, token) {
             delete activeDraggedToken.x;
             delete activeDraggedToken.y;
         } else if (tableEl) {
-            const tableRect = table.getBoundingClientRect();
-            const tableX = (upEv.clientX - tableRect.left) / currentScale;
-            const tableY = (upEv.clientY - tableRect.top) / currentScale;
+            const pointer = getTablePointerPosition(upEv);
             activeDraggedToken.status = 'table';
-            activeDraggedToken.x = Math.round(tableX);
-            activeDraggedToken.y = Math.round(tableY);
+            activeDraggedToken.x = Math.round(pointer.x);
+            activeDraggedToken.y = Math.round(pointer.y);
             delete activeDraggedToken.unitId;
         } else {
             activeDraggedToken.status = 'tray';
@@ -1766,16 +1761,19 @@ function onCommandTokenPointerDown(e, token) {
 }
 
 function renderAllCommandTokens() {
-    const tray = document.getElementById('command-tray');
-    if (tray) {
-        tray.querySelectorAll('.command-token').forEach(el => el.remove());
-        const placeholder = tray.querySelector('.tray-placeholder');
-        if (placeholder) {
-            placeholder.style.display = commandTokens.length === 0 ? 'block' : 'none';
-        }
-    }
+    const yourTray = document.getElementById('your-command-tray');
+    const oppTray = document.getElementById('opp-command-tray');
+    const legacyTray = document.getElementById('command-tray');
+    const localKey = getLocalBidPlayerKey();
+
+    if (yourTray) yourTray.querySelectorAll('.command-token').forEach(el => el.remove());
+    if (oppTray) oppTray.querySelectorAll('.command-token').forEach(el => el.remove());
+    if (legacyTray) legacyTray.querySelectorAll('.command-token').forEach(el => el.remove());
     table.querySelectorAll('.unit-command-dock').forEach(dock => dock.replaceChildren());
     table.querySelectorAll('.command-token-table').forEach(el => el.remove());
+
+    let yourTrayTokensCount = 0;
+    let oppTrayTokensCount = 0;
 
     commandTokens.forEach(token => {
         const tokenEl = document.createElement('div');
@@ -1783,7 +1781,8 @@ function renderAllCommandTokens() {
         tokenEl.dataset.tokenId = token.id;
         tokenEl.textContent = token.num;
         tokenEl.setAttribute('role', 'button');
-        tokenEl.setAttribute('aria-label', `${token.player === 'p1' ? 'Player 1' : 'Player 2'} command ${token.num}`);
+        const isMine = token.player === localKey;
+        tokenEl.setAttribute('aria-label', `${isMine ? 'Your' : "Opponent's"} command ${token.num}`);
         tokenEl.title = 'Drag command marker to attach or move';
         tokenEl.addEventListener('pointerdown', (e) => onCommandTokenPointerDown(e, token));
 
@@ -1809,10 +1808,40 @@ function renderAllCommandTokens() {
             return;
         }
 
-        if (tray) {
-            tray.appendChild(tokenEl);
+        if (isMine) {
+            yourTrayTokensCount++;
+            if (yourTray) yourTray.appendChild(tokenEl);
+        } else {
+            oppTrayTokensCount++;
+            if (oppTray) oppTray.appendChild(tokenEl);
         }
     });
+
+    if (yourTray) {
+        const placeholder = yourTray.querySelector('.tray-placeholder');
+        if (placeholder) {
+            if (!biddingState.revealed) {
+                placeholder.textContent = 'Reveal bids to show commands.';
+                placeholder.style.display = 'block';
+            } else {
+                placeholder.textContent = 'All commands assigned.';
+                placeholder.style.display = yourTrayTokensCount === 0 ? 'block' : 'none';
+            }
+        }
+    }
+
+    if (oppTray) {
+        const placeholder = oppTray.querySelector('.tray-placeholder');
+        if (placeholder) {
+            if (!biddingState.revealed) {
+                placeholder.textContent = 'Reveal bids to show commands.';
+                placeholder.style.display = 'block';
+            } else {
+                placeholder.textContent = 'All commands assigned.';
+                placeholder.style.display = oppTrayTokensCount === 0 ? 'block' : 'none';
+            }
+        }
+    }
 }
 
 function getAssignedPlayer(unit) {
@@ -2095,9 +2124,6 @@ function createUnitDOM(name, color, x, y, angle, wounds, stats = null, activated
     div.addEventListener('mouseenter', () => {
         hoveredUnit = div;
         updateStatsPanel(div);
-        if (!selectedPiece) {
-            queueUnitTooltip(div);
-        }
     });
 
     div.addEventListener('mouseleave', () => {
@@ -3054,6 +3080,12 @@ function getActiveTableRect() {
 
 function getTablePointerPosition(event) {
     const tableRect = getActiveTableRect();
+    if (!isHost) {
+        return {
+            x: (tableRect.right - event.clientX) / currentScale,
+            y: (tableRect.bottom - event.clientY) / currentScale
+        };
+    }
     return {
         x: (event.clientX - tableRect.left) / currentScale,
         y: (event.clientY - tableRect.top) / currentScale
@@ -3157,9 +3189,11 @@ function onPiecePointerDown(e) {
     pointerStartX = e.clientX;
     pointerStartY = e.clientY;
     isDraggingPiece = false;
-    const rect = pendingDragPiece.getBoundingClientRect();
-    pendingDragPiece.dataset.offsetX = (e.clientX - rect.left) / currentScale;
-    pendingDragPiece.dataset.offsetY = (e.clientY - rect.top) / currentScale;
+    const pointer = getTablePointerPosition(e);
+    const pieceLeft = parseFloat(pendingDragPiece.style.left) || 0;
+    const pieceTop = parseFloat(pendingDragPiece.style.top) || 0;
+    pendingDragPiece.dataset.offsetX = pointer.x - pieceLeft;
+    pendingDragPiece.dataset.offsetY = pointer.y - pieceTop;
 
     if (pendingDragPiece.setPointerCapture) {
         pendingDragPiece.setPointerCapture(e.pointerId);
@@ -3187,10 +3221,8 @@ function startPieceDrag() {
     ghostPiece.removeAttribute('id');
     ghostPiece.style.transform = activePiece.style.transform;
     table.insertBefore(ghostPiece, activePiece);
-    const rect = activePiece.getBoundingClientRect();
-    const tableRect = getActiveTableRect();
-    anchorX = ((rect.left - tableRect.left) + (rect.width / 2)) / currentScale;
-    anchorY = ((rect.top - tableRect.top) + (rect.height / 2)) / currentScale;
+    anchorX = (parseFloat(activePiece.style.left) || 0) + activePieceHalfWidth;
+    anchorY = (parseFloat(activePiece.style.top) || 0) + activePieceHalfHeight;
     showLine(anchorX, anchorY, anchorX, anchorY);
     positionPieceControls();
 }
@@ -3287,8 +3319,15 @@ function handlePointerMove(e) {
         const dy = targetY - anchorY;
         const distancePx = Math.sqrt(dx * dx + dy * dy);
         measureTextElement.textContent = `${pxToInches(distancePx)}"`;
-        measureTextElement.setAttribute('x', anchorX + (dx / 2) + 10);
-        measureTextElement.setAttribute('y', anchorY + (dy / 2) - 10);
+        const textX = anchorX + (dx / 2) + 10;
+        const textY = anchorY + (dy / 2) - 10;
+        measureTextElement.setAttribute('x', textX);
+        measureTextElement.setAttribute('y', textY);
+        if (!isHost) {
+            measureTextElement.setAttribute('transform', `rotate(180, ${textX}, ${textY})`);
+        } else {
+            measureTextElement.removeAttribute('transform');
+        }
     }
 }
 
@@ -3357,7 +3396,9 @@ function fitTableToScreen() {
     // without distorting unit or terrain proportions.
     currentScale = Math.max(Math.min(scaleX, scaleY), 0.01);
 
-    table.style.transform = `scale(${currentScale})`;
+    table.classList.toggle('is-flipped', !isHost);
+    const rotateTransform = !isHost ? ' rotate(180deg)' : '';
+    table.style.transform = `scale(${currentScale})${rotateTransform}`;
 }
 
 window.addEventListener('resize', fitTableToScreen);
@@ -3427,5 +3468,7 @@ window.unlockLocalBid = unlockLocalBid;
 window.triggerRevealBids = triggerRevealBids;
 window.handlePassTurn = handlePassTurn;
 window.toggleFullscreen = toggleFullscreen;
+window.getBiddingState = () => biddingState;
+window.handlePeerData = handleIncomingData;
 
 initGame();

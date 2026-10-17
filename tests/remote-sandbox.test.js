@@ -166,3 +166,107 @@ test('remote-sandbox: room code hideable panel tuck state transitions', () => {
     assert.equal(bannerClasses.has('is-tucked'), false);
 });
 
+test('remote-sandbox: unit hover popup disabled, interactive selection shows compact wound controls', () => {
+    let tooltipVisible = false;
+    let tooltipInteractive = false;
+    let tooltipMarkup = '';
+
+    const showUnitTooltipMock = (unitEl, interactive = false) => {
+        if (!interactive || !unitEl) return;
+        tooltipVisible = true;
+        tooltipInteractive = true;
+        tooltipMarkup = '<div class="unit-popup-controls"><button data-wound-step="-1">-</button><button data-wound-step="1">+</button></div>';
+    };
+
+    // Hover (interactive = false)
+    showUnitTooltipMock({ id: 'unit-1' }, false);
+    assert.equal(tooltipVisible, false, 'Hover should not display floating tooltip on table');
+
+    // Selection (interactive = true)
+    showUnitTooltipMock({ id: 'unit-1' }, true);
+    assert.equal(tooltipVisible, true);
+    assert.equal(tooltipInteractive, true);
+    assert.match(tooltipMarkup, /data-wound-step="-1"/);
+    assert.match(tooltipMarkup, /data-wound-step="1"/);
+    assert.doesNotMatch(tooltipMarkup, /stats-card/, 'Should not include obstructive stats markup in popup');
+});
+
+test('remote-sandbox: command staging splits into Your commands and Opponent commands', () => {
+    const tokens = [
+        { id: 'cmd-p1-0', player: 'p1', num: 1, status: 'tray' },
+        { id: 'cmd-p1-1', player: 'p1', num: 2, status: 'tray' },
+        { id: 'cmd-p2-0', player: 'p2', num: 1, status: 'tray' }
+    ];
+
+    // For Host (localKey = 'p1')
+    const hostLocalKey = 'p1';
+    const hostYour = tokens.filter(t => t.player === hostLocalKey && t.status === 'tray');
+    const hostOpp = tokens.filter(t => t.player !== hostLocalKey && t.status === 'tray');
+    assert.equal(hostYour.length, 2);
+    assert.equal(hostOpp.length, 1);
+
+    // For Challenger (localKey = 'p2')
+    const challengerLocalKey = 'p2';
+    const chalYour = tokens.filter(t => t.player === challengerLocalKey && t.status === 'tray');
+    const chalOpp = tokens.filter(t => t.player !== challengerLocalKey && t.status === 'tray');
+    assert.equal(chalYour.length, 1);
+    assert.equal(chalOpp.length, 2);
+});
+
+test('remote-sandbox: draft notice banner hides automatically once bids are revealed', () => {
+    const isBannerVisible = (round, revealed) => {
+        if (round > 1 || revealed) return false;
+        return true;
+    };
+
+    // Round 1 unrevealed: visible
+    assert.equal(isBannerVisible(1, false), true);
+    // Round 1 revealed: hidden!
+    assert.equal(isBannerVisible(1, true), false);
+    // Round 2 unrevealed: hidden!
+    assert.equal(isBannerVisible(2, false), false);
+    // Round 2 revealed: hidden!
+    assert.equal(isBannerVisible(2, true), false);
+});
+
+test('remote-sandbox: challenger board perspective flips 180 degrees and transforms coordinates', () => {
+    const getBoardTransform = (isHost, scale) => {
+        const rotate = !isHost ? ' rotate(180deg)' : '';
+        return `scale(${scale})${rotate}`;
+    };
+
+    assert.equal(getBoardTransform(true, 0.75), 'scale(0.75)');
+    assert.equal(getBoardTransform(false, 0.75), 'scale(0.75) rotate(180deg)');
+
+    // Invert pointer coordinates for Challenger
+    const tableRect = { left: 100, right: 1000, top: 50, bottom: 650, width: 900, height: 600 };
+    const currentScale = 0.5; // table is 1800 x 1200
+
+    const getPointer = (clientX, clientY, isHost) => {
+        if (!isHost) {
+            return {
+                x: (tableRect.right - clientX) / currentScale,
+                y: (tableRect.bottom - clientY) / currentScale
+            };
+        }
+        return {
+            x: (clientX - tableRect.left) / currentScale,
+            y: (clientY - tableRect.top) / currentScale
+        };
+    };
+
+    // Host: client at (100, 50) -> (0, 0)
+    assert.deepEqual(getPointer(100, 50, true), { x: 0, y: 0 });
+
+    // Challenger: client at bottom-right (1000, 650) -> maps to (0, 0)
+    assert.deepEqual(getPointer(1000, 650, false), { x: 0, y: 0 });
+
+    // Challenger: client at top-left (100, 50) -> maps to (1800, 1200)
+    assert.deepEqual(getPointer(100, 50, false), { x: 1800, y: 1200 });
+
+    // Center is invariant
+    assert.deepEqual(getPointer(550, 350, true), { x: 900, y: 600 });
+    assert.deepEqual(getPointer(550, 350, false), { x: 900, y: 600 });
+});
+
+

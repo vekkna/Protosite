@@ -135,9 +135,26 @@
             <section id="command-staging-panel" class="command-staging-panel">
                 <span class="sidebar-kicker">Command Markers</span>
                 <p class="staging-hint">Drag onto your units</p>
-                <div id="command-tray" class="command-tray">
-                    <span class="tray-placeholder">Reveal bids to show commands.</span>
+
+                <div class="command-group" id="your-commands-group">
+                    <div class="command-group-header">
+                        <span class="command-group-title">Your commands</span>
+                    </div>
+                    <div id="your-command-tray" class="command-tray">
+                        <span class="tray-placeholder">Reveal bids to show commands.</span>
+                    </div>
                 </div>
+
+                <div class="command-group" id="opp-commands-group">
+                    <div class="command-group-header">
+                        <span class="command-group-title">Opponent's commands</span>
+                    </div>
+                    <div id="opp-command-tray" class="command-tray">
+                        <span class="tray-placeholder">Reveal bids to show commands.</span>
+                    </div>
+                </div>
+
+                <div id="command-tray" style="display: none;"></div>
             </section>
 
             <!-- Battle Tools: Dice Roller -->
