@@ -59,16 +59,22 @@
         <div class="sidebar" id="left-sidebar">
             <!-- Player Identity & Room Card -->
             <div id="player-banner" class="player-banner">
-                <div class="player-banner-top">
+                <div class="player-banner-top" id="player-banner-top" onclick="toggleRoomCodeArea()" role="button" tabindex="0" title="Tuck or expand game code panel" aria-expanded="true">
                     <div class="player-role-badge badge-p1" id="player-role-badge">Player 1</div>
-                    <button id="toggle-room-code-btn" type="button" class="btn-toggle-badge" onclick="toggleRoomCodeArea()" title="Toggle game code display" aria-label="Toggle game code display">Hide Code</button>
+                    <button id="toggle-room-code-btn" type="button" class="panel-tuck-btn" onclick="event.stopPropagation(); toggleRoomCodeArea()" title="Tuck room code" aria-label="Tuck room code" aria-expanded="true">
+                        <span class="tuck-chevron">▾</span>
+                    </button>
                 </div>
                 <div id="room-code-area" class="room-code-area">
                     <div class="room-code-badge" id="room-code-badge">
                         <span id="room-code-text">Code: ----</span>
-                        <button id="copy-room-link-btn" class="btn-copy-sm" onclick="copyRoomLink()" title="Copy invite link">Copy Link</button>
+                        <button id="copy-room-link-btn" class="btn-copy-sm" onclick="event.stopPropagation(); copyRoomLink()" title="Copy invite link">Copy Link</button>
                     </div>
                     <div id="network-status" class="network-status">Waiting for opponent...</div>
+                    <div class="room-code-tuck-tab" onclick="toggleRoomCodeArea()" title="Tuck room code">
+                        <span>Tuck Code</span>
+                        <span class="tuck-chevron-sm">▴</span>
+                    </div>
                 </div>
                 <button id="exit-game-btn" class="btn-text-sm" onclick="exitToLanding()">Exit to Menu</button>
             </div>

@@ -66,7 +66,7 @@ test('E2E Simulation: Clicking Host New Game transitions screen and spawns 12 un
         'dice-count', 'dice-values', 'measure-line', 'measure-text', 'piece-controls',
         'unit-tooltip', 'stats-panel', 'range-ring', 'terrain-card', 'right-sidebar',
         'right-sidebar-toggle', 'fullscreen-btn', 'turn-indicator-badge', 'pass-turn-btn',
-        'my-role-label', 'opp-role-label', 'mt-badge-wrap'
+        'my-role-label', 'opp-role-label', 'mt-badge-wrap', 'player-banner', 'player-banner-top'
     ];
     expectedIds.forEach(id => getOrCreateEl(id));
 
@@ -82,6 +82,10 @@ test('E2E Simulation: Clicking Host New Game transitions screen and spawns 12 un
     };
     global.document = {
         getElementById: (id) => getOrCreateEl(id),
+        querySelector: (sel) => {
+            if (sel.startsWith('#')) return getOrCreateEl(sel.slice(1));
+            return createElement('div');
+        },
         createElement: (tag) => createElement(tag),
         querySelectorAll: () => [],
         addEventListener() {},

@@ -2273,49 +2273,132 @@ input::placeholder {
 
 /* --- PLAYER IDENTITY BANNER --- */
 .player-banner {
-    background: rgba(18, 13, 10, 0.85);
+    background: rgba(18, 13, 10, 0.88);
     border: 1px solid var(--panel-border-soft);
     border-radius: 16px;
-    padding: 10px 8px;
+    padding: 10px 10px 8px 10px;
     display: flex;
     flex-direction: column;
     gap: 8px;
     text-align: center;
+    transition: all 0.25s ease;
+}
+
+.player-banner.is-tucked {
+    padding-bottom: 6px;
+    gap: 4px;
 }
 
 .player-banner-top {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 6px;
+    gap: 8px;
+    cursor: pointer;
+    user-select: none;
+    border-radius: 12px;
+    padding: 2px;
+    transition: background 0.15s ease;
+}
+
+.player-banner-top:hover {
+    background: rgba(255, 255, 255, 0.04);
+}
+
+.player-banner-top:focus-visible {
+    outline: 2px solid var(--gold);
+    outline-offset: 2px;
 }
 
 .player-banner-top .player-role-badge {
     flex: 1;
 }
 
-.btn-toggle-badge {
+.panel-tuck-btn {
+    width: 32px;
+    height: 32px;
+    min-width: 32px;
+    padding: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
     background: rgba(216, 179, 109, 0.12);
     border: 1px solid rgba(216, 179, 109, 0.28);
-    color: var(--ink-soft);
-    font-size: 0.72rem;
-    padding: 5px 8px;
     border-radius: 8px;
+    color: var(--gold);
     cursor: pointer;
-    white-space: nowrap;
-    transition: all 0.15s ease;
+    transition: all 0.18s ease;
 }
 
-.btn-toggle-badge:hover {
+.panel-tuck-btn:hover {
     background: rgba(216, 179, 109, 0.25);
-    color: var(--ink-main);
+    border-color: var(--gold);
+    color: #fff;
+    transform: scale(1.04);
+}
+
+.panel-tuck-btn .tuck-chevron {
+    display: inline-block;
+    font-size: 1rem;
+    line-height: 1;
+    transition: transform 0.22s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.panel-tuck-btn[aria-expanded="false"] .tuck-chevron {
+    transform: rotate(-90deg);
 }
 
 .room-code-area {
     display: flex;
     flex-direction: column;
     gap: 6px;
-    transition: all 0.2s ease;
+    max-height: 140px;
+    opacity: 1;
+    overflow: hidden;
+    transform-origin: top;
+    transform: translateY(0);
+    transition: max-height 0.26s cubic-bezier(0.4, 0, 0.2, 1),
+                opacity 0.2s ease,
+                transform 0.2s ease,
+                margin 0.2s ease;
+}
+
+.room-code-area.is-tucked {
+    max-height: 0 !important;
+    opacity: 0 !important;
+    transform: translateY(-4px);
+    margin-top: 0 !important;
+    margin-bottom: 0 !important;
+    pointer-events: none;
+}
+
+.room-code-tuck-tab {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    padding: 2px 0 0 0;
+    cursor: pointer;
+    color: var(--ink-muted);
+    font-size: 0.68rem;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    transition: color 0.15s ease;
+}
+
+.room-code-tuck-tab:hover {
+    color: var(--gold);
+}
+
+.room-code-tuck-tab .tuck-chevron-sm {
+    font-size: 0.75rem;
+    line-height: 1;
+    display: inline-block;
+    transition: transform 0.15s ease;
+}
+
+.room-code-tuck-tab:hover .tuck-chevron-sm {
+    transform: translateY(-1px);
 }
 
 .player-role-badge {

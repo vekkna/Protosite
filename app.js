@@ -195,16 +195,34 @@ function toggleRoomCodeArea() {
 function updateRoomCodeVisibility() {
     const area = document.getElementById('room-code-area');
     const btn = document.getElementById('toggle-room-code-btn');
-    if (!area || !btn) return;
+    const header = document.getElementById('player-banner-top');
+    const banner = document.getElementById('player-banner');
+    if (!area) return;
 
     if (isRoomCodeHidden) {
-        area.style.display = 'none';
-        btn.textContent = 'Show Code';
-        btn.setAttribute('aria-expanded', 'false');
+        area.classList.add('is-tucked');
+        if (banner) banner.classList.add('is-tucked');
+        if (btn) {
+            btn.setAttribute('aria-expanded', 'false');
+            btn.title = 'Expand room code';
+            btn.setAttribute('aria-label', 'Expand room code');
+        }
+        if (header) {
+            header.setAttribute('aria-expanded', 'false');
+            header.title = 'Expand room code';
+        }
     } else {
-        area.style.display = 'flex';
-        btn.textContent = 'Hide Code';
-        btn.setAttribute('aria-expanded', 'true');
+        area.classList.remove('is-tucked');
+        if (banner) banner.classList.remove('is-tucked');
+        if (btn) {
+            btn.setAttribute('aria-expanded', 'true');
+            btn.title = 'Tuck room code';
+            btn.setAttribute('aria-label', 'Tuck room code');
+        }
+        if (header) {
+            header.setAttribute('aria-expanded', 'true');
+            header.title = 'Tuck room code';
+        }
     }
 }
 

@@ -123,3 +123,46 @@ test('remote-sandbox: multi-game index and isolation logic', () => {
     assert.equal(JSON.parse(mockStorage.get(getKey('WXYZ'))).round, 2);
 });
 
+test('remote-sandbox: room code hideable panel tuck state transitions', () => {
+    let isRoomCodeHidden = false;
+    const bannerClasses = new Set();
+    const areaClasses = new Set();
+    let ariaExpanded = 'true';
+
+    const updateVisibility = () => {
+        if (isRoomCodeHidden) {
+            bannerClasses.add('is-tucked');
+            areaClasses.add('is-tucked');
+            ariaExpanded = 'false';
+        } else {
+            bannerClasses.delete('is-tucked');
+            areaClasses.delete('is-tucked');
+            ariaExpanded = 'true';
+        }
+    };
+
+    const toggle = () => {
+        isRoomCodeHidden = !isRoomCodeHidden;
+        updateVisibility();
+    };
+
+    // Initially untucked
+    updateVisibility();
+    assert.equal(ariaExpanded, 'true');
+    assert.equal(areaClasses.has('is-tucked'), false);
+
+    // Tuck panel
+    toggle();
+    assert.equal(isRoomCodeHidden, true);
+    assert.equal(ariaExpanded, 'false');
+    assert.equal(areaClasses.has('is-tucked'), true);
+    assert.equal(bannerClasses.has('is-tucked'), true);
+
+    // Untuck panel
+    toggle();
+    assert.equal(isRoomCodeHidden, false);
+    assert.equal(ariaExpanded, 'true');
+    assert.equal(areaClasses.has('is-tucked'), false);
+    assert.equal(bannerClasses.has('is-tucked'), false);
+});
+
