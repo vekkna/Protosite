@@ -1997,3 +1997,43 @@ input::placeholder {
         line-height: 1.3;
     }
 }
+
+/* Round status stays above the general tools in the scrolling sidebar. */
+#round-panel {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding: 12px 0;
+    border-top: 1px solid var(--panel-border);
+    border-bottom: 1px solid var(--panel-border);
+    font-size: 14px;
+}
+#round-panel [hidden] { display: none !important; }
+#round-status { line-height: 1.4; color: var(--ink-soft); }
+#command-windows { margin: 0; padding-left: 24px; line-height: 1.6; }
+#command-windows:empty { display: none; }
+.current-window { color: var(--gold); font-weight: bold; }
+.closed-window { color: var(--ink-muted); }
+#command-totals { display: grid; gap: 6px; font-variant-numeric: tabular-nums; }
+.tracker-field { display: grid; gap: 5px; }
+#round-panel select {
+    min-width: 0;
+    max-width: 100%;
+    padding: 6px;
+    border: 1px solid var(--panel-border);
+    border-radius: 5px;
+    color: var(--ink-main);
+    background: #231911;
+    font: inherit;
+}
+#army-assignment summary { cursor: pointer; color: var(--gold); }
+#army-assignment .sidebar-description { margin: 8px 0; }
+.army-roster-row { display: grid; grid-template-columns: 1fr 82px; align-items: center; gap: 5px; margin-top: 6px; }
+.army-roster-row span { overflow-wrap: anywhere; }
+#command-feedback { color: #ffc2a3; line-height: 1.4; }
+#command-feedback:empty { display: none; }
+.owner-badge { position: absolute; bottom: 2px; left: 3px; font: bold 9px sans-serif; color: #fff; background: #231911; border-radius: 2px; padding: 1px 3px; pointer-events: none; }
+.owner-badge:empty { display: none; }
+.unit.has-command { outline: 2px solid var(--gold); outline-offset: 2px; }
+.activation-checkbox:disabled { cursor: default; opacity: 0.5; }
+#tracker-bids { display: grid; gap: 10px; }

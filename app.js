@@ -111,7 +111,7 @@ function updateBidUI() {
 
         field.classList.toggle('bid-hidden', isHiddenFromViewer);
         field.classList.toggle('bid-private', isPrivateToViewer);
-        input.readOnly = isMultiplayer && !isOwnBid;
+        input.readOnly = (isMultiplayer && !isOwnBid) || ['commands', 'complete'].includes(roundState.phase);
         input.setAttribute('aria-label', `${playerKey === 'p1' ? 'Player 1' : 'Player 2'} command point bid${isHiddenFromViewer ? ' hidden' : ''}`);
     });
 
@@ -161,6 +161,10 @@ function handleCpBidChange(playerKey) {
         return;
     }
 
+    if (['commands', 'complete'].includes(roundState.phase)) {
+        getBidInput(playerKey).value = roundState.bids[playerKey];
+        return;
+    }
     rememberCpValue(playerKey);
     saveGame();
 }
@@ -329,6 +333,7 @@ let pointerMoveFrame = null;
 let measurementPointerId = null;
 let undoStack = [];
 let terrainDeck = [];
+let roundState = CommandTracker.create();
 let terrainCardRemoveTimer = null;
 let terrainCardRevealTimer = null;
 let isTerrainCardAnimating = false;
@@ -936,6 +941,7 @@ function setupConnection() {
     if (!conn) return;
     conn.on('open', () => {
         updateStatus("Connected!");
+        updateRoundUI();
         document.getElementById('status-indicator').classList.add('status-connected');
         updateBidUI();
     });
@@ -947,6 +953,7 @@ function setupConnection() {
         document.getElementById('status-indicator').classList.remove('status-connected');
         conn = null;
         isHost = false;
+        updateRoundUI();
         updateMultiplayerControlsUI();
         updateBidUI();
     });
@@ -991,6 +998,172 @@ function copyId() {
     alert("ID Copied to Clipboard!");
 }
 
+// --- ROUND & COMMAND TRACKING ---
+function setCommandFeedback(message) {
+    document.getElementById('command-feedback').textContent = message;
+}
+
+function getAssignedPlayer(unit) {
+    if (unit.dataset.owner) return unit.dataset.owner;
+    const centerY = parseFloat(unit.style.top) + parseFloat(unit.style.height) / 2;
+    return centerY >= tableHeightPx / 2 ? 'p1' : 'p2';
+}
+
+function setFirstRoundTie(player) {
+    if (roundState.round > 0 || !['p1', 'p2'].includes(player)) return;
+    pushUndo();
+    roundState = { ...roundState, firstTie: player };
+    saveGame();
+}
+
+function assignUnitOwner(index, owner) {
+    if (!['setup', 'bidding'].includes(roundState.phase)) return;
+    const unit = [...table.querySelectorAll('.unit:not(.ghost)')][index];
+    if (!unit || !['', 'p1', 'p2'].includes(owner)) return;
+    pushUndo();
+    if (owner) unit.dataset.owner = owner;
+    else delete unit.dataset.owner;
+    saveGame();
+}
+
+function advanceRound() {
+    try {
+        if (roundState.phase === 'complete') {
+            pushUndo();
+            roundState = CommandTracker.next(roundState);
+            table.querySelectorAll('.unit:not(.ghost)').forEach(unit => {
+                unit.dataset.activated = 'false';
+                unit.querySelector('.activation-checkbox').checked = false;
+            });
+        } else {
+            if (!bidVisibility.p1 || !bidVisibility.p2) throw new Error('Reveal both bids before starting commands.');
+            const units = [...table.querySelectorAll('.unit:not(.ghost)')];
+            const counts = { p1: 0, p2: 0 };
+            units.forEach(unit => counts[getAssignedPlayer(unit)]++);
+            const bids = { p1: Number(getBidInput('p1').value), p2: Number(getBidInput('p2').value) };
+            const nextState = CommandTracker.start(roundState, bids, counts);
+            pushUndo();
+            roundState = nextState;
+            units.forEach(unit => {
+                unit.dataset.owner = getAssignedPlayer(unit);
+                unit.dataset.activated = 'false';
+                unit.querySelector('.activation-checkbox').checked = false;
+            });
+        }
+        setCommandFeedback('');
+        saveGame();
+    } catch (error) {
+        setCommandFeedback(error.message);
+    }
+}
+
+function passCommandWindow() {
+    try {
+        const activePlayer = CommandTracker.activePlayer(roundState);
+        const localPlayer = getLocalBidPlayerKey();
+        if (localPlayer && activePlayer !== localPlayer) throw new Error('Only the active player can pass.');
+        const nextState = CommandTracker.pass(roundState, activePlayer);
+        pushUndo();
+        roundState = nextState;
+        setCommandFeedback('');
+        saveGame();
+    } catch (error) {
+        setCommandFeedback(error.message);
+    }
+}
+
+function updateRoundUI() {
+    const panel = document.getElementById('round-panel');
+    if (!panel) return;
+    const state = roundState;
+    const activePlayer = CommandTracker.activePlayer(state);
+    const localPlayer = getLocalBidPlayerKey();
+    const units = [...table.querySelectorAll('.unit:not(.ghost)')];
+    const isAssigning = ['setup', 'bidding'].includes(state.phase);
+    document.getElementById('round-title').textContent = state.round ? `Round ${state.round}` : 'Battle setup';
+    const status = document.getElementById('round-status');
+    if (state.phase === 'commands') {
+        status.textContent = `${state.master.toUpperCase()} is Master Tactician. ${activePlayer.toUpperCase()} may activate or pass.`;
+    } else if (state.phase === 'complete') {
+        status.textContent = `Round complete. Unspent commands are lost. ${state.master.toUpperCase()} keeps Master Tactician on a tied bid next round.`;
+    } else {
+        status.textContent = state.phase === 'setup'
+            ? 'Deploy armies, set bids, then start round 1.'
+            : `Set and reveal bids. ${state.master.toUpperCase()} keeps Master Tactician on a tie.`;
+    }
+    const windows = document.getElementById('command-windows');
+    windows.replaceChildren();
+    if (state.master && ['commands', 'complete'].includes(state.phase)) {
+        const opponent = state.master === 'p1' ? 'p2' : 'p1';
+        [state.master, opponent, state.master].forEach((player, index) => {
+            const item = document.createElement('li');
+            item.textContent = `${player.toUpperCase()}${index === 1 ? '' : ' · Master Tactician'}${index === 2 ? ' · final window' : ''}`;
+            if (state.phase === 'commands' && index === state.window) {
+                item.className = 'current-window';
+                item.setAttribute('aria-current', 'step');
+            } else if (state.phase === 'complete' || index < state.window) item.className = 'closed-window';
+            windows.appendChild(item);
+        });
+    }
+    const totals = document.getElementById('command-totals');
+    totals.replaceChildren();
+    for (const player of ['p1', 'p2']) {
+        const army = units.filter(unit => getAssignedPlayer(unit) === player);
+        const activated = army.filter(unit => unit.dataset.activated === 'true');
+        const line = document.createElement('p');
+        line.textContent = `${player.toUpperCase()}: ${state.remaining[player]} command${state.remaining[player] === 1 ? '' : 's'} · ${activated.length}/${army.length} activated`;
+        totals.appendChild(line);
+    }
+    const action = document.getElementById('round-action-btn');
+    action.hidden = state.phase === 'commands';
+    action.textContent = state.phase === 'setup' ? 'Start round 1'
+        : state.phase === 'complete' ? `Next round (${state.round + 1})` : 'Resolve bids & start commands';
+    const pass = document.getElementById('pass-command-btn');
+    pass.hidden = state.phase !== 'commands';
+    pass.disabled = Boolean(localPlayer && localPlayer !== activePlayer);
+    pass.textContent = activePlayer ? `${activePlayer.toUpperCase()} passes${state.window === 2 ? ' · end round' : ''}` : 'Pass';
+    document.getElementById('tracker-bids').hidden = !isAssigning;
+    document.getElementById('first-tie-field').hidden = state.round > 0;
+    document.getElementById('first-tie-player').value = state.firstTie;
+    const roster = document.getElementById('army-roster');
+    roster.replaceChildren();
+    units.forEach((unit, index) => {
+        const player = getAssignedPlayer(unit);
+        let badge = unit.querySelector('.owner-badge');
+        if (!badge) {
+            badge = document.createElement('span');
+            badge.className = 'owner-badge';
+            unit.appendChild(badge);
+        }
+        badge.textContent = unit.dataset.owner ? player.toUpperCase() : '';
+        unit.classList.toggle('has-command', unit.dataset.activated === 'true');
+        const checkbox = unit.querySelector('.activation-checkbox');
+        checkbox.disabled = state.phase !== 'commands' || activePlayer !== player
+            || Boolean(localPlayer && localPlayer !== player)
+            || (unit.dataset.activated !== 'true' && state.remaining[player] === 0);
+        checkbox.setAttribute('aria-label', `${player.toUpperCase()} ${unit.dataset.name}: activated this round`);
+        checkbox.title = checkbox.disabled ? 'Activate during your window with a command available' : 'Spend or return one command';
+        const row = document.createElement('label');
+        row.className = 'army-roster-row';
+        const name = document.createElement('span');
+        name.textContent = `${unit.dataset.activated === 'true' ? '✓ ' : ''}${unit.dataset.name}`;
+        const select = document.createElement('select');
+        [['', 'Position'], ['p1', 'P1'], ['p2', 'P2']].forEach(([value, text]) => {
+            const option = document.createElement('option');
+            option.value = value;
+            option.textContent = text;
+            select.appendChild(option);
+        });
+        select.value = unit.dataset.owner || '';
+        select.disabled = !isAssigning;
+        select.setAttribute('aria-label', `Owner of ${unit.dataset.name}, unit ${index + 1}`);
+        select.addEventListener('change', () => assignUnitOwner(index, select.value));
+        row.append(name, select);
+        roster.appendChild(row);
+    });
+    updateBidUI();
+}
+
 // --- SERIALIZATION ---
 function getBoardState(options = {}) {
     const isNetworkPayload = options.forNetwork === true;
@@ -1002,6 +1175,7 @@ function getBoardState(options = {}) {
         diceCount: document.getElementById('dice-count').value,
         startingPoolCount: document.getElementById('starting-pool-count').value,
         terrainDeck: [...terrainDeck],
+        roundState,
         bidVisibility: getNormalizedBidVisibility()
     };
 
@@ -1030,6 +1204,7 @@ function getBoardState(options = {}) {
             angle: el.dataset.angle,
             wounds: el.dataset.wounds,
             activated: el.dataset.activated === 'true',
+            owner: el.dataset.owner || null,
             color: el.style.backgroundColor,
             stats: el._unitStats || null
         });
@@ -1055,6 +1230,7 @@ function restoreBoardState(jsonString, suppressBroadcast = false) {
 
     const state = JSON.parse(jsonString);
     const data = Array.isArray(state) ? state : state.pieces;
+    roundState = state.roundState || CommandTracker.create();
 
     cancelTerrainCardAnimation();
     terrainDeck = !Array.isArray(state) && Array.isArray(state.terrainDeck)
@@ -1101,7 +1277,7 @@ function restoreBoardState(jsonString, suppressBroadcast = false) {
 
     data.forEach(obj => {
         if (obj.type === 'unit') {
-            createUnitDOM(obj.name, obj.color, obj.x, obj.y, obj.angle, obj.wounds, obj.stats, obj.activated);
+            createUnitDOM(obj.name, obj.color, obj.x, obj.y, obj.angle, obj.wounds, obj.stats, obj.activated, obj.owner);
         } else if (obj.type === 'terrain') {
             createTerrainDOM(obj.subType, obj.x, obj.y, obj.w, obj.h, obj.angle);
         }
@@ -1113,6 +1289,7 @@ function saveGame(suppressBroadcast = false) {
     rememberCpValues();
     const state = getBoardState();
     localStorage.setItem(SAVE_KEY, state);
+    updateRoundUI();
     if (!suppressBroadcast) {
         sendData({ type: 'SYNC_BOARD', payload: getBoardState({ forNetwork: true }) });
     }
@@ -1178,7 +1355,7 @@ function fitUnitLabelText(unitEl) {
     fitAllUnitLabels();
 }
 
-function createUnitDOM(name, color, x, y, angle, wounds, stats = null, activated = false) {
+function createUnitDOM(name, color, x, y, angle, wounds, stats = null, activated = false, owner = null) {
     const div = document.createElement('div');
     const unitStats = stats
         ? { ...(unitStatsDB[name] || {}), ...normalizeStatsRow(stats) }
@@ -1195,6 +1372,7 @@ function createUnitDOM(name, color, x, y, angle, wounds, stats = null, activated
     label.textContent = name;
     div.appendChild(label);
     div.dataset.name = name;
+    if (owner === 'p1' || owner === 'p2') div.dataset.owner = owner;
     div.dataset.angle = angle || 0;
     div.dataset.footprint = unitSize.footprint;
     div.style.transform = `rotate(${angle}deg)`;
@@ -1218,11 +1396,20 @@ function createUnitDOM(name, color, x, y, angle, wounds, stats = null, activated
             checkbox.addEventListener('change', () => {
                 const nextActivated = checkbox.checked;
                 checkbox.checked = !nextActivated;
-                div.dataset.activated = checkbox.checked ? 'true' : 'false';
-                pushUndo();
-                checkbox.checked = nextActivated;
-                div.dataset.activated = nextActivated ? 'true' : 'false';
-                saveGame();
+                try {
+                    const player = div.dataset.owner;
+                    const localPlayer = getLocalBidPlayerKey();
+                    if (localPlayer && player !== localPlayer) throw new Error('You can only activate your own units.');
+                    const nextState = CommandTracker.activate(roundState, player, nextActivated);
+                    pushUndo();
+                    roundState = nextState;
+                    checkbox.checked = nextActivated;
+                    div.dataset.activated = String(nextActivated);
+                    setCommandFeedback('');
+                    saveGame();
+                } catch (error) {
+                    setCommandFeedback(error.message);
+                }
             });
             div.appendChild(checkbox);
         }
@@ -1313,6 +1500,7 @@ async function resetBoard(createUnits, shouldCreateTerrain = true) {
 
     table.querySelectorAll('.unit, .terrain, .ghost, .range-ring').forEach(p => p.remove());
     undoStack.length = 0;
+    roundState = CommandTracker.create();
     hoveredUnit = null;
     hoveredTerrain = null;
     activePiece = null;
@@ -2521,6 +2709,7 @@ updateFullscreenUI();
 updateRightSidebarUI();
 updateBidUI();
 renderTerrainCard();
+updateRoundUI();
 
 const originalInitGame = initGame;
 initGame = async function () {
