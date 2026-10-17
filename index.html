@@ -43,6 +43,15 @@
                     <button class="btn-grey landing-action-btn" disabled>Hotseat (Coming Soon)</button>
                 </div>
             </div>
+
+            <!-- Active Battles List -->
+            <div id="landing-active-games" class="landing-active-games" style="display: none;">
+                <div class="active-games-header">
+                    <h3>Active Battles</h3>
+                    <span class="active-games-hint">Resume to reconnect</span>
+                </div>
+                <div class="active-games-list" id="active-games-list"></div>
+            </div>
         </div>
     </div>
 
@@ -50,13 +59,24 @@
         <div class="sidebar" id="left-sidebar">
             <!-- Player Identity & Room Card -->
             <div id="player-banner" class="player-banner">
-                <div class="player-role-badge badge-p1" id="player-role-badge">Player 1</div>
-                <div class="room-code-badge" id="room-code-badge">
-                    <span id="room-code-text">Code: ----</span>
-                    <button id="copy-room-link-btn" class="btn-copy-sm" onclick="copyRoomLink()" title="Copy invite link">Copy Link</button>
+                <div class="player-banner-top">
+                    <div class="player-role-badge badge-p1" id="player-role-badge">Player 1</div>
+                    <button id="toggle-room-code-btn" type="button" class="btn-toggle-badge" onclick="toggleRoomCodeArea()" title="Toggle game code display" aria-label="Toggle game code display">Hide Code</button>
                 </div>
-                <div id="network-status" class="network-status">Waiting for opponent...</div>
+                <div id="room-code-area" class="room-code-area">
+                    <div class="room-code-badge" id="room-code-badge">
+                        <span id="room-code-text">Code: ----</span>
+                        <button id="copy-room-link-btn" class="btn-copy-sm" onclick="copyRoomLink()" title="Copy invite link">Copy Link</button>
+                    </div>
+                    <div id="network-status" class="network-status">Waiting for opponent...</div>
+                </div>
                 <button id="exit-game-btn" class="btn-text-sm" onclick="exitToLanding()">Exit to Menu</button>
+            </div>
+
+            <!-- Draft Pick Notice -->
+            <div id="draft-notice-banner" class="draft-notice-banner">
+                <span class="draft-notice-kicker">Deployment Draft</span>
+                <p id="draft-notice-text">Preparing draft...</p>
             </div>
 
             <!-- Top Left Bids & Turn Section -->
@@ -114,10 +134,9 @@
                 </div>
             </section>
 
-            <!-- Battle Tools: Full Screen & Roll Dice -->
+            <!-- Battle Tools: Dice Roller -->
             <section class="battle-tools-section">
-                <span class="sidebar-kicker">Battle Tools</span>
-                <button id="fullscreen-btn" type="button" class="btn-grey" onclick="toggleFullscreen()">Full Screen</button>
+                <span class="sidebar-kicker">Dice Roller</span>
                 <div class="dice-controls">
                     <div class="dice-count-field">
                         <label for="dice-count">Number of d6</label>
@@ -161,9 +180,12 @@
             <span class="sidebar-kicker">Battlefield Dressing</span>
             <div class="stats-panel-header">
                 <h3>How to Play</h3>
-                <button id="controls-help-btn" type="button" class="btn-grey" onclick="openControlsHelp()"
-                    aria-haspopup="dialog" aria-controls="controls-modal">Controls</button>
-                <button class="btn-grey" onclick="openRulebook()">Rulebook</button>
+                <div class="sidebar-btn-row">
+                    <button id="controls-help-btn" type="button" class="btn-grey" onclick="openControlsHelp()"
+                        aria-haspopup="dialog" aria-controls="controls-modal">Controls</button>
+                    <button class="btn-grey" onclick="openRulebook()">Rulebook</button>
+                    <button id="fullscreen-btn" type="button" class="btn-grey" onclick="toggleFullscreen()">Full Screen</button>
+                </div>
                 <h3 style="margin-top:0">Terrain</h3>
             </div>
             <p class="sidebar-description">Drag the revealed card onto the field.</p>

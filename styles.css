@@ -29,7 +29,7 @@ body {
         linear-gradient(180deg, var(--bg-deep) 0%, var(--bg-mid) 55%, #0f0a07 100%);
     color: var(--ink-main);
     margin: 0;
-    padding: 16px;
+    padding: 6px 8px;
     display: flex;
     justify-content: center;
     height: 100vh;
@@ -304,10 +304,10 @@ p {
 
 #container {
     display: flex;
-    gap: 18px;
+    gap: 8px;
     height: 100%;
     width: 100%;
-    max-width: 1680px;
+    max-width: 100%;
     min-width: 0;
     align-items: stretch;
     position: relative;
@@ -316,14 +316,14 @@ p {
 
 /* --- SIDEBARS --- */
 .sidebar {
-    width: 220px;
+    width: 210px;
     background: linear-gradient(180deg, var(--panel-top) 0%, var(--panel-bottom) 100%);
-    padding: 16px 14px;
+    padding: 10px 8px;
     display: flex;
     flex-direction: column;
-    gap: 12px;
+    gap: 8px;
     border: 1px solid var(--panel-border);
-    border-radius: 24px;
+    border-radius: 20px;
     text-align: left;
     height: 100%;
     overflow-y: auto;
@@ -974,7 +974,7 @@ input::placeholder {
         radial-gradient(circle at top, rgba(111, 86, 45, 0.15), transparent 35%),
         linear-gradient(180deg, rgba(27, 20, 15, 0.96) 0%, rgba(13, 10, 8, 0.98) 100%);
     position: relative;
-    border-radius: 28px;
+    border-radius: 16px;
     border: 1px solid rgba(216, 179, 109, 0.18);
     box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05), 0 26px 40px rgba(0, 0, 0, 0.34);
 }
@@ -982,8 +982,8 @@ input::placeholder {
 #table-container::before {
     content: "";
     position: absolute;
-    inset: 12px;
-    border-radius: 20px;
+    inset: 4px;
+    border-radius: 12px;
     border: 1px solid rgba(216, 179, 109, 0.12);
     pointer-events: none;
 }
@@ -1720,7 +1720,7 @@ input::placeholder {
     display: none;
 }
 
-@media (max-width: 1200px) {
+@media (max-width: 860px) and (orientation: portrait) {
     body {
         height: auto;
         overflow: auto;
@@ -2166,16 +2166,156 @@ input::placeholder {
     min-width: 70px;
 }
 
+/* --- ACTIVE BATTLES ON LANDING SCREEN --- */
+.landing-active-games {
+    margin-top: 24px;
+    padding-top: 18px;
+    border-top: 1px solid rgba(216, 179, 109, 0.22);
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    width: 100%;
+}
+
+.active-games-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    padding: 0 4px;
+}
+
+.active-games-header h3 {
+    font-size: 1.05rem;
+    color: var(--ink-main);
+}
+
+.active-games-hint {
+    font-size: 0.8rem;
+    color: var(--ink-muted);
+}
+
+.active-games-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    max-height: 240px;
+    overflow-y: auto;
+    padding-right: 4px;
+    scrollbar-width: thin;
+    scrollbar-color: rgba(216, 179, 109, 0.3) transparent;
+}
+
+.active-game-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    background: rgba(18, 13, 9, 0.7);
+    border: 1px solid rgba(216, 179, 109, 0.25);
+    border-radius: 12px;
+    padding: 10px 14px;
+    transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.active-game-item:hover {
+    background: rgba(28, 20, 14, 0.85);
+    border-color: rgba(216, 179, 109, 0.45);
+}
+
+.active-game-info {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    min-width: 0;
+}
+
+.active-game-badges {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.active-game-code {
+    font-family: monospace;
+    font-size: 1.15rem;
+    color: var(--gold);
+    letter-spacing: 0.12em;
+}
+
+.active-game-meta {
+    font-size: 0.84rem;
+    color: var(--ink-soft);
+    white-space: nowrap;
+}
+
+.active-game-actions {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-shrink: 0;
+}
+
+.active-resume-btn {
+    padding: 6px 14px !important;
+    font-size: 0.85rem !important;
+}
+
+.active-delete-btn {
+    padding: 6px 10px !important;
+    font-size: 0.85rem !important;
+    color: #fca5a5 !important;
+}
+
+.active-delete-btn:hover {
+    background: rgba(239, 68, 68, 0.2) !important;
+    border-color: #ef4444 !important;
+}
+
 /* --- PLAYER IDENTITY BANNER --- */
 .player-banner {
     background: rgba(18, 13, 10, 0.85);
     border: 1px solid var(--panel-border-soft);
     border-radius: 16px;
-    padding: 12px;
+    padding: 10px 8px;
     display: flex;
     flex-direction: column;
     gap: 8px;
     text-align: center;
+}
+
+.player-banner-top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 6px;
+}
+
+.player-banner-top .player-role-badge {
+    flex: 1;
+}
+
+.btn-toggle-badge {
+    background: rgba(216, 179, 109, 0.12);
+    border: 1px solid rgba(216, 179, 109, 0.28);
+    color: var(--ink-soft);
+    font-size: 0.72rem;
+    padding: 5px 8px;
+    border-radius: 8px;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: all 0.15s ease;
+}
+
+.btn-toggle-badge:hover {
+    background: rgba(216, 179, 109, 0.25);
+    color: var(--ink-main);
+}
+
+.room-code-area {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    transition: all 0.2s ease;
 }
 
 .player-role-badge {
@@ -2237,6 +2377,43 @@ input::placeholder {
 
 .btn-text-sm:hover {
     color: var(--ink-main);
+}
+
+/* --- DRAFT NOTICE BANNER --- */
+.draft-notice-banner {
+    background: rgba(216, 179, 109, 0.08);
+    border: 1px solid rgba(216, 179, 109, 0.32);
+    border-radius: 12px;
+    padding: 8px 10px;
+    text-align: center;
+    line-height: 1.35;
+    font-size: 0.82rem;
+}
+
+.draft-notice-kicker {
+    display: block;
+    font-family: var(--font-display);
+    font-size: 0.68rem;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--gold);
+    margin-bottom: 2px;
+}
+
+.draft-sub {
+    font-size: 0.76rem;
+    color: var(--ink-muted);
+}
+
+/* --- RIGHT SIDEBAR BUTTONS --- */
+.sidebar-btn-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 6px;
+}
+
+.sidebar-btn-row #fullscreen-btn {
+    grid-column: span 2;
 }
 
 /* --- TOP LEFT BIDDING PANEL --- */

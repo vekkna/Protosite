@@ -33,19 +33,197 @@ const inchesToPx = (inch) => inch * SCALE;
 const pxToInches = (px) => (px / SCALE).toFixed(1);
 
 // --- REMOTE SANDBOX STATE & SHELL CONTROLS ---
+const ACTIVE_GAMES_KEY = 'seize_the_day_active_games_v1';
+const getGameSaveKey = (roomCode) => 'seize_the_day_save_' + (roomCode || '').toUpperCase();
+
 let currentRoomCode = '';
+let isRoomCodeHidden = false;
 let biddingState = {
     p1: { value: 2, ready: false },
     p2: { value: 2, ready: false },
     revealed: false,
     master: null,
     round: 1,
-    turnStep: 0 // 0: MT 1st Turn, 1: Player X Turn, 2: MT 2nd Turn
+    turnStep: 0, // 0: MT 1st Turn, 1: Player X Turn, 2: MT 2nd Turn
+    firstDraftPick: 'p1',
+    firstRoundTieWinner: 'p2'
 };
 let commandTokens = [];
 let statsTooltipTimer = null;
 let isRightSidebarHidden = false;
 let isMultiplayerPanelCollapsed = false;
+
+function loadActiveGamesList() {
+    try {
+        const raw = localStorage.getItem(ACTIVE_GAMES_KEY);
+        if (!raw) return [];
+        const parsed = JSON.parse(raw);
+        return Array.isArray(parsed) ? parsed : [];
+    } catch (e) {
+        console.warn('Unable to load active games list:', e);
+        return [];
+    }
+}
+
+function saveActiveGamesList(list) {
+    try {
+        localStorage.setItem(ACTIVE_GAMES_KEY, JSON.stringify(list));
+    } catch (e) {
+        console.warn('Unable to save active games list:', e);
+    }
+}
+
+function addOrUpdateActiveGame(meta) {
+    if (!meta || !meta.roomCode) return;
+    const cleanCode = meta.roomCode.toUpperCase();
+    const list = loadActiveGamesList();
+    const index = list.findIndex(g => g.roomCode === cleanCode);
+    const entry = {
+        roomCode: cleanCode,
+        role: meta.role || (meta.isHost ? 'p1' : 'p2'),
+        isHost: meta.isHost !== undefined ? Boolean(meta.isHost) : meta.role === 'p1',
+        round: meta.round || 1,
+        firstDraftPick: meta.firstDraftPick || 'p1',
+        firstRoundTieWinner: meta.firstRoundTieWinner || 'p2',
+        lastPlayed: meta.lastPlayed || Date.now()
+    };
+    if (index >= 0) {
+        list[index] = { ...list[index], ...entry };
+    } else {
+        list.unshift(entry);
+    }
+    saveActiveGamesList(list);
+    renderActiveGamesUI();
+}
+
+function removeActiveGame(roomCode) {
+    if (!roomCode) return;
+    const cleanCode = roomCode.toUpperCase();
+    const list = loadActiveGamesList().filter(g => g.roomCode !== cleanCode);
+    saveActiveGamesList(list);
+    try {
+        localStorage.removeItem(getGameSaveKey(cleanCode));
+    } catch (e) {}
+    renderActiveGamesUI();
+}
+
+function formatTimeAgo(timestamp) {
+    if (!timestamp) return 'Recently';
+    const diff = Math.floor((Date.now() - timestamp) / 1000);
+    if (diff < 60) return 'Just now';
+    if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
+    if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
+    return `${Math.floor(diff / 86400)}d ago`;
+}
+
+function renderActiveGamesUI() {
+    const container = document.getElementById('landing-active-games');
+    const listEl = document.getElementById('active-games-list');
+    if (!container || !listEl) return;
+
+    const list = loadActiveGamesList();
+    if (!list || list.length === 0) {
+        container.style.display = 'none';
+        listEl.innerHTML = '';
+        return;
+    }
+
+    container.style.display = 'flex';
+    listEl.innerHTML = '';
+
+    list.forEach(game => {
+        const item = document.createElement('div');
+        item.className = 'active-game-item';
+
+        const info = document.createElement('div');
+        info.className = 'active-game-info';
+
+        const badges = document.createElement('div');
+        badges.className = 'active-game-badges';
+
+        const roleBadge = document.createElement('span');
+        roleBadge.className = `option-badge ${game.role === 'p1' ? 'badge-p1' : 'badge-p2'}`;
+        roleBadge.textContent = game.role === 'p1' ? 'Player 1' : 'Player 2';
+
+        const codeStrong = document.createElement('strong');
+        codeStrong.className = 'active-game-code';
+        codeStrong.textContent = game.roomCode;
+
+        badges.appendChild(roleBadge);
+        badges.appendChild(codeStrong);
+
+        const meta = document.createElement('div');
+        meta.className = 'active-game-meta';
+        meta.textContent = `Round ${game.round || 1} · ${formatTimeAgo(game.lastPlayed)}`;
+
+        info.appendChild(badges);
+        info.appendChild(meta);
+
+        const actions = document.createElement('div');
+        actions.className = 'active-game-actions';
+
+        const resumeBtn = document.createElement('button');
+        resumeBtn.className = 'btn-blue btn-sm active-resume-btn';
+        resumeBtn.textContent = 'Resume';
+        resumeBtn.onclick = () => resumeGame(game.roomCode);
+
+        const deleteBtn = document.createElement('button');
+        deleteBtn.className = 'btn-grey btn-sm active-delete-btn';
+        deleteBtn.textContent = '✕';
+        deleteBtn.title = 'Remove active game';
+        deleteBtn.setAttribute('aria-label', `Remove battle ${game.roomCode}`);
+        deleteBtn.onclick = (e) => deleteActiveGame(game.roomCode, e);
+
+        actions.appendChild(resumeBtn);
+        actions.appendChild(deleteBtn);
+
+        item.appendChild(info);
+        item.appendChild(actions);
+        listEl.appendChild(item);
+    });
+}
+
+function toggleRoomCodeArea() {
+    isRoomCodeHidden = !isRoomCodeHidden;
+    updateRoomCodeVisibility();
+}
+
+function updateRoomCodeVisibility() {
+    const area = document.getElementById('room-code-area');
+    const btn = document.getElementById('toggle-room-code-btn');
+    if (!area || !btn) return;
+
+    if (isRoomCodeHidden) {
+        area.style.display = 'none';
+        btn.textContent = 'Show Code';
+        btn.setAttribute('aria-expanded', 'false');
+    } else {
+        area.style.display = 'flex';
+        btn.textContent = 'Hide Code';
+        btn.setAttribute('aria-expanded', 'true');
+    }
+}
+
+function updateDraftNoticeUI() {
+    const banner = document.getElementById('draft-notice-banner');
+    const text = document.getElementById('draft-notice-text');
+    if (!banner || !text) return;
+
+    const firstPick = biddingState.firstDraftPick || 'p1';
+    const localKey = getLocalBidPlayerKey();
+
+    if (biddingState.round > 1 && biddingState.revealed) {
+        banner.style.display = 'none';
+        return;
+    }
+
+    banner.style.display = 'block';
+    if (firstPick === localKey) {
+        text.innerHTML = `<strong>You take the first draft pick!</strong><br><span class="draft-sub">Opponent wins ties in Round 1.</span>`;
+    } else {
+        text.innerHTML = `<strong>Opponent takes the first draft pick.</strong><br><span class="draft-sub">You win ties in Round 1.</span>`;
+    }
+}
 
 function loadUIState() {
     try {
@@ -170,9 +348,9 @@ function executeRevealBids() {
     } else {
         // Tied bid
         if (biddingState.round <= 1) {
-            master = 'p2'; // In first round, player who picked second in draft wins ties (P2)
+            master = biddingState.firstRoundTieWinner || (biddingState.firstDraftPick === 'p1' ? 'p2' : 'p1');
         } else {
-            master = roundState.master || 'p2'; // In subsequent rounds, previous MT keeps the title
+            master = roundState.master || biddingState.master || (biddingState.firstDraftPick === 'p1' ? 'p2' : 'p1');
         }
     }
     biddingState.master = master;
@@ -208,6 +386,13 @@ function executeRevealBids() {
     saveGame();
 }
 
+function getActivePlayerKey() {
+    if (biddingState.turnStep === 0 || biddingState.turnStep === 2) {
+        return biddingState.master;
+    }
+    return biddingState.master === 'p1' ? 'p2' : 'p1';
+}
+
 function updateTurnZoneUI() {
     const masterLabel = document.getElementById('mt-player-label');
     const bidsSummary = document.getElementById('mt-bids-summary');
@@ -216,33 +401,43 @@ function updateTurnZoneUI() {
 
     if (!masterLabel || !bidsSummary || !turnTitle || !passBtn) return;
 
-    const masterName = biddingState.master === 'p1' ? 'Player 1' : 'Player 2';
-    const nonMasterName = biddingState.master === 'p1' ? 'Player 2' : 'Player 1';
-    masterLabel.textContent = `${masterName} is Master Tactician`;
+    const localKey = getLocalBidPlayerKey();
+    const isMaster = (biddingState.master === localKey);
+    masterLabel.textContent = isMaster ? 'You are Master Tactician' : 'Your opponent is Master Tactician';
     bidsSummary.textContent = `P1: ${biddingState.p1.value} · P2: ${biddingState.p2.value}`;
 
+    const activeKey = getActivePlayerKey();
+    const isLocalActive = (activeKey === localKey);
+
     if (biddingState.turnStep === 0) {
-        turnTitle.textContent = `Master Tactician's 1st Turn (${masterName})`;
-        passBtn.textContent = 'Pass';
+        turnTitle.textContent = isMaster ? "Master Tactician's 1st Turn (You)" : "Master Tactician's 1st Turn (Opponent)";
+        passBtn.textContent = isLocalActive ? 'Pass' : 'Opponent’s Turn';
     } else if (biddingState.turnStep === 1) {
-        turnTitle.textContent = `${nonMasterName}'s Turn`;
-        passBtn.textContent = 'Pass';
+        turnTitle.textContent = !isMaster ? "Your Turn" : "Opponent's Turn";
+        passBtn.textContent = isLocalActive ? 'Pass' : 'Opponent’s Turn';
     } else if (biddingState.turnStep === 2) {
-        turnTitle.textContent = `Master Tactician's 2nd Turn (${masterName})`;
-        passBtn.textContent = 'Pass (End Round)';
+        turnTitle.textContent = isMaster ? "Master Tactician's 2nd Turn (You)" : "Master Tactician's 2nd Turn (Opponent)";
+        passBtn.textContent = isLocalActive ? 'Pass (End Round)' : 'Opponent’s Turn';
     }
+
+    passBtn.disabled = !isLocalActive;
 }
 
 function handlePassTurn() {
+    if (getActivePlayerKey() !== getLocalBidPlayerKey()) {
+        return;
+    }
+
     if (biddingState.turnStep === 0) {
         biddingState.turnStep = 1;
-        try { roundState = CommandTracker.pass(roundState); } catch(e) {}
+        try { roundState = CommandTracker.pass(roundState, biddingState.master); } catch(e) {}
         sendData({ type: 'PASS_TURN', turnStep: 1 });
         updateTurnZoneUI();
         saveGame();
     } else if (biddingState.turnStep === 1) {
         biddingState.turnStep = 2;
-        try { roundState = CommandTracker.pass(roundState); } catch(e) {}
+        const otherPlayer = biddingState.master === 'p1' ? 'p2' : 'p1';
+        try { roundState = CommandTracker.pass(roundState, otherPlayer); } catch(e) {}
         sendData({ type: 'PASS_TURN', turnStep: 2 });
         updateTurnZoneUI();
         saveGame();
@@ -1010,28 +1205,13 @@ function generateShortId() {
     return result;
 }
 
-function hostGameFromLanding() {
-    document.getElementById('landing-screen').style.display = 'none';
-    document.getElementById('container').style.display = 'flex';
-    fitTableToScreen();
-    hostGame();
-}
-
-function joinGameFromLanding() {
-    const input = document.getElementById('landing-join-code');
-    const code = (input ? input.value : '').trim().toUpperCase();
-    if (!code) {
-        alert('Please enter a 4-letter room code.');
-        if (input) input.focus();
-        return;
+async function hostGameFromLanding() {
+    try {
+        await loadStats();
+    } catch(err) {
+        console.warn('Stats loading in hostGameFromLanding:', err);
     }
-    document.getElementById('landing-screen').style.display = 'none';
-    document.getElementById('container').style.display = 'flex';
-    fitTableToScreen();
-    joinGameWithCode(code);
-}
 
-function exitToLanding() {
     if (conn) {
         try { conn.close(); } catch(e) {}
         conn = null;
@@ -1040,10 +1220,211 @@ function exitToLanding() {
         try { peer.destroy(); } catch(e) {}
         peer = null;
     }
+
+    const activeList = loadActiveGamesList();
+    let shortId = generateShortId();
+    let tries = 0;
+    while (activeList.some(g => g.roomCode === shortId) && tries < 30) {
+        shortId = generateShortId();
+        tries++;
+    }
+
+    currentRoomCode = shortId;
+    isHost = true;
+
+    // Reset battlefield board
+    table.querySelectorAll('.unit, .terrain, .ghost, .range-ring, .command-token-table').forEach(p => p.remove());
+    undoStack.length = 0;
+    hoveredUnit = null;
+    hoveredTerrain = null;
+    activePiece = null;
+    ghostPiece = null;
+    activePointerId = null;
+    pendingDragPiece = null;
+    isDraggingPiece = false;
+    clearPieceSelection();
+    removeRangeRing();
+    hideUnitTooltip();
+
+    // Spawn 12 random units from spreadsheet in central draft grid
+    createDefaultUnits();
+
+    // Shuffled terrain deck
+    cancelTerrainCardAnimation();
+    terrainDeck = createShuffledTerrainDeck();
+    renderTerrainCard();
+
+    // Random first draft pick: player who drafts first loses ties in round 1
+    const firstPick = Math.random() < 0.5 ? 'p1' : 'p2';
+    const firstTie = (firstPick === 'p1') ? 'p2' : 'p1';
+
+    biddingState = {
+        p1: { value: 2, ready: false },
+        p2: { value: 2, ready: false },
+        revealed: false,
+        master: null,
+        round: 1,
+        turnStep: 0,
+        firstDraftPick: firstPick,
+        firstRoundTieWinner: firstTie
+    };
+    roundState = CommandTracker.create({ firstDraftPick: firstPick, firstTie });
+    commandTokens = [];
+    renderAllCommandTokens();
+
+    addOrUpdateActiveGame({
+        roomCode: shortId,
+        role: 'p1',
+        isHost: true,
+        round: 1,
+        firstDraftPick: firstPick,
+        firstRoundTieWinner: firstTie,
+        lastPlayed: Date.now()
+    });
+
+    saveGame(true);
+
+    document.getElementById('landing-screen').style.display = 'none';
+    document.getElementById('container').style.display = 'flex';
+
+    updatePlayerBanner();
+    updateRoomCodeVisibility();
+    updateBiddingUI();
+    updateDraftNoticeUI();
+    fitTableToScreen();
+    fitAllUnitLabels();
+
+    hostGame(shortId);
+}
+
+function joinGameFromLanding() {
+    const input = document.getElementById('landing-join-code');
+    const code = (input ? input.value : '').trim().toUpperCase();
+    if (!code || code.length < 3) {
+        alert('Please enter a valid room code.');
+        if (input) input.focus();
+        return;
+    }
+
+    if (conn) {
+        try { conn.close(); } catch(e) {}
+        conn = null;
+    }
+    if (peer) {
+        try { peer.destroy(); } catch(e) {}
+        peer = null;
+    }
+
+    currentRoomCode = code;
+    isHost = false;
+
+    const saved = localStorage.getItem(getGameSaveKey(code));
+    if (saved) {
+        restoreBoardState(saved, true);
+    } else {
+        table.querySelectorAll('.unit, .terrain, .ghost, .range-ring, .command-token-table').forEach(p => p.remove());
+        commandTokens = [];
+        renderAllCommandTokens();
+    }
+
+    addOrUpdateActiveGame({
+        roomCode: code,
+        role: 'p2',
+        isHost: false,
+        round: biddingState.round || 1,
+        firstDraftPick: biddingState.firstDraftPick || 'p1',
+        firstRoundTieWinner: biddingState.firstRoundTieWinner || 'p2',
+        lastPlayed: Date.now()
+    });
+
+    document.getElementById('landing-screen').style.display = 'none';
+    document.getElementById('container').style.display = 'flex';
+
+    updatePlayerBanner();
+    updateRoomCodeVisibility();
+    updateBiddingUI();
+    updateDraftNoticeUI();
+    fitTableToScreen();
+
+    joinGameWithCode(code);
+}
+
+async function resumeGame(roomCode) {
+    if (!roomCode) return;
+    const cleanCode = roomCode.toUpperCase();
+    const list = loadActiveGamesList();
+    const entry = list.find(g => g.roomCode === cleanCode);
+    if (!entry) return;
+
+    try {
+        await loadStats();
+    } catch(err) {
+        console.warn('Stats loading in resumeGame:', err);
+    }
+
+    if (conn) {
+        try { conn.close(); } catch(e) {}
+        conn = null;
+    }
+    if (peer) {
+        try { peer.destroy(); } catch(e) {}
+        peer = null;
+    }
+
+    currentRoomCode = cleanCode;
+    isHost = Boolean(entry.isHost);
+
+    const saved = localStorage.getItem(getGameSaveKey(cleanCode));
+    if (saved) {
+        restoreBoardState(saved, true);
+    }
+
+    entry.lastPlayed = Date.now();
+    saveActiveGamesList(list);
+
+    document.getElementById('landing-screen').style.display = 'none';
+    document.getElementById('container').style.display = 'flex';
+
+    updatePlayerBanner();
+    updateRoomCodeVisibility();
+    updateBiddingUI();
+    updateDraftNoticeUI();
+    fitTableToScreen();
+    fitAllUnitLabels();
+
+    if (isHost) {
+        hostGame(cleanCode);
+    } else {
+        joinGameWithCode(cleanCode);
+    }
+}
+
+function deleteActiveGame(roomCode, event) {
+    if (event) event.stopPropagation();
+    if (!confirm(`Are you sure you want to remove Battle ${roomCode}?`)) {
+        return;
+    }
+    removeActiveGame(roomCode);
+}
+
+function exitToLanding() {
+    saveGame(true);
+
+    if (conn) {
+        try { conn.close(); } catch(e) {}
+        conn = null;
+    }
+    if (peer) {
+        try { peer.destroy(); } catch(e) {}
+        peer = null;
+    }
+
     isHost = false;
     currentRoomCode = '';
+
     document.getElementById('container').style.display = 'none';
     document.getElementById('landing-screen').style.display = 'flex';
+    renderActiveGamesUI();
 }
 
 function copyRoomLink() {
@@ -1098,9 +1479,12 @@ function updatePlayerBanner() {
     }
 }
 
-function hostGame() {
-    if (peer) return;
-    const shortId = generateShortId();
+function hostGame(specificRoomCode = null) {
+    if (peer) {
+        try { peer.destroy(); } catch(e) {}
+        peer = null;
+    }
+    const shortId = (specificRoomCode || currentRoomCode || generateShortId()).toUpperCase();
     currentRoomCode = shortId;
     isHost = true;
     updatePlayerBanner();
@@ -1110,6 +1494,15 @@ function hostGame() {
     peer.on('open', (id) => {
         currentRoomCode = id;
         updatePlayerBanner();
+        addOrUpdateActiveGame({
+            roomCode: id,
+            role: 'p1',
+            isHost: true,
+            round: biddingState.round || 1,
+            firstDraftPick: biddingState.firstDraftPick,
+            firstRoundTieWinner: biddingState.firstRoundTieWinner,
+            lastPlayed: Date.now()
+        });
     });
 
     peer.on('connection', (c) => {
@@ -1122,24 +1515,33 @@ function hostGame() {
         console.error(err);
         if (err.type === 'unavailable-id') {
             peer = null;
-            hostGame();
+            if (!specificRoomCode) {
+                hostGame();
+            } else {
+                alert(`Room ${specificRoomCode} is currently in use or unavailable.`);
+            }
         }
     });
 }
 
 function joinGameWithCode(hostId) {
-    currentRoomCode = hostId;
+    if (peer) {
+        try { peer.destroy(); } catch(e) {}
+        peer = null;
+    }
+    const cleanId = (hostId || '').toUpperCase();
+    currentRoomCode = cleanId;
     isHost = false;
     updatePlayerBanner();
 
     peer = new Peer();
     peer.on('open', () => {
-        conn = peer.connect(hostId);
+        conn = peer.connect(cleanId);
         setupConnection();
     });
     peer.on('error', (err) => {
         console.error(err);
-        alert('Could not connect to room: ' + hostId + '. Please check the code.');
+        alert('Could not connect to room: ' + cleanId + '. Please check the code.');
         exitToLanding();
     });
 }
@@ -1185,7 +1587,9 @@ function handleIncomingData(data) {
         }
     } else if (data.type === 'PASS_TURN') {
         biddingState.turnStep = data.turnStep;
+        try { roundState = CommandTracker.pass(roundState); } catch(e) {}
         updateTurnZoneUI();
+        saveGame(true);
     } else if (data.type === 'ROUND_RESET') {
         endRoundAndResetBidding(false);
     }
@@ -1359,6 +1763,8 @@ function getBoardState(options = {}) {
             revealed: biddingState.revealed,
             master: biddingState.master,
             turnStep: biddingState.turnStep,
+            firstDraftPick: biddingState.firstDraftPick,
+            firstRoundTieWinner: biddingState.firstRoundTieWinner,
             p1: { ready: biddingState.p1.ready, value: biddingState.p1.value },
             p2: { ready: biddingState.p2.ready, value: biddingState.p2.value }
         },
@@ -1435,6 +1841,12 @@ function restoreBoardState(jsonString, suppressBroadcast = false) {
             biddingState.revealed = Boolean(state.biddingState.revealed);
             biddingState.master = state.biddingState.master || null;
             biddingState.turnStep = state.biddingState.turnStep || 0;
+            if (state.biddingState.firstDraftPick) {
+                biddingState.firstDraftPick = state.biddingState.firstDraftPick;
+            }
+            if (state.biddingState.firstRoundTieWinner) {
+                biddingState.firstRoundTieWinner = state.biddingState.firstRoundTieWinner;
+            }
 
             if (state.biddingState[oppKey]) {
                 biddingState[oppKey].ready = Boolean(state.biddingState[oppKey].ready);
@@ -1454,6 +1866,7 @@ function restoreBoardState(jsonString, suppressBroadcast = false) {
             }
 
             updateBiddingUI();
+            updateDraftNoticeUI();
         }
 
         if (Array.isArray(state.commandTokens)) {
@@ -1478,6 +1891,18 @@ function restoreBoardState(jsonString, suppressBroadcast = false) {
 
 function saveGame(suppressBroadcast = false) {
     const state = getBoardState();
+    if (currentRoomCode) {
+        localStorage.setItem(getGameSaveKey(currentRoomCode), state);
+        addOrUpdateActiveGame({
+            roomCode: currentRoomCode,
+            role: isHost ? 'p1' : 'p2',
+            isHost: isHost,
+            round: biddingState.round || 1,
+            firstDraftPick: biddingState.firstDraftPick,
+            firstRoundTieWinner: biddingState.firstRoundTieWinner,
+            lastPlayed: Date.now()
+        });
+    }
     localStorage.setItem(SAVE_KEY, state);
     updateBiddingUI();
     if (!suppressBroadcast) {
@@ -2836,15 +3261,15 @@ function fitTableToScreen() {
     const table = document.getElementById('game-table');
     if (!container || !table) return;
 
-    const availableWidth = Math.max(container.clientWidth - 20, 1);
-    const availableHeight = Math.max(container.clientHeight - 20, 1);
+    const availableWidth = Math.max(container.clientWidth - 4, 1);
+    const availableHeight = Math.max(container.clientHeight - 4, 1);
     const tableWidth = tableWidthPx;
     const tableHeight = tableHeightPx;
 
     const scaleX = availableWidth / tableWidth;
     const scaleY = availableHeight / tableHeight;
 
-    // Use a unified scale so the battlefield fills the available space
+    // Use a unified scale so the battlefield fills the screen as tall as possible
     // without distorting unit or terrain proportions.
     currentScale = Math.max(Math.min(scaleX, scaleY), 0.01);
 
@@ -2881,7 +3306,10 @@ restoreBoardState = function (jsonString, suppressBroadcast = false) {
 
 loadUIState();
 checkUrlAutoJoin();
+renderActiveGamesUI();
 updatePlayerBanner();
+updateRoomCodeVisibility();
+updateDraftNoticeUI();
 updateFullscreenUI();
 updateRightSidebarUI();
 updateBiddingUI();
@@ -2890,6 +3318,9 @@ renderTerrainCard();
 const originalInitGame = initGame;
 initGame = async function () {
     await originalInitGame();
+    renderActiveGamesUI();
+    updateRoomCodeVisibility();
+    updateDraftNoticeUI();
     updateBiddingUI();
     renderAllCommandTokens();
     fitTableToScreen();
