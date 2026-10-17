@@ -38,6 +38,10 @@ const getGameSaveKey = (roomCode) => 'seize_the_day_save_' + (roomCode || '').to
 
 let currentRoomCode = '';
 let isRoomCodeHidden = false;
+let peer = null;
+let conn = null;
+let isHost = false;
+let roundState = null;
 let biddingState = {
     p1: { value: 2, ready: false },
     p2: { value: 2, ready: false },
@@ -544,7 +548,7 @@ function updateFullscreenUI() {
     if (!button) return;
 
     const root = document.documentElement;
-    const supported = Boolean(root.requestFullscreen || root.webkitRequestFullscreen);
+    const supported = Boolean(root && (root.requestFullscreen || root.webkitRequestFullscreen));
     const isFullscreen = Boolean(getFullscreenElement());
     button.disabled = !supported;
     button.innerText = isFullscreen ? 'Exit Full Screen' : 'Full Screen';
@@ -555,6 +559,7 @@ function updateFullscreenUI() {
 
 async function toggleFullscreen() {
     const root = document.documentElement;
+    if (!root) return;
     try {
         if (getFullscreenElement()) {
             if (document.exitFullscreen) {
@@ -606,11 +611,6 @@ const table = document.getElementById('game-table');
 table.style.width = `${tableWidthPx}px`;
 table.style.height = `${tableHeightPx}px`;
 
-// --- PEERJS / NETWORK STATE ---
-let peer = null;
-let conn = null;
-let isHost = false;
-
 // --- GAME STATE ---
 let activePiece = null;
 let ghostPiece = null;
@@ -644,7 +644,7 @@ let pointerMoveFrame = null;
 let measurementPointerId = null;
 let undoStack = [];
 let terrainDeck = [];
-let roundState = CommandTracker.create();
+roundState = CommandTracker.create();
 let terrainCardRemoveTimer = null;
 let terrainCardRevealTimer = null;
 let isTerrainCardAnimating = false;
@@ -821,6 +821,30 @@ function readStatsCache() {
         console.warn("Unable to read cached stats:", err);
         return null;
     }
+}
+
+const FALLBACK_DEFAULT_UNITS = [
+    { Unit: "Heavy Infantry", Speed: "5", Drill: "0", Melee: "6", Ranged: "-", Def: "5", Footprint: "SW", Quantity: "2" },
+    { Unit: "Fanatics", Speed: "6", Drill: "1", Melee: "10", Ranged: "-", Def: "3", Footprint: "SW", Quantity: "2" },
+    { Unit: "Heavy Cavalry", Speed: "10", Drill: "0", Melee: "4", Ranged: "-", Def: "5", Footprint: "SN", Quantity: "2" },
+    { Unit: "Infantry", Speed: "6", Drill: "2", Melee: "3", Ranged: "-", Def: "5", Footprint: "SW", Quantity: "2" },
+    { Unit: "Halberds", Speed: "6", Drill: "0", Melee: "3*", Ranged: "-", Def: "4", Footprint: "SW", Quantity: "2" },
+    { Unit: "Spears", Speed: "6", Drill: "1", Melee: "2", Ranged: "-", Def: "6", Footprint: "SW", Quantity: "2" },
+    { Unit: "Cavalry", Speed: "12", Drill: "1", Melee: "4", Ranged: "-", Def: "4", Footprint: "SN", Quantity: "2" },
+    { Unit: "Lancers", Speed: "11", Drill: "2", Melee: "2*", Ranged: "-", Def: "4", Footprint: "SN", Quantity: "2" },
+    { Unit: "Light Infantry", Speed: "7", Drill: "4", Melee: "3", Ranged: "1*/4", Def: "4", Footprint: "SW", Quantity: "2" },
+    { Unit: "Light Cavalry", Speed: "14", Drill: "3", Melee: "4", Ranged: "-", Def: "3", Footprint: "SN", Quantity: "2" },
+    { Unit: "Archers", Speed: "6", Drill: "1", Melee: "1", Ranged: "4/24", Def: "3", Footprint: "SW", Quantity: "2" },
+    { Unit: "Crossbows", Speed: "6", Drill: "0", Melee: "1", Ranged: "3*/18", Def: "3", Footprint: "SW", Quantity: "2" },
+    { Unit: "Mounted Archers", Speed: "12", Drill: "3", Melee: "1", Ranged: "3/12", Def: "3", Footprint: "SN", Quantity: "2" }
+];
+
+// Initialize with cached stats if present, or fallback default units immediately
+const initialCachedStats = readStatsCache();
+if (initialCachedStats && initialCachedStats.length > 0) {
+    setStatsData(initialCachedStats, false);
+} else {
+    setStatsData(FALLBACK_DEFAULT_UNITS, false);
 }
 
 function getFreshStatsUrl() {
@@ -1205,22 +1229,7 @@ function generateShortId() {
     return result;
 }
 
-async function hostGameFromLanding() {
-    try {
-        await loadStats();
-    } catch(err) {
-        console.warn('Stats loading in hostGameFromLanding:', err);
-    }
-
-    if (conn) {
-        try { conn.close(); } catch(e) {}
-        conn = null;
-    }
-    if (peer) {
-        try { peer.destroy(); } catch(e) {}
-        peer = null;
-    }
-
+function hostGameFromLanding() {
     const activeList = loadActiveGamesList();
     let shortId = generateShortId();
     let tries = 0;
@@ -1231,6 +1240,21 @@ async function hostGameFromLanding() {
 
     currentRoomCode = shortId;
     isHost = true;
+
+    // Immediately switch the view so the UI responds instantly
+    const landing = document.getElementById('landing-screen');
+    const container = document.getElementById('container');
+    if (landing) landing.style.display = 'none';
+    if (container) container.style.display = 'flex';
+
+    if (conn) {
+        try { conn.close(); } catch(e) {}
+        conn = null;
+    }
+    if (peer) {
+        try { peer.destroy(); } catch(e) {}
+        peer = null;
+    }
 
     // Reset battlefield board
     table.querySelectorAll('.unit, .terrain, .ghost, .range-ring, .command-token-table').forEach(p => p.remove());
@@ -1246,7 +1270,7 @@ async function hostGameFromLanding() {
     removeRangeRing();
     hideUnitTooltip();
 
-    // Spawn 12 random units from spreadsheet in central draft grid
+    // Spawn 12 random units from spreadsheet (or fallback) in central draft grid
     createDefaultUnits();
 
     // Shuffled terrain deck
@@ -1284,9 +1308,6 @@ async function hostGameFromLanding() {
 
     saveGame(true);
 
-    document.getElementById('landing-screen').style.display = 'none';
-    document.getElementById('container').style.display = 'flex';
-
     updatePlayerBanner();
     updateRoomCodeVisibility();
     updateBiddingUI();
@@ -1295,6 +1316,9 @@ async function hostGameFromLanding() {
     fitAllUnitLabels();
 
     hostGame(shortId);
+
+    // Refresh unit stats in background if online
+    loadStats().catch(err => console.warn('Background stats refresh:', err));
 }
 
 function joinGameFromLanding() {
@@ -1318,6 +1342,12 @@ function joinGameFromLanding() {
     currentRoomCode = code;
     isHost = false;
 
+    // Immediately switch the view so the UI responds instantly
+    const landing = document.getElementById('landing-screen');
+    const container = document.getElementById('container');
+    if (landing) landing.style.display = 'none';
+    if (container) container.style.display = 'flex';
+
     const saved = localStorage.getItem(getGameSaveKey(code));
     if (saved) {
         restoreBoardState(saved, true);
@@ -1337,30 +1367,25 @@ function joinGameFromLanding() {
         lastPlayed: Date.now()
     });
 
-    document.getElementById('landing-screen').style.display = 'none';
-    document.getElementById('container').style.display = 'flex';
-
     updatePlayerBanner();
     updateRoomCodeVisibility();
     updateBiddingUI();
     updateDraftNoticeUI();
     fitTableToScreen();
+    fitAllUnitLabels();
 
     joinGameWithCode(code);
+
+    // Refresh unit stats in background if online
+    loadStats().catch(err => console.warn('Background stats refresh:', err));
 }
 
-async function resumeGame(roomCode) {
+function resumeGame(roomCode) {
     if (!roomCode) return;
     const cleanCode = roomCode.toUpperCase();
     const list = loadActiveGamesList();
     const entry = list.find(g => g.roomCode === cleanCode);
     if (!entry) return;
-
-    try {
-        await loadStats();
-    } catch(err) {
-        console.warn('Stats loading in resumeGame:', err);
-    }
 
     if (conn) {
         try { conn.close(); } catch(e) {}
@@ -1374,6 +1399,12 @@ async function resumeGame(roomCode) {
     currentRoomCode = cleanCode;
     isHost = Boolean(entry.isHost);
 
+    // Immediately switch the view so the UI responds instantly
+    const landing = document.getElementById('landing-screen');
+    const container = document.getElementById('container');
+    if (landing) landing.style.display = 'none';
+    if (container) container.style.display = 'flex';
+
     const saved = localStorage.getItem(getGameSaveKey(cleanCode));
     if (saved) {
         restoreBoardState(saved, true);
@@ -1381,9 +1412,6 @@ async function resumeGame(roomCode) {
 
     entry.lastPlayed = Date.now();
     saveActiveGamesList(list);
-
-    document.getElementById('landing-screen').style.display = 'none';
-    document.getElementById('container').style.display = 'flex';
 
     updatePlayerBanner();
     updateRoomCodeVisibility();
@@ -1397,6 +1425,9 @@ async function resumeGame(roomCode) {
     } else {
         joinGameWithCode(cleanCode);
     }
+
+    // Refresh unit stats in background if online
+    loadStats().catch(err => console.warn('Background stats refresh:', err));
 }
 
 function deleteActiveGame(roomCode, event) {
@@ -1489,7 +1520,19 @@ function hostGame(specificRoomCode = null) {
     isHost = true;
     updatePlayerBanner();
 
-    peer = new Peer(shortId);
+    if (typeof Peer === 'undefined') {
+        console.warn('PeerJS library is not available.');
+        const statusText = document.getElementById('network-status');
+        if (statusText) statusText.textContent = 'PeerJS offline/unavailable';
+        return;
+    }
+
+    try {
+        peer = new Peer(shortId);
+    } catch (err) {
+        console.error('Failed to instantiate Peer:', err);
+        return;
+    }
 
     peer.on('open', (id) => {
         currentRoomCode = id;
@@ -1534,7 +1577,20 @@ function joinGameWithCode(hostId) {
     isHost = false;
     updatePlayerBanner();
 
-    peer = new Peer();
+    if (typeof Peer === 'undefined') {
+        console.warn('PeerJS library is not available.');
+        const statusText = document.getElementById('network-status');
+        if (statusText) statusText.textContent = 'PeerJS offline/unavailable';
+        return;
+    }
+
+    try {
+        peer = new Peer();
+    } catch (err) {
+        console.error('Failed to instantiate Peer:', err);
+        return;
+    }
+
     peer.on('open', () => {
         conn = peer.connect(cleanId);
         setupConnection();
@@ -2087,9 +2143,11 @@ window.undo = function () {
 async function resetBoard(createUnits, shouldCreateTerrain = true) {
     localStorage.removeItem(SAVE_KEY);
 
-    table.querySelectorAll('.unit, .terrain, .ghost, .range-ring').forEach(p => p.remove());
+    table.querySelectorAll('.unit, .terrain, .ghost, .range-ring, .command-token-table').forEach(p => p.remove());
     undoStack.length = 0;
     roundState = CommandTracker.create();
+    commandTokens = [];
+    renderAllCommandTokens();
     hoveredUnit = null;
     hoveredTerrain = null;
     activePiece = null;
@@ -2100,13 +2158,16 @@ async function resetBoard(createUnits, shouldCreateTerrain = true) {
     measurementPointerId = null;
     clearPieceSelection();
 
-    document.getElementById('cp1').value = 1;
-    document.getElementById('cp2').value = 1;
-    document.getElementById('dice-count').value = 2;
-    normalizeDiceCount(false);
-    bidVisibility = { p1: true, p2: true };
-    rememberCpValues();
-    updateBidUI();
+    const cp1 = document.getElementById('cp1');
+    if (cp1) cp1.value = 1;
+    const cp2 = document.getElementById('cp2');
+    if (cp2) cp2.value = 1;
+    const diceInput = document.getElementById('dice-count');
+    if (diceInput) {
+        diceInput.value = 2;
+        normalizeDiceCount(false);
+    }
+    updateBiddingUI();
     updateStatsPanel(null);
     hideUnitTooltip();
     removeRangeRing();
@@ -2143,6 +2204,7 @@ let diceAnimationTimer = null;
 
 function normalizeDiceCount(shouldSave = true) {
     const input = document.getElementById('dice-count');
+    if (!input) return 2;
     const parsed = parseInt(input.value, 10);
     const safeValue = Number.isFinite(parsed) ? Math.min(20, Math.max(1, parsed)) : 2;
     input.value = safeValue;
@@ -2152,12 +2214,16 @@ function normalizeDiceCount(shouldSave = true) {
 
 function adjustDiceCount(delta) {
     const currentCount = normalizeDiceCount(false);
-    document.getElementById('dice-count').value = currentCount + delta;
-    normalizeDiceCount();
+    const input = document.getElementById('dice-count');
+    if (input) {
+        input.value = currentCount + delta;
+        normalizeDiceCount();
+    }
 }
 
 function normalizeStartingPoolCount(shouldSave = true) {
     const input = document.getElementById('starting-pool-count');
+    if (!input) return DEFAULT_DRAFT_POOL_SIZE;
     const parsed = parseInt(input.value, 10);
     let safeValue = Number.isFinite(parsed) ? Math.max(2, parsed) : DEFAULT_DRAFT_POOL_SIZE;
     if (safeValue % 2 !== 0) safeValue += 1;
@@ -3330,5 +3396,18 @@ initGame = async function () {
         fitAllUnitLabels();
     }, 100);
 };
+
+window.hostGameFromLanding = hostGameFromLanding;
+window.joinGameFromLanding = joinGameFromLanding;
+window.resumeGame = resumeGame;
+window.deleteActiveGame = deleteActiveGame;
+window.exitToLanding = exitToLanding;
+window.toggleRoomCodeArea = toggleRoomCodeArea;
+window.copyRoomLink = copyRoomLink;
+window.lockLocalBid = lockLocalBid;
+window.unlockLocalBid = unlockLocalBid;
+window.triggerRevealBids = triggerRevealBids;
+window.handlePassTurn = handlePassTurn;
+window.toggleFullscreen = toggleFullscreen;
 
 initGame();

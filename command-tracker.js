@@ -40,3 +40,4 @@ const CommandTracker = {
     }
 };
 if (typeof module !== 'undefined') module.exports = CommandTracker;
+if (typeof window !== 'undefined') window.CommandTracker = CommandTracker;
