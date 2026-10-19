@@ -11,44 +11,72 @@
 </head>
 
 <body>
-    <div id="container">
-        <div id="left-sidebar" class="sidebar">
-            <section id="setup-section" aria-label="Game setup and multiplayer">
-                <div class="section-header">
-                    <button id="multiplayer-toggle" type="button" class="btn-grey section-toggle"
-                        onclick="toggleMultiplayerPanel()" aria-controls="multiplayer-panel" aria-expanded="true"
-                        aria-label="Hide game setup section" title="Hide game setup section">
-                        <span>▾</span>
-                    </button>
-                    <h3 style="margin:0">Game Setup</h3>
+    <!-- Landing Screen -->
+    <div id="landing-screen" class="landing-screen">
+        <div class="landing-card">
+            <span class="landing-kicker">Tabletop Sandbox</span>
+            <h1 class="landing-title">SEIZE THE DAY</h1>
+            <p class="landing-subtitle">A two-player tactical wargame of positioning, timing, and initiative.</p>
+
+            <div class="landing-grid">
+                <div class="landing-option host-option">
+                    <span class="option-badge badge-p1">Player 1</span>
+                    <h3>Host Battle</h3>
+                    <p>Create a game room and get a 4-letter code to share with your opponent.</p>
+                    <div class="dice-count-field pool-count-field landing-pool-config">
+                        <label for="starting-pool-count">Starting Pool Units</label>
+                        <input type="number" id="starting-pool-count" value="12" min="2" step="2"
+                            onchange="normalizeStartingPoolCount()">
+                    </div>
+                    <button id="landing-host-btn" class="btn-blue landing-action-btn" onclick="hostGameFromLanding()">Host New Game</button>
                 </div>
-                <div id="multiplayer-panel" class="collapsible-section">
-                    <span class="sidebar-kicker">Multiplayer</span>
-                    <p class="sidebar-description">Host or join a battle.</p>
-                    <div id="status-indicator">OFFLINE</div>
-                    <button id="host-btn" class="btn-blue" onclick="hostGame()">Host Game</button>
-                    <input type="text" id="my-id-display" placeholder="Your ID will appear here" readonly
-                        style="display:none;">
-                    <button id="copy-btn" class="btn-grey" onclick="copyId()" style="display:none; margin-bottom:10px;">Copy
-                        ID</button>
-                    <div class="panel-divider"></div>
-                    <input type="text" id="join-input" placeholder="Enter Host ID">
-                    <button id="join-btn" class="btn-blue" onclick="joinGame()">Join Game</button>
-                    <div class="panel-divider"></div>
-                    <span class="sidebar-kicker">Starting Pool</span>
-                    <div class="pool-controls">
-                        <div class="dice-count-field pool-count-field">
-                            <label for="starting-pool-count">Units</label>
-                            <input type="number" id="starting-pool-count" value="12" min="2" step="2"
-                                onchange="normalizeStartingPoolCount()">
-                        </div>
-                        <div class="pool-actions">
-                            <button onclick="resetGame()" class="btn-grey">Reset Board</button>
-                            <button onclick="resetLongSideDeployment()" class="btn-blue">Reset Long Sides</button>
-                        </div>
+
+                <div class="landing-option join-option">
+                    <span class="option-badge badge-p2">Player 2</span>
+                    <h3>Join Battle</h3>
+                    <p>Enter the 4-letter game code from your opponent.</p>
+                    <div class="join-input-group">
+                        <input type="text" id="landing-join-code" maxlength="4" placeholder="CODE" autocomplete="off" spellcheck="false">
+                        <button id="landing-join-btn" class="btn-blue landing-action-btn" onclick="joinGameFromLanding()">Join</button>
                     </div>
                 </div>
-            </section>
+
+                <div class="landing-option solo-option">
+                    <span class="option-badge">Local</span>
+                    <h3>Play Solo / Local</h3>
+                    <p>Sandbox play on a single screen without networking.</p>
+                    <button id="landing-solo-btn" class="btn-grey landing-action-btn" onclick="playSoloFromLanding()">Play Local Sandbox</button>
+                </div>
+            </div>
+
+            <!-- Active Battles List -->
+            <div id="landing-active-games" class="landing-active-games" style="display: none;">
+                <div class="active-games-header">
+                    <h3>Active Battles</h3>
+                    <span class="active-games-hint">Resume to reconnect</span>
+                </div>
+                <div class="active-games-list" id="active-games-list"></div>
+            </div>
+        </div>
+    </div>
+
+    <div id="container" style="display: none;">
+        <div id="left-sidebar" class="sidebar">
+            <!-- Player Identity & Room Card -->
+            <div id="player-banner" class="player-banner">
+                <div class="player-banner-top">
+                    <div class="player-role-badge badge-p1" id="player-role-badge">Player 1</div>
+                    <button id="toggle-room-code-btn" type="button" class="btn-toggle-badge" onclick="toggleRoomCodeArea()" title="Toggle game code display" aria-label="Toggle game code display">Hide Code</button>
+                </div>
+                <div id="room-code-area" class="room-code-area">
+                    <div class="room-code-badge" id="room-code-badge">
+                        <span id="room-code-text">Code: ----</span>
+                        <button id="copy-room-link-btn" class="btn-copy-sm" onclick="copyRoomLink()" title="Copy invite link">Copy Link</button>
+                    </div>
+                    <div id="network-status" class="network-status">Waiting for opponent...</div>
+                </div>
+                <button id="exit-game-btn" class="btn-text-sm" onclick="exitToLanding()">Exit to Menu</button>
+            </div>
             <span class="sidebar-kicker">War Council</span>
             <section id="round-panel" aria-label="Round and commands">
                 <span class="sidebar-kicker">Round &amp; Commands</span>
@@ -131,10 +159,10 @@
                 <p class="sidebar-description">Drag the revealed card onto the field.</p>
                 <div id="terrain-card" class="palette-item terrain-deck-card is-empty"
                     onpointerdown="playTerrainCard(event)" role="button" aria-disabled="true"
-                    aria-label="Terrain deck empty. Use Reset Board to create a new deck.">
+                    aria-label="Terrain deck empty.">
                     <span class="terrain-card-kicker">Revealed Card</span>
                     <span id="terrain-card-title" class="palette-title">Deck Empty</span>
-                    <span id="terrain-card-note" class="palette-note">Use Reset Board</span>
+                    <span id="terrain-card-note" class="palette-note">All Terrain Placed</span>
                 </div>
             </div>
             <div id="dice-section">
@@ -186,8 +214,7 @@
                     <div class="controls-group mouse-only">
                         <span class="controls-group-label">Mouse and Keyboard</span>
                         <ul class="controls-help-list">
-                            <li>Host a game and give your opponent the code to join</li>
-                            <li>Set the game up with Reset Board</li>
+                            <li>Host a game or play locally from the landing menu</li>
                             <li>Hide your bid, set it, then reveal it. Start the round after both bids are revealed.</li>
                             <li>Check a unit’s activation box to spend a command. Pass to advance the highlighted activation window.</li>
                             <li>After the final pass, use Next round to clear activation markers and bid again.</li>

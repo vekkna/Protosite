@@ -34,8 +34,8 @@ const pxToInches = (px) => (px / SCALE).toFixed(1);
 
 // --- UI STATE & SHELL CONTROLS ---
 let bidVisibility = {
-    p1: true,
-    p2: true
+    p1: false,
+    p2: false
 };
 let lastKnownCpValues = {
     p1: '1',
@@ -65,8 +65,10 @@ function saveUIState() {
 }
 
 function getLocalBidPlayerKey() {
-    if (!conn) return null;
-    return isHost ? 'p1' : 'p2';
+    if (isHost) return 'p1';
+    if (isGuest) return 'p2';
+    if (conn) return isHost ? 'p1' : 'p2';
+    return null;
 }
 
 function getBidInput(playerKey) {
@@ -107,7 +109,7 @@ function updateBidUI() {
         } else if (isHost) {
             opponentStatusEl.textContent = '○ Waiting for Opponent';
             opponentStatusEl.className = 'opponent-status connecting';
-        } else if (peer && !conn) {
+        } else if (isGuest || (peer && !conn)) {
             opponentStatusEl.textContent = '○ Connecting...';
             opponentStatusEl.className = 'opponent-status connecting';
         } else {
@@ -159,6 +161,9 @@ function updateBidUI() {
             }
         }
     });
+
+    updateTerrainSectionVisibility();
+    updatePlayerBanner();
 
     if (!btn) return;
 
@@ -367,6 +372,11 @@ let peer = null;
 let conn = null;
 let isHost = false;
 let isGuest = false;
+let currentRoomCode = '';
+let isRoomCodeHidden = false;
+let hasRevealedFirstBids = false;
+const ACTIVE_GAMES_KEY = 'seize_the_day_active_games_v1';
+const getGameSaveKey = (roomCode) => 'seize_the_day_save_' + (roomCode || '').toUpperCase();
 
 function isBoardFlipped() {
     return Boolean(isGuest || (conn && !isHost));
@@ -1231,7 +1241,7 @@ const PEER_CONFIG = {
 };
 
 function generateShortId() {
-    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
     let result = '';
     for (let i = 0; i < 4; i++) {
         result += chars.charAt(Math.floor(Math.random() * chars.length));
@@ -1239,17 +1249,438 @@ function generateShortId() {
     return result;
 }
 
-function hostGame() {
-    if (peer) return;
+function loadActiveGamesList() {
+    try {
+        const raw = localStorage.getItem(ACTIVE_GAMES_KEY);
+        if (!raw) return [];
+        const parsed = JSON.parse(raw);
+        return Array.isArray(parsed) ? parsed : [];
+    } catch (e) {
+        return [];
+    }
+}
+
+function saveActiveGamesList(list) {
+    try {
+        localStorage.setItem(ACTIVE_GAMES_KEY, JSON.stringify(list));
+    } catch (e) {
+        console.warn('Unable to save active games list:', e);
+    }
+}
+
+function addOrUpdateActiveGame(meta) {
+    if (!meta || !meta.roomCode) return;
+    const cleanCode = meta.roomCode.toUpperCase();
+    const list = loadActiveGamesList();
+    const index = list.findIndex(g => g.roomCode === cleanCode);
+    const entry = {
+        roomCode: cleanCode,
+        role: meta.role || (meta.isHost ? 'p1' : 'p2'),
+        isHost: meta.isHost !== undefined ? Boolean(meta.isHost) : meta.role === 'p1',
+        round: meta.round || (roundState && roundState.round) || 1,
+        lastPlayed: meta.lastPlayed || Date.now()
+    };
+    if (index >= 0) {
+        list[index] = { ...list[index], ...entry };
+    } else {
+        list.unshift(entry);
+    }
+    saveActiveGamesList(list);
+    renderActiveGamesUI();
+}
+
+function removeActiveGame(roomCode) {
+    if (!roomCode) return;
+    const cleanCode = roomCode.toUpperCase();
+    const list = loadActiveGamesList().filter(g => g.roomCode !== cleanCode);
+    saveActiveGamesList(list);
+    try {
+        localStorage.removeItem(getGameSaveKey(cleanCode));
+    } catch (e) {}
+    renderActiveGamesUI();
+}
+
+function formatTimeAgo(timestamp) {
+    if (!timestamp) return 'Recently';
+    const diff = Math.floor((Date.now() - timestamp) / 1000);
+    if (diff < 60) return 'Just now';
+    if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
+    if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
+    return `${Math.floor(diff / 86400)}d ago`;
+}
+
+function renderActiveGamesUI() {
+    const container = document.getElementById('landing-active-games');
+    const listEl = document.getElementById('active-games-list');
+    if (!container || !listEl) return;
+
+    const list = loadActiveGamesList();
+    if (!list || list.length === 0) {
+        container.style.display = 'none';
+        listEl.innerHTML = '';
+        return;
+    }
+
+    container.style.display = 'flex';
+    listEl.innerHTML = '';
+
+    list.forEach(game => {
+        const item = document.createElement('div');
+        item.className = 'active-game-item';
+
+        const info = document.createElement('div');
+        info.className = 'active-game-info';
+
+        const badges = document.createElement('div');
+        badges.className = 'active-game-badges';
+
+        const roleBadge = document.createElement('span');
+        roleBadge.className = `option-badge ${game.role === 'p1' ? 'badge-p1' : 'badge-p2'}`;
+        roleBadge.textContent = game.role === 'p1' ? 'Player 1' : 'Player 2';
+
+        const codeStrong = document.createElement('strong');
+        codeStrong.className = 'active-game-code';
+        codeStrong.textContent = game.roomCode;
+
+        badges.appendChild(roleBadge);
+        badges.appendChild(codeStrong);
+
+        const meta = document.createElement('div');
+        meta.className = 'active-game-meta';
+        meta.textContent = `Round ${game.round || 1} · ${formatTimeAgo(game.lastPlayed)}`;
+
+        info.appendChild(badges);
+        info.appendChild(meta);
+
+        const actions = document.createElement('div');
+        actions.className = 'active-game-actions';
+
+        const resumeBtn = document.createElement('button');
+        resumeBtn.className = 'btn-blue btn-sm active-resume-btn';
+        resumeBtn.textContent = 'Resume';
+        resumeBtn.onclick = () => resumeGame(game.roomCode);
+
+        const deleteBtn = document.createElement('button');
+        deleteBtn.className = 'btn-grey btn-sm active-delete-btn';
+        deleteBtn.textContent = '✕';
+        deleteBtn.title = 'Remove active game';
+        deleteBtn.setAttribute('aria-label', `Remove battle ${game.roomCode}`);
+        deleteBtn.onclick = (e) => deleteActiveGame(game.roomCode, e);
+
+        actions.appendChild(resumeBtn);
+        actions.appendChild(deleteBtn);
+
+        item.appendChild(info);
+        item.appendChild(actions);
+        listEl.appendChild(item);
+    });
+}
+
+function toggleRoomCodeArea() {
+    isRoomCodeHidden = !isRoomCodeHidden;
+    updateRoomCodeVisibility();
+}
+
+function updateRoomCodeVisibility() {
+    const area = document.getElementById('room-code-area');
+    const btn = document.getElementById('toggle-room-code-btn');
+    if (!area || !btn) return;
+
+    if (isRoomCodeHidden) {
+        area.style.display = 'none';
+        btn.textContent = 'Show Code';
+        btn.setAttribute('aria-expanded', 'false');
+    } else {
+        area.style.display = 'flex';
+        btn.textContent = 'Hide Code';
+        btn.setAttribute('aria-expanded', 'true');
+    }
+}
+
+function updatePlayerBanner() {
+    const badge = document.getElementById('player-role-badge');
+    const roomText = document.getElementById('room-code-text');
+    const statusText = document.getElementById('network-status');
+
+    if (!badge || !roomText || !statusText) return;
+
+    if (isHost) {
+        badge.textContent = 'Player 1 (Host)';
+        badge.className = 'player-role-badge badge-p1';
+        roomText.textContent = `Code: ${currentRoomCode || '----'}`;
+        if (conn && conn.open) {
+            statusText.textContent = 'Opponent Connected ✓';
+            statusText.className = 'network-status is-connected';
+        } else {
+            statusText.textContent = 'Waiting for Player 2...';
+            statusText.className = 'network-status';
+        }
+    } else if (isGuest || (conn && !isHost)) {
+        badge.textContent = 'Player 2 (Challenger)';
+        badge.className = 'player-role-badge badge-p2';
+        roomText.textContent = `Room: ${currentRoomCode || '----'}`;
+        if (conn && conn.open) {
+            statusText.textContent = 'Connected to Host ✓';
+            statusText.className = 'network-status is-connected';
+        } else {
+            statusText.textContent = 'Connecting...';
+            statusText.className = 'network-status';
+        }
+    } else {
+        badge.textContent = 'Local Sandbox';
+        badge.className = 'player-role-badge';
+        roomText.textContent = 'Local Game';
+        statusText.textContent = 'Pass & Play Sandbox';
+        statusText.className = 'network-status';
+    }
+}
+
+function copyRoomLink() {
+    const code = currentRoomCode || (document.getElementById('landing-join-code') ? document.getElementById('landing-join-code').value : '');
+    if (!code) return;
+    const url = window.location.origin + window.location.pathname + '?join=' + encodeURIComponent(code);
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(url).then(() => {
+            const btn = document.getElementById('copy-room-link-btn');
+            if (btn) {
+                const original = btn.textContent;
+                btn.textContent = 'Copied!';
+                setTimeout(() => { btn.textContent = original; }, 1500);
+            }
+        }).catch(() => {
+            if (typeof prompt !== 'undefined') prompt('Copy room link:', url);
+        });
+    } else {
+        if (typeof prompt !== 'undefined') prompt('Copy room link:', url);
+    }
+}
+
+function checkUrlAutoJoin() {
+    try {
+        if (typeof window === 'undefined' || !window.location || !window.location.search) return;
+        const params = new URLSearchParams(window.location.search);
+        const joinCode = params.get('join') || params.get('room');
+        if (joinCode) {
+            const input = document.getElementById('landing-join-code');
+            if (input) {
+                input.value = joinCode.toUpperCase().slice(0, 4);
+            }
+        }
+    } catch (e) {}
+}
+
+function hostGameFromLanding() {
+    const activeList = loadActiveGamesList();
+    let shortId = generateShortId();
+    let tries = 0;
+    while (activeList.some(g => g.roomCode === shortId) && tries < 30) {
+        shortId = generateShortId();
+        tries++;
+    }
+
+    currentRoomCode = shortId;
+    isHost = true;
+    isGuest = false;
+    hasRevealedFirstBids = false;
+
+    const landing = document.getElementById('landing-screen');
+    const container = document.getElementById('container');
+    if (landing) landing.style.display = 'none';
+    if (container) container.style.display = 'flex';
+
+    if (conn) {
+        try { conn.close(); } catch (e) {}
+        conn = null;
+    }
+    if (peer) {
+        try { peer.destroy(); } catch (e) {}
+        peer = null;
+    }
+
+    // Reset battlefield board
+    if (table && table.querySelectorAll) {
+        table.querySelectorAll('.unit, .terrain, .ghost, .range-ring, .command-token-table').forEach(p => p.remove());
+    }
+    undoStack.length = 0;
+    hoveredUnit = null;
+    hoveredTerrain = null;
+    activePiece = null;
+    ghostPiece = null;
+    activePointerId = null;
+    pendingDragPiece = null;
+    isDraggingPiece = false;
+    clearPieceSelection();
+    removeRangeRing();
+    hideUnitTooltip();
+
+    // Spawn starting units from pool
+    createDefaultUnits();
+
+    // Shuffled terrain deck
+    cancelTerrainCardAnimation();
+    terrainDeck = createShuffledTerrainDeck();
+    renderTerrainCard();
+
+    // Default round state
+    roundState = CommandTracker.create();
+    bidVisibility = { p1: false, p2: false };
+
+    addOrUpdateActiveGame({
+        roomCode: shortId,
+        role: 'p1',
+        isHost: true,
+        round: 1,
+        lastPlayed: Date.now()
+    });
+
+    saveGame(true);
+
+    updatePlayerBanner();
+    updateRoomCodeVisibility();
+    updateBidUI();
+    updateRoundUI();
+    fitTableToScreen();
+    fitAllUnitLabels();
+
+    hostGame(shortId);
+
+    loadStats().catch(err => console.warn('Background stats refresh:', err));
+}
+
+function joinGameFromLanding() {
+    const input = document.getElementById('landing-join-code');
+    const code = (input ? input.value : '').trim().toUpperCase();
+    if (!code || code.length < 3) {
+        if (typeof alert !== 'undefined') alert('Please enter a valid room code.');
+        if (input && input.focus) input.focus();
+        return;
+    }
+    joinGame(code);
+}
+
+function playSoloFromLanding() {
+    isHost = false;
+    isGuest = false;
+    currentRoomCode = '';
+    hasRevealedFirstBids = false;
+    bidVisibility = { p1: false, p2: false };
+
+    const landing = document.getElementById('landing-screen');
+    const container = document.getElementById('container');
+    if (landing) landing.style.display = 'none';
+    if (container) container.style.display = 'flex';
+
+    updatePlayerBanner();
+    updateRoomCodeVisibility();
+    updateBidUI();
+    updateRoundUI();
+    fitTableToScreen();
+    fitAllUnitLabels();
+}
+
+function resumeGame(roomCode) {
+    if (!roomCode) return;
+    const cleanCode = roomCode.toUpperCase();
+    const list = loadActiveGamesList();
+    const entry = list.find(g => g.roomCode === cleanCode);
+    if (!entry) return;
+
+    if (conn) {
+        try { conn.close(); } catch (e) {}
+        conn = null;
+    }
+    if (peer) {
+        try { peer.destroy(); } catch (e) {}
+        peer = null;
+    }
+
+    currentRoomCode = cleanCode;
+    isHost = Boolean(entry.isHost);
+    isGuest = !isHost;
+
+    const landing = document.getElementById('landing-screen');
+    const container = document.getElementById('container');
+    if (landing) landing.style.display = 'none';
+    if (container) container.style.display = 'flex';
+
+    const saved = localStorage.getItem(getGameSaveKey(cleanCode)) || localStorage.getItem(SAVE_KEY);
+    if (saved) {
+        restoreBoardState(saved, true);
+    }
+
+    entry.lastPlayed = Date.now();
+    saveActiveGamesList(list);
+
+    updatePlayerBanner();
+    updateRoomCodeVisibility();
+    updateBidUI();
+    updateRoundUI();
+    fitTableToScreen();
+    fitAllUnitLabels();
+
+    if (isHost) {
+        hostGame(cleanCode);
+    } else {
+        joinGame(cleanCode);
+    }
+
+    loadStats().catch(err => console.warn('Background stats refresh:', err));
+}
+
+function deleteActiveGame(roomCode, event) {
+    if (event && event.stopPropagation) event.stopPropagation();
+    if (typeof confirm !== 'undefined' && !confirm(`Are you sure you want to remove Battle ${roomCode}?`)) {
+        return;
+    }
+    removeActiveGame(roomCode);
+}
+
+function exitToLanding() {
+    saveGame(true);
+
+    if (conn) {
+        try { conn.close(); } catch (e) {}
+        conn = null;
+    }
+    if (peer) {
+        try { peer.destroy(); } catch (e) {}
+        peer = null;
+    }
+
+    isHost = false;
+    isGuest = false;
+    currentRoomCode = '';
+
+    const container = document.getElementById('container');
+    const landing = document.getElementById('landing-screen');
+    if (container) container.style.display = 'none';
+    if (landing) landing.style.display = 'flex';
+
+    renderActiveGamesUI();
+}
+
+function hostGame(specificRoomCode = null) {
+    if (peer) {
+        try { peer.destroy(); } catch (e) {}
+        peer = null;
+    }
     updateStatus("Initializing...");
-    const shortId = generateShortId();
+    const shortId = (specificRoomCode || currentRoomCode || generateShortId()).toUpperCase();
+    currentRoomCode = shortId;
+    isHost = true;
+    isGuest = false;
+    updatePlayerBanner();
+
     peer = new Peer(shortId, PEER_CONFIG);
 
     peer.on('open', (id) => {
         updateStatus("Hosting");
-        document.getElementById('my-id-display').value = id;
+        currentRoomCode = id;
+        const myIdDisplay = document.getElementById('my-id-display');
+        if (myIdDisplay) myIdDisplay.value = id;
         isHost = true;
         isGuest = false;
+        updatePlayerBanner();
         updateMultiplayerControlsUI();
         updateBidUI();
         fitTableToScreen();
@@ -1271,20 +1702,43 @@ function hostGame() {
     });
 }
 
-function joinGame() {
-    const input = document.getElementById('join-input');
-    const hostId = (input && input.value) ? String(input.value).trim() : '';
-    if (!hostId) {
+function joinGame(hostId = null) {
+    let targetCode = hostId;
+    if (!targetCode) {
+        const landingInput = document.getElementById('landing-join-code');
+        const legacyInput = document.getElementById('join-input');
+        targetCode = ((landingInput && landingInput.value) || (legacyInput && legacyInput.value) || '').trim();
+    }
+    if (!targetCode) {
         if (typeof alert !== 'undefined') alert("Enter a Host ID");
         return;
     }
+    targetCode = targetCode.toUpperCase();
+    currentRoomCode = targetCode;
+
+    if (conn) {
+        try { conn.close(); } catch (e) {}
+        conn = null;
+    }
+    if (peer) {
+        try { peer.destroy(); } catch (e) {}
+        peer = null;
+    }
+
+    const landing = document.getElementById('landing-screen');
+    const container = document.getElementById('container');
+    if (landing) landing.style.display = 'none';
+    if (container) container.style.display = 'flex';
+
     updateStatus("Connecting...");
-    peer = new Peer(PEER_CONFIG);
     isGuest = true;
     isHost = false;
+    updatePlayerBanner();
     fitTableToScreen();
+
+    peer = new Peer(PEER_CONFIG);
     peer.on('open', () => {
-        conn = peer.connect(hostId, { reliable: true });
+        conn = peer.connect(targetCode, { reliable: true });
         setupConnection();
     });
     peer.on('error', (err) => {
@@ -1292,7 +1746,7 @@ function joinGame() {
         updateStatus("Connection Error");
         isGuest = false;
         fitTableToScreen();
-        alert("Could not connect. Check Host ID.");
+        if (typeof alert !== 'undefined') alert("Could not connect. Check Host ID.");
     });
 }
 
@@ -1301,7 +1755,9 @@ function setupConnection() {
 
     const onOpen = () => {
         updateStatus("Connected!");
-        document.getElementById('status-indicator').classList.add('status-connected');
+        const statusIndicator = document.getElementById('status-indicator');
+        if (statusIndicator) statusIndicator.classList.add('status-connected');
+        updatePlayerBanner();
         updateMultiplayerControlsUI();
         updateRoundUI();
         updateBidUI();
@@ -1324,10 +1780,12 @@ function setupConnection() {
 
     conn.on('close', () => {
         updateStatus("Disconnected");
-        document.getElementById('status-indicator').classList.remove('status-connected');
+        const statusIndicator = document.getElementById('status-indicator');
+        if (statusIndicator) statusIndicator.classList.remove('status-connected');
         conn = null;
         isHost = false;
         isGuest = false;
+        updatePlayerBanner();
         updateRoundUI();
         updateMultiplayerControlsUI();
         updateBidUI();
@@ -1343,7 +1801,9 @@ function handleIncomingData(data) {
     if (!data) return;
     if (data.type === 'GUEST_JOIN') {
         updateStatus("Connected!");
-        document.getElementById('status-indicator').classList.add('status-connected');
+        const statusIndicator = document.getElementById('status-indicator');
+        if (statusIndicator) statusIndicator.classList.add('status-connected');
+        updatePlayerBanner();
         updateMultiplayerControlsUI();
         updateRoundUI();
         updateBidUI();
@@ -1449,14 +1909,20 @@ function sendData(dataObj) {
 }
 
 function updateStatus(msg) {
-    document.getElementById('status-indicator').innerText = msg;
+    const statusIndicator = document.getElementById('status-indicator');
+    if (statusIndicator) statusIndicator.innerText = msg;
+    const networkStatus = document.getElementById('network-status');
+    if (networkStatus && (!conn || !conn.open)) networkStatus.innerText = msg;
 }
 
 function copyId() {
     const copyText = document.getElementById("my-id-display");
-    copyText.select();
-    navigator.clipboard.writeText(copyText.value);
-    alert("ID Copied to Clipboard!");
+    if (!copyText) return;
+    if (copyText.select) copyText.select();
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(copyText.value);
+    }
+    if (typeof alert !== 'undefined') alert("ID Copied to Clipboard!");
 }
 
 // --- ROUND & COMMAND TRACKING ---
@@ -1536,7 +2002,10 @@ function passCommandWindow() {
 function updateTerrainSectionVisibility() {
     const terrainSection = document.getElementById('terrain-section');
     if (!terrainSection) return;
-    const isDraftOver = roundState.round >= 1 || roundState.phase !== 'setup';
+    if (bidVisibility && bidVisibility.p1 && bidVisibility.p2) {
+        hasRevealedFirstBids = true;
+    }
+    const isDraftOver = hasRevealedFirstBids || (roundState && (roundState.round >= 1 || roundState.phase !== 'setup'));
     terrainSection.style.display = isDraftOver ? 'none' : 'block';
 }
 
@@ -1762,6 +2231,16 @@ function saveGame(suppressBroadcast = false) {
     rememberCpValues();
     const state = getBoardState();
     localStorage.setItem(SAVE_KEY, state);
+    if (currentRoomCode) {
+        localStorage.setItem(getGameSaveKey(currentRoomCode), state);
+        addOrUpdateActiveGame({
+            roomCode: currentRoomCode,
+            role: isHost ? 'p1' : 'p2',
+            isHost: isHost,
+            round: (roundState && roundState.round) || 1,
+            lastPlayed: Date.now()
+        });
+    }
     updateRoundUI();
     if (!suppressBroadcast) {
         sendData({ type: 'SYNC_BOARD', payload: getBoardState({ forNetwork: true }) });
@@ -2027,7 +2506,8 @@ async function resetBoard(createUnits, shouldCreateTerrain = true) {
     document.getElementById('cp2').value = 1;
     document.getElementById('dice-count').value = 2;
     normalizeDiceCount(false);
-    bidVisibility = { p1: true, p2: true };
+    bidVisibility = { p1: false, p2: false };
+    hasRevealedFirstBids = false;
     rememberCpValues();
     updateBidUI();
     updateStatsPanel(null);
@@ -3331,6 +3811,10 @@ updateRoundUI();
 const originalInitGame = initGame;
 initGame = async function () {
     await originalInitGame();
+    renderActiveGamesUI();
+    checkUrlAutoJoin();
+    updatePlayerBanner();
+    updateRoomCodeVisibility();
     updateBidUI();
     fitTableToScreen();
     fitAllUnitLabels();
@@ -3344,6 +3828,22 @@ initGame = async function () {
 if (typeof window !== 'undefined') {
     window.hostGame = hostGame;
     window.joinGame = joinGame;
+    window.hostGameFromLanding = hostGameFromLanding;
+    window.joinGameFromLanding = joinGameFromLanding;
+    window.playSoloFromLanding = playSoloFromLanding;
+    window.resumeGame = resumeGame;
+    window.deleteActiveGame = deleteActiveGame;
+    window.exitToLanding = exitToLanding;
+    window.toggleRoomCodeArea = toggleRoomCodeArea;
+    window.copyRoomLink = copyRoomLink;
+    window.updatePlayerBanner = updatePlayerBanner;
+    window.updateTerrainSectionVisibility = updateTerrainSectionVisibility;
+    window.toggleBidVisibility = toggleBidVisibility;
+    window.handleCpBidChange = handleCpBidChange;
+    window.advanceRound = advanceRound;
+    window.passCommandWindow = passCommandWindow;
+    window.loadActiveGamesList = loadActiveGamesList;
+    window.saveActiveGamesList = saveActiveGamesList;
     window.isBoardFlipped = isBoardFlipped;
     window.fitTableToScreen = fitTableToScreen;
     window.getTablePointerPosition = getTablePointerPosition;
