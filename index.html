@@ -92,16 +92,26 @@
                     <div class="cp-container">
                         <div class="cp-field" data-bid-player="p1">
                             <span class="cp-label" id="label-p1">P1 CP</span>
-                            <input type="number" id="cp1" value="1" min="1" onchange="handleCpBidChange('p1')">
+                            <div class="bid-input-wrap">
+                                <div class="bid-input-box">
+                                    <input type="number" id="cp1" value="1" min="1" onchange="handleCpBidChange('p1')">
+                                </div>
+                                <button type="button" class="btn-blue btn-sm bid-set-btn" id="btn-set-p1" onclick="toggleSetBid('p1')">Set</button>
+                            </div>
                             <span class="bid-subtext" id="subtext-p1"></span>
                         </div>
                         <div class="cp-field" data-bid-player="p2">
                             <span class="cp-label" id="label-p2">P2 CP</span>
-                            <input type="number" id="cp2" value="1" min="1" onchange="handleCpBidChange('p2')">
+                            <div class="bid-input-wrap">
+                                <div class="bid-input-box">
+                                    <input type="number" id="cp2" value="1" min="1" onchange="handleCpBidChange('p2')">
+                                </div>
+                                <button type="button" class="btn-blue btn-sm bid-set-btn" id="btn-set-p2" onclick="toggleSetBid('p2')">Set</button>
+                            </div>
                             <span class="bid-subtext" id="subtext-p2"></span>
                         </div>
                     </div>
-                    <button id="toggle-bids-btn" class="btn-grey" onclick="toggleBidVisibility()">Hide My Bid</button>
+                    <button id="toggle-bids-btn" class="btn-grey" onclick="triggerRevealBids()" disabled>Reveal Bids</button>
                 </div>
                 <label id="first-tie-field" class="tracker-field">Picked second in draft
                     <select id="first-tie-player" onchange="setFirstRoundTie(this.value)">

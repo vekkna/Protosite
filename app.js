@@ -37,6 +37,10 @@ let bidVisibility = {
     p1: false,
     p2: false
 };
+let bidsSet = {
+    p1: false,
+    p2: false
+};
 let lastKnownCpValues = {
     p1: '1',
     p2: '1'
@@ -94,12 +98,82 @@ function getNormalizedBidVisibility(nextVisibility = bidVisibility) {
     };
 }
 
+function toggleSetBid(playerKey) {
+    if (bidsSet[playerKey]) {
+        editBid(playerKey);
+    } else {
+        setBid(playerKey);
+    }
+}
+
+function setBid(playerKey) {
+    const input = getBidInput(playerKey);
+    if (!input) return;
+    let val = parseInt(input.value, 10);
+    if (isNaN(val) || val < 1) val = 1;
+    input.value = val;
+    bidsSet[playerKey] = true;
+    rememberCpValue(playerKey);
+
+    const localKey = getLocalBidPlayerKey();
+    if (localKey && localKey === playerKey) {
+        sendData({
+            type: 'BID_SET',
+            player: playerKey,
+            isSet: true,
+            bid: String(val)
+        });
+    }
+    updateBidUI();
+    saveGame();
+}
+
+function editBid(playerKey) {
+    bidsSet[playerKey] = false;
+
+    const localKey = getLocalBidPlayerKey();
+    if (localKey && localKey === playerKey) {
+        sendData({
+            type: 'BID_SET',
+            player: playerKey,
+            isSet: false
+        });
+    }
+    updateBidUI();
+    saveGame();
+}
+
+function triggerRevealBids() {
+    if (!bidsSet.p1 || !bidsSet.p2) return;
+    revealBids();
+}
+
+function revealBids() {
+    bidsSet.p1 = true;
+    bidsSet.p2 = true;
+    bidVisibility.p1 = true;
+    bidVisibility.p2 = true;
+    const localKey = getLocalBidPlayerKey();
+    if (localKey) {
+        sendData({
+            type: 'REVEAL_BIDS',
+            player: localKey,
+            bid: getBidInput(localKey) ? getBidInput(localKey).value : null
+        });
+    }
+    updateBidUI();
+    updateTerrainSectionVisibility();
+    saveGame();
+}
+
 function updateBidUI() {
     bidVisibility = getNormalizedBidVisibility();
 
     const btn = document.getElementById('toggle-bids-btn');
     const localPlayerKey = getLocalBidPlayerKey();
     const isMultiplayer = Boolean(localPlayerKey);
+    const areBothRevealed = Boolean(bidVisibility.p1 && bidVisibility.p2);
+    const areBothSet = Boolean(bidsSet.p1 && bidsSet.p2);
     const opponentStatusEl = document.getElementById('opponent-status');
 
     if (opponentStatusEl) {
@@ -133,31 +207,76 @@ function updateBidUI() {
     ['p1', 'p2'].forEach(playerKey => {
         const input = getBidInput(playerKey);
         const field = document.querySelector(`[data-bid-player="${playerKey}"]`);
+        const setBtn = document.getElementById(`btn-set-${playerKey}`);
         const subtextEl = document.getElementById(`subtext-${playerKey}`);
         if (!input || !field) return;
 
         const isOwnBid = playerKey === localPlayerKey;
         const isVisible = bidVisibility[playerKey];
-        const isHiddenFromViewer = !isVisible && (!isMultiplayer || !isOwnBid);
+        const isSet = Boolean(bidsSet[playerKey]);
+
+        let isHiddenFromViewer;
+        if (isMultiplayer) {
+            isHiddenFromViewer = !isVisible && !isOwnBid;
+        } else {
+            isHiddenFromViewer = !areBothRevealed && isSet;
+        }
         const isPrivateToViewer = isMultiplayer && isOwnBid && !isVisible;
 
         field.classList.toggle('bid-hidden', isHiddenFromViewer);
         field.classList.toggle('bid-private', isPrivateToViewer);
-        input.readOnly = (isMultiplayer && !isOwnBid) || ['commands', 'complete'].includes(roundState.phase);
+        input.readOnly = (isMultiplayer && !isOwnBid) || isSet || areBothRevealed || ['commands', 'complete'].includes(roundState.phase);
         input.setAttribute('aria-label', `${playerKey === 'p1' ? 'Player 1' : 'Player 2'} command point bid${isHiddenFromViewer ? ' hidden' : ''}`);
+
+        if (setBtn) {
+            if (areBothRevealed || ['commands', 'complete'].includes(roundState.phase)) {
+                setBtn.style.display = 'none';
+            } else if (isMultiplayer && !isOwnBid) {
+                setBtn.style.display = 'none';
+            } else {
+                setBtn.style.display = '';
+                setBtn.textContent = isSet ? 'Edit' : 'Set';
+                setBtn.className = isSet ? 'btn-grey btn-sm bid-set-btn' : 'btn-blue btn-sm bid-set-btn';
+                setBtn.title = isSet ? 'Edit your bid' : 'Lock in your bid';
+            }
+        }
 
         if (subtextEl) {
             if (isMultiplayer) {
                 if (isOwnBid) {
-                    subtextEl.textContent = isVisible ? 'Visible to Opponent' : 'Hidden from Opponent';
-                    subtextEl.className = isVisible ? 'bid-subtext' : 'bid-subtext highlight';
+                    if (areBothRevealed) {
+                        subtextEl.textContent = 'Revealed';
+                        subtextEl.className = 'bid-subtext';
+                    } else if (isSet) {
+                        subtextEl.textContent = 'Bid Set ✓';
+                        subtextEl.className = 'bid-subtext is-set';
+                    } else {
+                        subtextEl.textContent = 'Hidden from Opponent';
+                        subtextEl.className = 'bid-subtext highlight';
+                    }
                 } else {
-                    subtextEl.textContent = isVisible ? 'Opponent Revealed' : 'Opponent Bid Hidden';
-                    subtextEl.className = isVisible ? 'bid-subtext highlight' : 'bid-subtext';
+                    if (areBothRevealed) {
+                        subtextEl.textContent = 'Revealed';
+                        subtextEl.className = 'bid-subtext';
+                    } else if (isSet) {
+                        subtextEl.textContent = 'Opponent Ready ✓';
+                        subtextEl.className = 'bid-subtext is-set';
+                    } else {
+                        subtextEl.textContent = 'Opponent Deciding...';
+                        subtextEl.className = 'bid-subtext highlight';
+                    }
                 }
             } else {
-                subtextEl.textContent = isVisible ? 'Visible' : 'Hidden';
-                subtextEl.className = isVisible ? 'bid-subtext' : 'bid-subtext highlight';
+                if (areBothRevealed) {
+                    subtextEl.textContent = 'Revealed';
+                    subtextEl.className = 'bid-subtext';
+                } else if (isSet) {
+                    subtextEl.textContent = 'Bid Set ✓';
+                    subtextEl.className = 'bid-subtext is-set';
+                } else {
+                    subtextEl.textContent = 'Not Set';
+                    subtextEl.className = 'bid-subtext highlight';
+                }
             }
         }
     });
@@ -167,40 +286,48 @@ function updateBidUI() {
 
     if (!btn) return;
 
-    if (isMultiplayer) {
-        const isOwnBidVisible = bidVisibility[localPlayerKey];
-        btn.innerText = isOwnBidVisible ? 'Hide My Bid' : 'Reveal My Bid';
-        btn.title = isOwnBidVisible
-            ? 'Hide your command point bid from your opponent'
-            : 'Reveal your command point bid to your opponent';
-        btn.setAttribute('aria-pressed', String(!isOwnBidVisible));
-        return;
+    if (areBothRevealed) {
+        btn.disabled = false;
+        btn.className = 'btn-grey';
+        btn.innerText = 'Bids Revealed';
+        btn.title = 'Bids have been revealed for this round';
+        btn.setAttribute('aria-pressed', 'true');
+    } else {
+        btn.innerText = 'Reveal Bids';
+        btn.setAttribute('aria-pressed', 'false');
+        if (areBothSet) {
+            btn.disabled = false;
+            btn.className = 'btn-gold';
+            btn.title = 'Both bids are set. Click to reveal bids!';
+        } else {
+            btn.disabled = true;
+            btn.className = 'btn-grey';
+            btn.title = 'Both players must set bids before revealing';
+        }
     }
-
-    const areBidsVisible = bidVisibility.p1 && bidVisibility.p2;
-    btn.innerText = areBidsVisible ? 'Hide Bids' : 'Reveal Bids';
-    btn.title = areBidsVisible ? 'Hide both command point bids' : 'Reveal both command point bids';
-    btn.setAttribute('aria-pressed', String(!areBidsVisible));
 }
 
 function toggleBidVisibility() {
+    if (bidVisibility.p1 && bidVisibility.p2) {
+        bidVisibility = { p1: false, p2: false };
+        bidsSet = { p1: false, p2: false };
+    } else {
+        bidsSet = { p1: true, p2: true };
+        bidVisibility = { p1: true, p2: true };
+    }
     const localPlayerKey = getLocalBidPlayerKey();
 
     if (localPlayerKey) {
-        bidVisibility[localPlayerKey] = !bidVisibility[localPlayerKey];
         sendData({
             type: 'BID_VISIBILITY',
             player: localPlayerKey,
             visible: bidVisibility[localPlayerKey],
             bid: bidVisibility[localPlayerKey] ? getBidInput(localPlayerKey).value : null
         });
-    } else {
-        const nextVisibility = !(bidVisibility.p1 && bidVisibility.p2);
-        bidVisibility.p1 = nextVisibility;
-        bidVisibility.p2 = nextVisibility;
     }
 
     updateBidUI();
+    updateTerrainSectionVisibility();
     saveGame();
 }
 
@@ -221,6 +348,9 @@ function handleCpBidChange(playerKey) {
         getBidInput(playerKey).value = roundState.bids[playerKey];
         return;
     }
+    if (bidsSet[playerKey]) {
+        bidsSet[playerKey] = false;
+    }
     rememberCpValue(playerKey);
     saveGame();
     if (localPlayerKey && bidVisibility[localPlayerKey]) {
@@ -231,6 +361,7 @@ function handleCpBidChange(playerKey) {
             bid: getBidInput(localPlayerKey).value
         });
     }
+    updateBidUI();
 }
 
 function updateRightSidebarUI() {
@@ -1524,6 +1655,7 @@ function hostGameFromLanding() {
     // Default round state
     roundState = CommandTracker.create();
     bidVisibility = { p1: false, p2: false };
+    bidsSet = { p1: false, p2: false };
 
     addOrUpdateActiveGame({
         roomCode: shortId,
@@ -1564,6 +1696,7 @@ function playSoloFromLanding() {
     currentRoomCode = '';
     hasRevealedFirstBids = false;
     bidVisibility = { p1: false, p2: false };
+    bidsSet = { p1: false, p2: false };
 
     const landing = document.getElementById('landing-screen');
     const container = document.getElementById('container');
@@ -1733,6 +1866,9 @@ function joinGame(hostId = null) {
     updateStatus("Connecting...");
     isGuest = true;
     isHost = false;
+    hasRevealedFirstBids = false;
+    bidVisibility = { p1: false, p2: false };
+    bidsSet = { p1: false, p2: false };
     updatePlayerBanner();
     fitTableToScreen();
 
@@ -1881,6 +2017,39 @@ function handleIncomingData(data) {
         const incomingRolls = Array.isArray(data.rolls) ? data.rolls : [];
         renderDiceRoll(incomingRolls.length ? incomingRolls : createPlaceholderRoll(data.count || 2));
     }
+    else if (data.type === 'BID_SET') {
+        bidsSet[data.player] = Boolean(data.isSet);
+        if (data.bid !== undefined && data.bid !== null) {
+            lastKnownCpValues[data.player] = String(data.bid);
+            const input = getBidInput(data.player);
+            if (input && bidVisibility[data.player]) {
+                input.value = data.bid;
+            }
+        }
+        updateBidUI();
+    }
+    else if (data.type === 'REVEAL_BIDS') {
+        bidsSet = { p1: true, p2: true };
+        bidVisibility = { p1: true, p2: true };
+        if (data.player && data.bid !== undefined && data.bid !== null) {
+            const input = getBidInput(data.player);
+            if (input) {
+                input.value = data.bid;
+            }
+            rememberCpValue(data.player);
+        }
+        const localKey = getLocalBidPlayerKey();
+        if (localKey && data.player !== localKey) {
+            sendData({
+                type: 'REVEAL_BIDS',
+                player: localKey,
+                bid: getBidInput(localKey) ? getBidInput(localKey).value : null
+            });
+        }
+        updateBidUI();
+        updateTerrainSectionVisibility();
+        saveGame(true);
+    }
     else if (data.type === 'BID_VISIBILITY') {
         bidVisibility = getNormalizedBidVisibility({
             ...bidVisibility,
@@ -1958,6 +2127,8 @@ function advanceRound() {
         if (roundState.phase === 'complete') {
             pushUndo();
             roundState = CommandTracker.next(roundState);
+            bidVisibility = { p1: false, p2: false };
+            bidsSet = { p1: false, p2: false };
             table.querySelectorAll('.unit:not(.ghost)').forEach(unit => {
                 unit.dataset.activated = 'false';
                 unit.querySelector('.activation-checkbox').checked = false;
@@ -2021,13 +2192,17 @@ function updateRoundUI() {
     document.getElementById('round-title').textContent = state.round ? `Round ${state.round}` : 'Battle setup';
     const status = document.getElementById('round-status');
     if (state.phase === 'commands') {
-        status.textContent = `${state.master.toUpperCase()} is Master Tactician. ${activePlayer.toUpperCase()} may activate or pass.`;
+        const masterName = state.master ? state.master.toUpperCase() : 'P1';
+        const activeName = activePlayer ? activePlayer.toUpperCase() : masterName;
+        status.textContent = `${masterName} is Master Tactician. ${activeName} may activate or pass.`;
     } else if (state.phase === 'complete') {
-        status.textContent = `Round complete. Unspent commands are lost. ${state.master.toUpperCase()} keeps Master Tactician on a tied bid next round.`;
+        const masterName = state.master ? state.master.toUpperCase() : 'P1';
+        status.textContent = `Round complete. Unspent commands are lost. ${masterName} keeps Master Tactician on a tied bid next round.`;
     } else {
+        const masterName = state.master ? state.master.toUpperCase() : (state.firstTie ? state.firstTie.toUpperCase() : 'P2');
         status.textContent = state.phase === 'setup'
             ? 'Deploy armies, set bids, then start round 1.'
-            : `Set and reveal bids. ${state.master.toUpperCase()} keeps Master Tactician on a tie.`;
+            : `Set and reveal bids. ${masterName} keeps Master Tactician on a tie.`;
     }
     const windows = document.getElementById('command-windows');
     windows.replaceChildren();
@@ -2114,7 +2289,8 @@ function getBoardState(options = {}) {
         startingPoolCount: document.getElementById('starting-pool-count').value,
         terrainDeck: [...terrainDeck],
         roundState,
-        bidVisibility: getNormalizedBidVisibility()
+        bidVisibility: getNormalizedBidVisibility(),
+        bidsSet: { ...bidsSet }
     };
 
     if (isNetworkPayload && localPlayerKey) {
@@ -2211,6 +2387,17 @@ function restoreBoardState(jsonString, suppressBroadcast = false) {
             bidVisibility = { p1: legacyVisible, p2: legacyVisible };
         } else {
             bidVisibility = { p1: true, p2: true };
+        }
+        if (state.bidsSet) {
+            bidsSet = {
+                p1: Boolean(state.bidsSet.p1),
+                p2: Boolean(state.bidsSet.p2)
+            };
+        } else {
+            bidsSet = {
+                p1: Boolean(bidVisibility.p1),
+                p2: Boolean(bidVisibility.p2)
+            };
         }
         updateBidUI();
     }
@@ -2507,6 +2694,7 @@ async function resetBoard(createUnits, shouldCreateTerrain = true) {
     document.getElementById('dice-count').value = 2;
     normalizeDiceCount(false);
     bidVisibility = { p1: false, p2: false };
+    bidsSet = { p1: false, p2: false };
     hasRevealedFirstBids = false;
     rememberCpValues();
     updateBidUI();
@@ -3839,6 +4027,11 @@ if (typeof window !== 'undefined') {
     window.updatePlayerBanner = updatePlayerBanner;
     window.updateTerrainSectionVisibility = updateTerrainSectionVisibility;
     window.toggleBidVisibility = toggleBidVisibility;
+    window.toggleSetBid = toggleSetBid;
+    window.setBid = setBid;
+    window.editBid = editBid;
+    window.triggerRevealBids = triggerRevealBids;
+    window.revealBids = revealBids;
     window.handleCpBidChange = handleCpBidChange;
     window.advanceRound = advanceRound;
     window.passCommandWindow = passCommandWindow;
@@ -3868,6 +4061,21 @@ if (typeof window !== 'undefined') {
     window.availableUnitRows = availableUnitRows;
     window.DEFAULT_UNIT_STATS = DEFAULT_UNIT_STATS;
     window.SHEET_URL = SHEET_URL;
+    Object.defineProperty(window, 'roundState', {
+        get: () => roundState,
+        set: (v) => { roundState = v; },
+        configurable: true
+    });
+    Object.defineProperty(window, 'bidsSet', {
+        get: () => bidsSet,
+        set: (v) => { bidsSet = v; },
+        configurable: true
+    });
+    Object.defineProperty(window, 'bidVisibility', {
+        get: () => bidVisibility,
+        set: (v) => { bidVisibility = v; },
+        configurable: true
+    });
 }
 
 initGame();

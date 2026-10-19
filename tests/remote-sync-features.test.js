@@ -150,6 +150,7 @@ test('Remote sync, piece IDs, board flip, and responsive layout features', () =>
         'copy-btn', 'join-input', 'join-btn', 'starting-pool-count', 'round-panel', 'round-title',
         'round-status', 'command-windows', 'command-totals', 'tracker-bids', 'opponent-status',
         'label-p1', 'label-p2', 'cp1', 'cp2', 'subtext-p1', 'subtext-p2', 'toggle-bids-btn',
+        'btn-set-p1', 'btn-set-p2',
         'first-tie-field', 'first-tie-player', 'round-action-btn', 'pass-command-btn',
         'army-assignment', 'army-roster', 'command-feedback', 'fullscreen-btn',
         'matchup-analysis-btn', 'matchup-modal', 'matchup-results', 'rulebook-modal',

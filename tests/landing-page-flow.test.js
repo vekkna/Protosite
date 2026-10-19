@@ -127,6 +127,7 @@ test('Landing page flow, pool config, reset buttons removal, dice location, and 
         'room-code-text', 'copy-room-link-btn', 'network-status', 'exit-game-btn',
         'round-panel', 'round-title', 'round-status', 'command-windows', 'command-totals', 'tracker-bids',
         'opponent-status', 'label-p1', 'label-p2', 'cp1', 'cp2', 'subtext-p1', 'subtext-p2', 'toggle-bids-btn',
+        'btn-set-p1', 'btn-set-p2',
         'first-tie-field', 'first-tie-player', 'round-action-btn', 'pass-command-btn',
         'army-assignment', 'army-roster', 'command-feedback', 'fullscreen-btn',
         'matchup-analysis-btn', 'matchup-modal', 'matchup-results', 'rulebook-modal',
@@ -192,13 +193,17 @@ test('Landing page flow, pool config, reset buttons removal, dice location, and 
 
     const {
         hostGameFromLanding, joinGameFromLanding, playSoloFromLanding,
-        exitToLanding, isBoardFlipped, toggleBidVisibility, updateTerrainSectionVisibility
+        exitToLanding, isBoardFlipped, toggleBidVisibility, updateTerrainSectionVisibility,
+        toggleSetBid, setBid, editBid, triggerRevealBids, advanceRound
     } = global.window;
 
     const landingScreen = elements['landing-screen'];
     const container = elements['container'];
     const roleBadge = elements['player-role-badge'];
     const terrainSection = elements['terrain-section'];
+    const btnSetP1 = elements['btn-set-p1'];
+    const btnSetP2 = elements['btn-set-p2'];
+    const toggleBidsBtn = elements['toggle-bids-btn'];
 
     // 3. Test Host Battle from Landing Page
     hostGameFromLanding();
@@ -227,18 +232,67 @@ test('Landing page flow, pool config, reset buttons removal, dice location, and 
     assert.equal(isBoardFlipped(), true, 'Challenger board must be flipped');
     assert.ok(roleBadge.textContent.includes('Player 2'), 'Role badge must show Player 2');
 
-    // 7. Test Terrain section auto-hide when first bids are revealed
-    // Setup state where bids are not yet revealed
-    elements['cp1'].value = '2';
-    elements['cp2'].value = '2';
+    // 7. Test Start of round hidden bids, Set/Edit, and Reveal Bids workflow
     exitToLanding();
     playSoloFromLanding();
 
-    // Before revealing bids, terrain section should be visible
-    updateTerrainSectionVisibility();
-    assert.notEqual(terrainSection.style.display, 'none', 'Terrain deck should be visible before first bids are revealed');
+    // Initial state: both bids hidden and unset, Reveal Bids disabled
+    assert.equal(btnSetP1.textContent, 'Set', 'P1 button should initially be Set');
+    assert.equal(btnSetP2.textContent, 'Set', 'P2 button should initially be Set');
+    assert.equal(toggleBidsBtn.disabled, true, 'Reveal Bids should be disabled when bids are not both set');
+    assert.equal(toggleBidsBtn.innerText, 'Reveal Bids', 'Reveal Bids button text');
 
-    // Reveal bids
-    toggleBidVisibility();
+    // Change and Set P1 bid
+    elements['cp1'].value = '3';
+    toggleSetBid('p1');
+    assert.equal(btnSetP1.textContent, 'Edit', 'P1 button should switch to Edit once set');
+    assert.equal(elements['cp1'].readOnly, true, 'P1 input should be readOnly while set');
+    assert.equal(toggleBidsBtn.disabled, true, 'Reveal Bids must remain disabled when only P1 has set');
+
+    // Unlock and edit P1 bid
+    toggleSetBid('p1');
+    assert.equal(btnSetP1.textContent, 'Set', 'P1 button should switch back to Set when editing');
+    assert.equal(elements['cp1'].readOnly, false, 'P1 input should become editable when editing');
+    elements['cp1'].value = '4';
+    toggleSetBid('p1');
+    assert.equal(btnSetP1.textContent, 'Edit', 'P1 button should switch to Edit');
+
+    // Change and Set P2 bid
+    elements['cp2'].value = '2';
+    toggleSetBid('p2');
+    assert.equal(btnSetP2.textContent, 'Edit', 'P2 button should switch to Edit');
+    assert.equal(elements['cp2'].readOnly, true, 'P2 input should be readOnly while set');
+
+    // Both are set: Reveal Bids is enabled
+    assert.equal(toggleBidsBtn.disabled, false, 'Reveal Bids should become enabled when both bids are set');
+    assert.ok(toggleBidsBtn.className.includes('btn-gold'), 'Reveal Bids button should have btn-gold class when ready');
+
+    // Terrain section before reveal should be visible
+    updateTerrainSectionVisibility();
+    assert.notEqual(terrainSection.style.display, 'none', 'Terrain deck should be visible before bids are revealed');
+
+    // Trigger Reveal Bids
+    triggerRevealBids();
+    assert.equal(toggleBidsBtn.innerText, 'Bids Revealed', 'Button should indicate bids are revealed');
     assert.equal(terrainSection.style.display, 'none', 'Terrain deck must hide as soon as bids are revealed');
+
+    // Test round advance resets bids to hidden and unset
+    // Set round complete and advance
+    const currentRoundState = global.window.roundState || {};
+    currentRoundState.phase = 'complete';
+    currentRoundState.round = 1;
+    currentRoundState.master = 'p2';
+    currentRoundState.firstTie = 'p2';
+    currentRoundState.remaining = { p1: 0, p2: 0 };
+    currentRoundState.army = { p1: 4, p2: 4 };
+    currentRoundState.bids = { p1: 4, p2: 2 };
+    advanceRound();
+
+    // After advancing round, both bids must be hidden and unset, Reveal Bids disabled again
+    assert.equal(toggleBidsBtn.disabled, true, 'Reveal Bids must be disabled at the start of the next round');
+    assert.equal(toggleBidsBtn.innerText, 'Reveal Bids', 'Reveal Bids button text should reset');
+    assert.equal(btnSetP1.textContent, 'Set', 'P1 button should reset to Set for the new round');
+    assert.equal(btnSetP2.textContent, 'Set', 'P2 button should reset to Set for the new round');
+    assert.equal(elements['cp1'].readOnly, false, 'P1 input should be editable at start of new round');
+    assert.equal(elements['cp2'].readOnly, false, 'P2 input should be editable at start of new round');
 });
