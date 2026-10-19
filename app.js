@@ -374,11 +374,12 @@ function updateRightSidebarUI() {
 
     rightSidebar.classList.toggle('sidebar-hidden', isRightSidebarHidden);
     const span = toggleBtn.querySelector('span');
-    if (span) span.innerText = isRightSidebarHidden ? '<' : '>';
+    if (span) span.innerText = isRightSidebarHidden ? '«' : '»';
     toggleBtn.setAttribute('aria-expanded', String(!isRightSidebarHidden));
     toggleBtn.setAttribute('aria-label', isRightSidebarHidden ? 'Show right sidebar' : 'Hide right sidebar');
     toggleBtn.title = isRightSidebarHidden ? 'Show right sidebar' : 'Hide right sidebar';
-    toggleBtn.style.right = isRightSidebarHidden ? '0px' : `${rightSidebar.offsetWidth}px`;
+    const offset = isRightSidebarHidden ? 0 : (rightSidebar.offsetWidth || 220);
+    toggleBtn.style.right = `${offset}px`;
 
     requestAnimationFrame(() => {
         fitTableToScreen();
@@ -1535,6 +1536,8 @@ function updatePlayerBanner() {
     const badge = document.getElementById('player-role-badge');
     const roomText = document.getElementById('room-code-text');
     const statusText = document.getElementById('network-status');
+    const toggleCodeBtn = document.getElementById('toggle-room-code-btn');
+    const copyLinkBtn = document.getElementById('copy-room-link-btn');
 
     if (!badge || !roomText || !statusText) return;
 
@@ -1542,6 +1545,8 @@ function updatePlayerBanner() {
         badge.textContent = 'Player 1 (Host)';
         badge.className = 'player-role-badge badge-p1';
         roomText.textContent = `Code: ${currentRoomCode || '----'}`;
+        if (toggleCodeBtn) toggleCodeBtn.style.display = '';
+        if (copyLinkBtn) copyLinkBtn.style.display = '';
         if (conn && conn.open) {
             statusText.textContent = 'Opponent Connected ✓';
             statusText.className = 'network-status is-connected';
@@ -1553,6 +1558,8 @@ function updatePlayerBanner() {
         badge.textContent = 'Player 2 (Challenger)';
         badge.className = 'player-role-badge badge-p2';
         roomText.textContent = `Room: ${currentRoomCode || '----'}`;
+        if (toggleCodeBtn) toggleCodeBtn.style.display = '';
+        if (copyLinkBtn) copyLinkBtn.style.display = '';
         if (conn && conn.open) {
             statusText.textContent = 'Connected to Host ✓';
             statusText.className = 'network-status is-connected';
@@ -1563,9 +1570,11 @@ function updatePlayerBanner() {
     } else {
         badge.textContent = 'Local Sandbox';
         badge.className = 'player-role-badge';
-        roomText.textContent = 'Local Game';
-        statusText.textContent = 'Pass & Play Sandbox';
+        roomText.textContent = 'Solo Sandbox';
+        statusText.textContent = 'Pass & Play on this device';
         statusText.className = 'network-status';
+        if (toggleCodeBtn) toggleCodeBtn.style.display = 'none';
+        if (copyLinkBtn) copyLinkBtn.style.display = 'none';
     }
 }
 
@@ -1659,6 +1668,11 @@ function hostGameFromLanding() {
     roundState = CommandTracker.create();
     bidVisibility = { p1: false, p2: false };
     bidsSet = { p1: false, p2: false };
+    const cp1Input = document.getElementById('cp1');
+    const cp2Input = document.getElementById('cp2');
+    if (cp1Input) { cp1Input.value = 1; cp1Input.readOnly = false; }
+    if (cp2Input) { cp2Input.value = 1; cp2Input.readOnly = false; }
+    rememberCpValues();
 
     addOrUpdateActiveGame({
         roomCode: shortId,
@@ -1674,6 +1688,7 @@ function hostGameFromLanding() {
     updateRoomCodeVisibility();
     updateBidUI();
     updateRoundUI();
+    updateRightSidebarUI();
     fitTableToScreen();
     fitAllUnitLabels();
 
@@ -1706,12 +1721,58 @@ function playSoloFromLanding() {
     if (landing) landing.style.display = 'none';
     if (container) container.style.display = 'flex';
 
+    if (conn) {
+        try { conn.close(); } catch (e) {}
+        conn = null;
+    }
+    if (peer) {
+        try { peer.destroy(); } catch (e) {}
+        peer = null;
+    }
+
+    // Reset battlefield board
+    if (table && table.querySelectorAll) {
+        table.querySelectorAll('.unit, .terrain, .ghost, .range-ring, .command-token-table').forEach(p => p.remove());
+    }
+    undoStack.length = 0;
+    hoveredUnit = null;
+    hoveredTerrain = null;
+    activePiece = null;
+    ghostPiece = null;
+    activePointerId = null;
+    pendingDragPiece = null;
+    isDraggingPiece = false;
+    clearPieceSelection();
+    removeRangeRing();
+    hideUnitTooltip();
+
+    // Spawn starting units from pool
+    createDefaultUnits();
+
+    // Shuffled terrain deck
+    cancelTerrainCardAnimation();
+    terrainDeck = createShuffledTerrainDeck();
+    renderTerrainCard();
+
+    // Fresh setup state
+    roundState = CommandTracker.create();
+    const soloCp1 = document.getElementById('cp1');
+    const soloCp2 = document.getElementById('cp2');
+    if (soloCp1) { soloCp1.value = 1; soloCp1.readOnly = false; }
+    if (soloCp2) { soloCp2.value = 1; soloCp2.readOnly = false; }
+    rememberCpValues();
+
+    saveGame(true);
+
     updatePlayerBanner();
     updateRoomCodeVisibility();
     updateBidUI();
     updateRoundUI();
+    updateRightSidebarUI();
     fitTableToScreen();
     fitAllUnitLabels();
+
+    loadStats().catch(err => console.warn('Background stats refresh:', err));
 }
 
 function resumeGame(roomCode) {
@@ -2232,8 +2293,18 @@ function updateRoundUI() {
     }
     const action = document.getElementById('round-action-btn');
     action.hidden = state.phase === 'commands';
-    action.textContent = state.phase === 'setup' ? 'Start round 1'
-        : state.phase === 'complete' ? `Next round (${state.round + 1})` : 'Resolve bids & start commands';
+    if (isAssigning) {
+        const areBidsRevealed = Boolean(bidVisibility && bidVisibility.p1 && bidVisibility.p2);
+        action.disabled = !areBidsRevealed;
+        action.textContent = state.phase === 'setup' ? 'Start round 1' : 'Resolve bids & start commands';
+        action.title = areBidsRevealed ? 'Start round commands' : 'Both bids must be set and revealed before starting round';
+    } else if (state.phase === 'complete') {
+        action.disabled = false;
+        action.textContent = `Next round (${state.round + 1})`;
+        action.title = 'Proceed to next round';
+    } else {
+        action.disabled = false;
+    }
     const pass = document.getElementById('pass-command-btn');
     pass.hidden = state.phase !== 'commands';
     pass.disabled = Boolean(localPlayer && localPlayer !== activePlayer);
@@ -2763,6 +2834,14 @@ function normalizeStartingPoolCount(shouldSave = true) {
     input.value = safeValue;
     if (shouldSave) saveGame();
     return safeValue;
+}
+
+function adjustPoolCount(delta) {
+    const current = normalizeStartingPoolCount(false);
+    const input = document.getElementById('starting-pool-count');
+    if (!input) return;
+    input.value = Math.min(40, Math.max(2, current + delta));
+    normalizeStartingPoolCount();
 }
 
 function setDiceFaces(rolls, rolling = false) {
@@ -4012,12 +4091,17 @@ initGame = async function () {
     updatePlayerBanner();
     updateRoomCodeVisibility();
     updateBidUI();
+    updateRightSidebarUI();
     fitTableToScreen();
     fitAllUnitLabels();
+    if (typeof window !== 'undefined' && window.addEventListener) {
+        window.addEventListener('resize', updateRightSidebarUI);
+    }
     // Second call to ensure layout is settled
     setTimeout(() => {
         fitTableToScreen();
         fitAllUnitLabels();
+        updateRightSidebarUI();
     }, 100);
 };
 
@@ -4045,6 +4129,8 @@ if (typeof window !== 'undefined') {
     window.passCommandWindow = passCommandWindow;
     window.loadActiveGamesList = loadActiveGamesList;
     window.saveActiveGamesList = saveActiveGamesList;
+    window.adjustPoolCount = adjustPoolCount;
+    window.updateRightSidebarUI = updateRightSidebarUI;
     window.isBoardFlipped = isBoardFlipped;
     window.fitTableToScreen = fitTableToScreen;
     window.getTablePointerPosition = getTablePointerPosition;

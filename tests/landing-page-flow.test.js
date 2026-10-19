@@ -295,4 +295,11 @@ test('Landing page flow, pool config, reset buttons removal, dice location, and 
     assert.equal(btnSetP2.textContent, 'Set', 'P2 button should reset to Set for the new round');
     assert.equal(elements['cp1'].readOnly, false, 'P1 input should be editable at start of new round');
     assert.equal(elements['cp2'].readOnly, false, 'P2 input should be editable at start of new round');
+
+    // 8. Test adjustPoolCount helper
+    assert.equal(typeof global.window.adjustPoolCount, 'function');
+    global.window.adjustPoolCount(2);
+    assert.equal(elements['starting-pool-count'].value, 14);
+    global.window.adjustPoolCount(-4);
+    assert.equal(elements['starting-pool-count'].value, 10);
 });

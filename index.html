@@ -25,8 +25,14 @@
                     <p>Create a game room and get a 4-letter code to share with your opponent.</p>
                     <div class="dice-count-field pool-count-field landing-pool-config">
                         <label for="starting-pool-count">Starting Pool Units</label>
-                        <input type="number" id="starting-pool-count" value="12" min="2" step="2"
-                            onchange="normalizeStartingPoolCount()">
+                        <div class="dice-count-adjuster pool-adjuster">
+                            <button type="button" class="btn-grey dice-step-button" onclick="adjustPoolCount(-2)"
+                                aria-label="Decrease pool units">&minus;</button>
+                            <input type="number" id="starting-pool-count" value="12" min="2" max="40" step="2"
+                                onchange="normalizeStartingPoolCount()">
+                            <button type="button" class="btn-grey dice-step-button" onclick="adjustPoolCount(2)"
+                                aria-label="Increase pool units">+</button>
+                        </div>
                     </div>
                     <button id="landing-host-btn" class="btn-blue landing-action-btn" onclick="hostGameFromLanding()">Host New Game</button>
                 </div>
@@ -124,11 +130,12 @@
                 </details>
                 <p id="command-feedback" role="alert"></p>
             </section>
-            <span class="sidebar-kicker">Battle Tools</span>
-            <h3 style="margin-top:20px">Tools</h3>
-            <button id="fullscreen-btn" type="button" class="btn-grey" onclick="toggleFullscreen()">Full Screen</button>
-            <button id="matchup-analysis-btn" type="button" class="btn-blue" onclick="openMatchupAnalysis()"
-                aria-haspopup="dialog" aria-controls="matchup-modal">Matchup Analysis</button>
+            <span class="sidebar-kicker" style="margin-top: 14px;">Battle Tools</span>
+            <div class="tools-btn-grid">
+                <button id="fullscreen-btn" type="button" class="btn-grey btn-sm" onclick="toggleFullscreen()">Full Screen</button>
+                <button id="matchup-analysis-btn" type="button" class="btn-blue btn-sm" onclick="openMatchupAnalysis()"
+                    aria-haspopup="dialog" aria-controls="matchup-modal">Matchups</button>
+            </div>
         </div>
         <div id="table-container">
             <div id="game-table">
@@ -156,9 +163,11 @@
             <span class="sidebar-kicker">Battlefield Dressing</span>
             <div class="stats-panel-header">
                 <h3>How to Play</h3>
-                <button id="controls-help-btn" type="button" class="btn-grey" onclick="openControlsHelp()"
-                    aria-haspopup="dialog" aria-controls="controls-modal">Controls</button>
-                <button class="btn-grey" onclick="openRulebook()">Rulebook</button>
+                <div class="how-to-play-grid">
+                    <button id="controls-help-btn" type="button" class="btn-grey btn-sm" onclick="openControlsHelp()"
+                        aria-haspopup="dialog" aria-controls="controls-modal">Controls</button>
+                    <button type="button" class="btn-grey btn-sm" onclick="openRulebook()">Rulebook</button>
+                </div>
             </div>
             <div id="terrain-section">
                 <h3 style="margin-top:10px">Terrain</h3>
@@ -178,10 +187,10 @@
                         <label for="dice-count">Number of d6</label>
                         <div class="dice-count-adjuster">
                             <button type="button" class="btn-grey dice-step-button" onclick="adjustDiceCount(-1)"
-                                aria-label="Decrease number of dice">&#9660;</button>
+                                aria-label="Decrease number of dice">&minus;</button>
                             <input type="number" id="dice-count" value="2" min="1" max="20" onchange="normalizeDiceCount()">
                             <button type="button" class="btn-grey dice-step-button" onclick="adjustDiceCount(1)"
-                                aria-label="Increase number of dice">&#9650;</button>
+                                aria-label="Increase number of dice">+</button>
                         </div>
                     </div>
                     <button id="dice-btn" class="btn-red" onclick="rollDice()">Roll</button>

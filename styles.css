@@ -346,31 +346,50 @@ p {
 
 #right-sidebar-toggle {
     position: absolute;
-    top: 50%;
+    top: 18px;
     right: 0;
-    transform: translateY(-50%);
-    width: 42px;
-    height: 72px;
+    width: 32px;
+    height: 48px;
     padding: 0;
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    border-radius: 16px 0 0 16px;
+    border-radius: 12px 0 0 12px;
     border: 1px solid rgba(216, 179, 109, 0.32);
     border-right: none;
     background: linear-gradient(180deg, rgba(78, 59, 39, 0.96), rgba(32, 23, 17, 0.98));
-    color: var(--ink-main);
+    color: var(--gold);
     font-family: var(--font-display);
-    font-size: 1.05rem;
+    font-size: 1.15rem;
+    font-weight: 700;
     letter-spacing: 0;
-    box-shadow: 0 16px 30px rgba(0, 0, 0, 0.28), inset 0 1px 0 rgba(255, 255, 255, 0.08);
-    z-index: 3;
-    transition: right 0.22s ease, transform 0.12s ease, filter 0.12s ease, box-shadow 0.12s ease;
+    box-shadow: -4px 8px 20px rgba(0, 0, 0, 0.32), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+    z-index: 10;
+    cursor: pointer;
+    transition: right 0.22s ease, background 0.15s ease, color 0.15s ease, box-shadow 0.15s ease;
+}
+
+#right-sidebar-toggle:hover {
+    background: linear-gradient(180deg, rgba(98, 75, 50, 0.98), rgba(42, 30, 22, 1));
+    color: #fff;
+    box-shadow: -6px 12px 24px rgba(0, 0, 0, 0.45);
 }
 
 #right-sidebar-toggle span {
     display: block;
     line-height: 1;
+}
+
+.how-to-play-grid,
+.tools-btn-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+}
+
+.how-to-play-grid button,
+.tools-btn-grid button {
+    width: 100% !important;
 }
 
 .sidebar::before {
@@ -884,10 +903,12 @@ input::placeholder {
     transition: all 0.2s ease;
 }
 
-#toggle-bids-btn:disabled {
+#toggle-bids-btn:disabled,
+#round-action-btn:disabled {
     opacity: 0.45;
     cursor: not-allowed;
     filter: grayscale(40%);
+    box-shadow: none;
 }
 
 /* --- CONNECTION STATUS --- */
@@ -965,22 +986,24 @@ input::placeholder {
 #dice-count,
 #starting-pool-count {
     width: 100%;
-    padding: 10px 12px;
+    padding: 8px 10px;
     border-radius: 12px;
     border: 1px solid rgba(216, 179, 109, 0.26);
     background: rgba(13, 11, 9, 0.85);
     color: var(--ink-main);
     font: inherit;
-}
-
-#dice-count {
+    text-align: center;
+    font-size: 1.15rem;
+    font-weight: 700;
     min-width: 0;
     appearance: textfield;
     -moz-appearance: textfield;
 }
 
 #dice-count::-webkit-outer-spin-button,
-#dice-count::-webkit-inner-spin-button {
+#dice-count::-webkit-inner-spin-button,
+#starting-pool-count::-webkit-outer-spin-button,
+#starting-pool-count::-webkit-inner-spin-button {
     margin: 0;
     appearance: none;
     -webkit-appearance: none;
