@@ -93,8 +93,8 @@ function rememberCpValues() {
 
 function getNormalizedBidVisibility(nextVisibility = bidVisibility) {
     return {
-        p1: nextVisibility && nextVisibility.p1 === false ? false : true,
-        p2: nextVisibility && nextVisibility.p2 === false ? false : true
+        p1: Boolean(nextVisibility && nextVisibility.p1 === true),
+        p2: Boolean(nextVisibility && nextVisibility.p2 === true)
     };
 }
 
@@ -231,10 +231,13 @@ function updateBidUI() {
         if (setBtn) {
             if (areBothRevealed || ['commands', 'complete'].includes(roundState.phase)) {
                 setBtn.style.display = 'none';
+                setBtn.classList.remove('is-hidden');
             } else if (isMultiplayer && !isOwnBid) {
                 setBtn.style.display = 'none';
+                setBtn.classList.add('is-hidden');
             } else {
-                setBtn.style.display = '';
+                setBtn.style.display = 'block';
+                setBtn.classList.remove('is-hidden');
                 setBtn.textContent = isSet ? 'Edit' : 'Set';
                 setBtn.className = isSet ? 'btn-grey btn-sm bid-set-btn' : 'btn-blue btn-sm bid-set-btn';
                 setBtn.title = isSet ? 'Edit your bid' : 'Lock in your bid';
@@ -2386,17 +2389,22 @@ function restoreBoardState(jsonString, suppressBroadcast = false) {
             const legacyVisible = state.bidsHidden !== true;
             bidVisibility = { p1: legacyVisible, p2: legacyVisible };
         } else {
-            bidVisibility = { p1: true, p2: true };
+            bidVisibility = { p1: false, p2: false };
         }
-        if (state.bidsSet) {
+        if (bidOwner && state.bidsSet) {
+            bidsSet = {
+                ...bidsSet,
+                [bidOwner]: Boolean(state.bidsSet[bidOwner])
+            };
+        } else if (state.bidsSet) {
             bidsSet = {
                 p1: Boolean(state.bidsSet.p1),
                 p2: Boolean(state.bidsSet.p2)
             };
         } else {
             bidsSet = {
-                p1: Boolean(bidVisibility.p1),
-                p2: Boolean(bidVisibility.p2)
+                p1: false,
+                p2: false
             };
         }
         updateBidUI();

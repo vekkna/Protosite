@@ -713,10 +713,11 @@ input::placeholder {
 .cp-field {
     position: relative;
     flex: 1;
+    min-width: 0;
     display: flex;
     flex-direction: column;
-    align-items: center;
-    gap: 4px;
+    align-items: stretch;
+    gap: 5px;
 }
 
 .cp-label {
@@ -724,42 +725,53 @@ input::placeholder {
     color: var(--ink-muted);
     letter-spacing: 0.08em;
     text-transform: uppercase;
+    min-height: 28px;
+    display: flex;
+    align-items: flex-end;
+    justify-content: center;
+    text-align: center;
+    line-height: 1.2;
 }
 
 .cp-field input {
     transition: border-color 0.16s ease, box-shadow 0.16s ease, color 0.16s ease;
 }
 
-.bid-input-wrap {
-    position: relative;
-    display: flex;
-    align-items: center;
-    gap: 5px;
-    width: 100%;
-}
-
 .bid-input-box {
     position: relative;
-    flex: 1;
-    min-width: 0;
+    width: 100%;
 }
 
 .bid-input-box input {
     width: 100%;
+    height: 38px;
     text-align: center;
-    padding: 8px 6px;
-    font-size: 0.95rem;
+    padding: 6px 8px;
+    font-size: 1.15rem;
+    font-weight: 600;
+    box-sizing: border-box;
 }
 
+.sidebar .bid-set-btn,
 .bid-set-btn {
-    padding: 6px 10px;
-    font-size: 0.72rem;
-    height: 38px;
-    line-height: 1;
+    width: 100% !important;
+    height: 32px;
+    min-height: 32px;
+    padding: 0 10px;
+    font-size: 0.78rem;
+    font-weight: 600;
+    line-height: 32px;
     white-space: nowrap;
     border-radius: 8px;
     cursor: pointer;
-    flex-shrink: 0;
+    box-sizing: border-box;
+    display: block;
+    margin: 0;
+}
+
+.bid-set-btn.is-hidden {
+    visibility: hidden !important;
+    pointer-events: none !important;
 }
 
 .cp-field.bid-hidden .bid-input-box input,

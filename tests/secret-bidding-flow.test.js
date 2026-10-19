@@ -286,4 +286,14 @@ test('Secret bidding flow: hidden at start, change and set, mutual reveal, and n
     assert.equal(cp2.value, '3', 'Opponent bid value revealed in input');
     assert.equal(fieldP2.classList.contains('bid-hidden'), false);
     assert.equal(toggleBidsBtn.innerText, 'Bids Revealed');
+
+    // --- TEST 3: Structural verification and restoreBoardState defaults ---
+    const htmlContent = fs.readFileSync(path.join(__dirname, '../index.html'), 'utf8');
+    assert.ok(!htmlContent.includes('bid-input-wrap'), 'Obsolete horizontal flex wrapper bid-input-wrap must be removed');
+    assert.ok(htmlContent.includes('class="bid-input-box"'), 'bid-input-box must wrap input directly');
+
+    // Verify restoreBoardState defaults bids to false when uninitialized
+    global.window.restoreBoardState(JSON.stringify({ pieces: [] }), true);
+    assert.equal(global.window.bidVisibility.p1, false, 'Uninitialized restoreBoardState must default p1 to hidden');
+    assert.equal(global.window.bidVisibility.p2, false, 'Uninitialized restoreBoardState must default p2 to hidden');
 });
