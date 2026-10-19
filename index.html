@@ -12,7 +12,7 @@
 
 <body>
     <div id="container">
-        <div class="sidebar">
+        <div id="left-sidebar" class="sidebar">
             <section id="setup-section" aria-label="Game setup and multiplayer">
                 <div class="section-header">
                     <button id="multiplayer-toggle" type="button" class="btn-grey section-toggle"
@@ -100,6 +100,7 @@
             <div id="game-table">
                 <div id="unit-tooltip" aria-hidden="true"></div>
                 <div id="angle-indicator" aria-hidden="true"></div>
+                <div id="remote-angle-indicator" class="angle-indicator remote" aria-hidden="true"></div>
                 <div id="piece-controls" role="toolbar" aria-label="Selected piece controls" aria-hidden="true">
                     <div class="piece-control-row">
                         <button type="button" class="btn-grey" data-rotate-step="-5"
@@ -112,6 +113,8 @@
                 <svg id="ui-layer">
                     <line id="measure-line" x1="0" y1="0" x2="0" y2="0" />
                     <text id="measure-text" x="0" y="0">0"</text>
+                    <line id="remote-measure-line" x1="0" y1="0" x2="0" y2="0" />
+                    <text id="remote-measure-text" x="0" y="0">0"</text>
                 </svg>
             </div>
         </div>

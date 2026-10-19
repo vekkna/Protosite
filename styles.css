@@ -335,6 +335,11 @@ p {
     scrollbar-color: rgba(216, 179, 109, 0.4) transparent;
 }
 
+#left-sidebar {
+    width: 260px;
+    min-width: 250px;
+}
+
 .sidebar-hidden {
     display: none;
 }
@@ -1107,9 +1112,25 @@ input::placeholder {
     pointer-events: auto;
 }
 
-.piece.is-dragging .rotation-handle {
+.piece.is-dragging .rotation-handle,
+.piece.is-remote-moving .rotation-handle {
     opacity: 0;
     pointer-events: none;
+}
+
+.piece.is-remote-moving {
+    z-index: 20 !important;
+    box-shadow: 0 0 16px rgba(216, 179, 109, 0.85), 0 10px 22px rgba(0, 0, 0, 0.5) !important;
+    border-color: var(--gold) !important;
+    transition: none !important;
+    pointer-events: none;
+}
+
+.piece.is-remote-rotating {
+    z-index: 20 !important;
+    box-shadow: 0 0 16px rgba(216, 179, 109, 0.85), 0 10px 22px rgba(0, 0, 0, 0.5) !important;
+    border-color: var(--gold) !important;
+    transition: none !important;
 }
 
 .rotation-handle:hover,
@@ -1350,7 +1371,8 @@ input::placeholder {
     z-index: 20;
 }
 
-#measure-line {
+#measure-line,
+#remote-measure-line {
     stroke: #f3cf7f;
     stroke-width: 4;
     stroke-dasharray: 12, 6;
@@ -1358,7 +1380,12 @@ input::placeholder {
     filter: drop-shadow(0 0 5px rgba(0, 0, 0, 0.75));
 }
 
-#measure-text {
+#remote-measure-line {
+    stroke: #e6b761;
+}
+
+#measure-text,
+#remote-measure-text {
     font-size: 20px;
     font-weight: bold;
     fill: #ffe2a1;
@@ -1369,7 +1396,8 @@ input::placeholder {
     stroke-width: 2px;
 }
 
-#angle-indicator {
+#angle-indicator,
+#remote-angle-indicator {
     position: absolute;
     min-width: 58px;
     padding: 6px 10px;
@@ -1389,7 +1417,8 @@ input::placeholder {
     box-shadow: 0 12px 22px rgba(0, 0, 0, 0.28);
 }
 
-#angle-indicator.visible {
+#angle-indicator.visible,
+#remote-angle-indicator.visible {
     opacity: 1;
 }
 
@@ -1688,6 +1717,24 @@ input::placeholder {
     padding: 5px;
 }
 
+/* Flipped board perspective for Challenger (Player 2) */
+#game-table.is-flipped #piece-controls {
+    transform: translateX(-50%) rotate(180deg);
+}
+
+#game-table.is-flipped #angle-indicator,
+#game-table.is-flipped #remote-angle-indicator {
+    transform: translate(-50%, -50%) rotate(180deg);
+}
+
+#game-table.is-flipped #unit-tooltip {
+    transform: translateY(8px) scale(0.97) rotate(180deg);
+}
+
+#game-table.is-flipped #unit-tooltip.visible {
+    transform: translateY(0) scale(1) rotate(180deg);
+}
+
 .controls-modal-content {
     width: 430px;
     max-width: 100%;
@@ -1774,6 +1821,7 @@ input::placeholder {
         flex-direction: column;
     }
 
+    #left-sidebar,
     .sidebar {
         width: 100%;
         height: auto;

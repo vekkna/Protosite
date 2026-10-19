@@ -234,7 +234,8 @@ function updateRightSidebarUI() {
     if (!rightSidebar || !toggleBtn) return;
 
     rightSidebar.classList.toggle('sidebar-hidden', isRightSidebarHidden);
-    toggleBtn.querySelector('span').innerText = isRightSidebarHidden ? '<' : '>';
+    const span = toggleBtn.querySelector('span');
+    if (span) span.innerText = isRightSidebarHidden ? '<' : '>';
     toggleBtn.setAttribute('aria-expanded', String(!isRightSidebarHidden));
     toggleBtn.setAttribute('aria-label', isRightSidebarHidden ? 'Show right sidebar' : 'Hide right sidebar');
     toggleBtn.title = isRightSidebarHidden ? 'Show right sidebar' : 'Hide right sidebar';
@@ -291,7 +292,7 @@ function updateFullscreenUI() {
     const button = document.getElementById('fullscreen-btn');
     if (!button) return;
 
-    const root = document.documentElement;
+    const root = document.documentElement || {};
     const supported = Boolean(root.requestFullscreen || root.webkitRequestFullscreen);
     const isFullscreen = Boolean(getFullscreenElement());
     button.disabled = !supported;
@@ -302,7 +303,7 @@ function updateFullscreenUI() {
 }
 
 async function toggleFullscreen() {
-    const root = document.documentElement;
+    const root = document.documentElement || {};
     try {
         if (getFullscreenElement()) {
             if (document.exitFullscreen) {
@@ -358,6 +359,170 @@ table.style.height = `${tableHeightPx}px`;
 let peer = null;
 let conn = null;
 let isHost = false;
+let isGuest = false;
+
+function isBoardFlipped() {
+    return Boolean(isGuest || (conn && !isHost));
+}
+
+let lastPieceMoveSendTime = 0;
+let pendingPieceMoveData = null;
+let pieceMoveBroadcastTimer = null;
+let remoteGhostPiece = null;
+let remoteAngleIndicatorTimer = null;
+let lastPieceRotateSendTime = 0;
+let pendingPieceRotateData = null;
+let pieceRotateBroadcastTimer = null;
+
+function getPieceId(piece) {
+    if (!piece) return null;
+    if (piece.dataset && piece.dataset.unitId) return piece.dataset.unitId;
+    if (piece.dataset && piece.dataset.pieceId) return piece.dataset.pieceId;
+    if (piece.dataset) {
+        piece.dataset.pieceId = 'p_' + Math.random().toString(36).slice(2, 9);
+        return piece.dataset.pieceId;
+    }
+    return null;
+}
+
+function findPieceById(pieceId) {
+    if (!pieceId || !table) return null;
+    const pieces = table.querySelectorAll ? table.querySelectorAll('.piece') : [];
+    for (let i = 0; i < pieces.length; i++) {
+        const p = pieces[i];
+        if (p.classList && p.classList.contains('ghost')) continue;
+        if (p.dataset && (p.dataset.unitId === pieceId || p.dataset.pieceId === pieceId)) {
+            return p;
+        }
+    }
+    return null;
+}
+
+function showRemoteLine(x1, y1, x2, y2) {
+    const line = document.getElementById('remote-measure-line') || lineElement;
+    const text = document.getElementById('remote-measure-text') || measureTextElement;
+    if (!line || !text) return;
+
+    line.style.opacity = 1;
+    text.style.opacity = 1;
+    line.setAttribute('x1', x1);
+    line.setAttribute('y1', y1);
+    line.setAttribute('x2', x2);
+    line.setAttribute('y2', y2);
+
+    const dx = x2 - x1;
+    const dy = y2 - y1;
+    const distancePx = Math.sqrt(dx * dx + dy * dy);
+    text.textContent = `${pxToInches(distancePx)}"`;
+
+    const textX = x1 + (dx / 2) + 10;
+    const textY = y1 + (dy / 2) - 10;
+    text.setAttribute('x', textX);
+    text.setAttribute('y', textY);
+
+    if (isBoardFlipped()) {
+        text.setAttribute('transform', `rotate(180, ${textX}, ${textY})`);
+    } else if (text.removeAttribute) {
+        text.removeAttribute('transform');
+    }
+}
+
+function hideRemoteLine() {
+    const line = document.getElementById('remote-measure-line');
+    const text = document.getElementById('remote-measure-text');
+    if (line) line.style.opacity = 0;
+    if (text) text.style.opacity = 0;
+    if (remoteGhostPiece) {
+        remoteGhostPiece.remove();
+        remoteGhostPiece = null;
+    }
+}
+
+function showRemoteAngleIndicator(piece, angleDelta) {
+    const indicator = document.getElementById('remote-angle-indicator') || document.getElementById('angle-indicator');
+    if (!indicator || !piece) return;
+
+    const normalizedAngle = normalizeAngle(angleDelta);
+    const left = (parseFloat(piece.style.left) || 0) + (piece.offsetWidth / 2);
+    const top = (parseFloat(piece.style.top) || 0) - 18;
+
+    indicator.innerText = `${normalizedAngle > 0 ? '+' : ''}${normalizedAngle.toFixed(0)}°`;
+    indicator.style.left = `${left}px`;
+    indicator.style.top = `${Math.max(20, top)}px`;
+    indicator.setAttribute('aria-hidden', 'false');
+    indicator.classList.add('visible');
+
+    if (remoteAngleIndicatorTimer) {
+        clearTimeout(remoteAngleIndicatorTimer);
+    }
+
+    remoteAngleIndicatorTimer = setTimeout(() => {
+        indicator.classList.remove('visible');
+        indicator.setAttribute('aria-hidden', 'true');
+    }, 700);
+}
+
+function broadcastPieceMoveThrottled(piece, x, y, anchorX, anchorY, targetX, targetY) {
+    const pieceId = getPieceId(piece);
+    if (!pieceId) return;
+
+    pendingPieceMoveData = {
+        type: 'PIECE_DRAG_MOVE',
+        pieceId: pieceId,
+        x: Math.round(x),
+        y: Math.round(y),
+        anchorX: Math.round(anchorX ?? x),
+        anchorY: Math.round(anchorY ?? y),
+        targetX: Math.round(targetX ?? x),
+        targetY: Math.round(targetY ?? y)
+    };
+
+    const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
+    const elapsed = now - lastPieceMoveSendTime;
+    if (elapsed >= 25) {
+        lastPieceMoveSendTime = now;
+        sendData(pendingPieceMoveData);
+        pendingPieceMoveData = null;
+    } else if (!pieceMoveBroadcastTimer) {
+        pieceMoveBroadcastTimer = setTimeout(() => {
+            pieceMoveBroadcastTimer = null;
+            if (pendingPieceMoveData) {
+                lastPieceMoveSendTime = typeof performance !== 'undefined' ? performance.now() : Date.now();
+                sendData(pendingPieceMoveData);
+                pendingPieceMoveData = null;
+            }
+        }, 25 - elapsed);
+    }
+}
+
+function broadcastPieceRotateThrottled(piece, angle, delta = 0) {
+    const pieceId = getPieceId(piece);
+    if (!pieceId) return;
+
+    pendingPieceRotateData = {
+        type: 'PIECE_ROTATE',
+        pieceId: pieceId,
+        angle: Math.round(angle * 10) / 10,
+        delta: Math.round(delta * 10) / 10
+    };
+
+    const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
+    const elapsed = now - lastPieceRotateSendTime;
+    if (elapsed >= 25) {
+        lastPieceRotateSendTime = now;
+        sendData(pendingPieceRotateData);
+        pendingPieceRotateData = null;
+    } else if (!pieceRotateBroadcastTimer) {
+        pieceRotateBroadcastTimer = setTimeout(() => {
+            pieceRotateBroadcastTimer = null;
+            if (pendingPieceRotateData) {
+                lastPieceRotateSendTime = typeof performance !== 'undefined' ? performance.now() : Date.now();
+                sendData(pendingPieceRotateData);
+                pendingPieceRotateData = null;
+            }
+        }, 25 - elapsed);
+    }
+}
 
 // --- GAME STATE ---
 let activePiece = null;
@@ -892,7 +1057,17 @@ function rotatePiece(piece, delta) {
     suppressUnitTooltip();
     pushUndo();
     const previousAngle = parseFloat(piece.dataset.angle) || 0;
-    setPieceAngle(piece, previousAngle + delta);
+    const nextAngle = previousAngle + delta;
+    setPieceAngle(piece, nextAngle);
+    const pieceId = getPieceId(piece);
+    if (pieceId) {
+        sendData({
+            type: 'PIECE_ROTATE',
+            pieceId: pieceId,
+            angle: nextAngle,
+            delta: delta
+        });
+    }
     saveGame();
 }
 
@@ -977,8 +1152,10 @@ function hostGame() {
         updateStatus("Hosting");
         document.getElementById('my-id-display').value = id;
         isHost = true;
+        isGuest = false;
         updateMultiplayerControlsUI();
         updateBidUI();
+        fitTableToScreen();
     });
 
     peer.on('connection', (c) => {
@@ -998,10 +1175,17 @@ function hostGame() {
 }
 
 function joinGame() {
-    const hostId = document.getElementById('join-input').value.trim();
-    if (!hostId) return alert("Enter a Host ID");
+    const input = document.getElementById('join-input');
+    const hostId = (input && input.value) ? String(input.value).trim() : '';
+    if (!hostId) {
+        if (typeof alert !== 'undefined') alert("Enter a Host ID");
+        return;
+    }
     updateStatus("Connecting...");
     peer = new Peer(PEER_CONFIG);
+    isGuest = true;
+    isHost = false;
+    fitTableToScreen();
     peer.on('open', () => {
         conn = peer.connect(hostId, { reliable: true });
         setupConnection();
@@ -1009,6 +1193,8 @@ function joinGame() {
     peer.on('error', (err) => {
         console.error("Peer error:", err);
         updateStatus("Connection Error");
+        isGuest = false;
+        fitTableToScreen();
         alert("Could not connect. Check Host ID.");
     });
 }
@@ -1022,6 +1208,7 @@ function setupConnection() {
         updateMultiplayerControlsUI();
         updateRoundUI();
         updateBidUI();
+        fitTableToScreen();
 
         if (!isHost) {
             sendData({ type: 'GUEST_JOIN' });
@@ -1043,9 +1230,11 @@ function setupConnection() {
         document.getElementById('status-indicator').classList.remove('status-connected');
         conn = null;
         isHost = false;
+        isGuest = false;
         updateRoundUI();
         updateMultiplayerControlsUI();
         updateBidUI();
+        fitTableToScreen();
     });
 
     conn.on('error', (err) => {
@@ -1054,16 +1243,82 @@ function setupConnection() {
 }
 
 function handleIncomingData(data) {
+    if (!data) return;
     if (data.type === 'GUEST_JOIN') {
         updateStatus("Connected!");
         document.getElementById('status-indicator').classList.add('status-connected');
         updateMultiplayerControlsUI();
         updateRoundUI();
         updateBidUI();
+        fitTableToScreen();
         sendData({ type: 'SYNC_BOARD', payload: getBoardState({ forNetwork: true }) });
     }
     else if (data.type === 'SYNC_BOARD') {
         restoreBoardState(data.payload, true);
+    }
+    else if (data.type === 'PIECE_DRAG_START') {
+        const piece = findPieceById(data.pieceId);
+        if (piece) {
+            piece.classList.add('is-remote-moving');
+            if (data.x !== undefined && data.y !== undefined) {
+                piece.style.left = `${data.x}px`;
+                piece.style.top = `${data.y}px`;
+            }
+            if (data.anchorX !== undefined && data.anchorY !== undefined) {
+                if (remoteGhostPiece) remoteGhostPiece.remove();
+                remoteGhostPiece = piece.cloneNode(true);
+                remoteGhostPiece.classList.add('ghost');
+                remoteGhostPiece.classList.remove('is-selected', 'is-remote-moving');
+                if (remoteGhostPiece.removeAttribute) remoteGhostPiece.removeAttribute('id');
+                remoteGhostPiece.style.transform = piece.style.transform;
+                table.insertBefore(remoteGhostPiece, piece);
+                showRemoteLine(data.anchorX, data.anchorY, data.targetX !== undefined ? data.targetX : data.anchorX, data.targetY !== undefined ? data.targetY : data.anchorY);
+            }
+            if (selectedPiece === piece) positionPieceControls();
+        }
+    }
+    else if (data.type === 'PIECE_DRAG_MOVE') {
+        const piece = findPieceById(data.pieceId);
+        if (piece) {
+            piece.classList.add('is-remote-moving');
+            piece.style.left = `${data.x}px`;
+            piece.style.top = `${data.y}px`;
+            if (data.anchorX !== undefined && data.anchorY !== undefined && data.targetX !== undefined && data.targetY !== undefined) {
+                showRemoteLine(data.anchorX, data.anchorY, data.targetX, data.targetY);
+            }
+            if (selectedPiece === piece) positionPieceControls();
+        }
+    }
+    else if (data.type === 'PIECE_DRAG_END') {
+        const piece = findPieceById(data.pieceId);
+        if (piece) {
+            piece.classList.remove('is-remote-moving');
+            if (data.x !== undefined && data.y !== undefined) {
+                piece.style.left = `${data.x}px`;
+                piece.style.top = `${data.y}px`;
+            }
+            hideRemoteLine();
+            if (selectedPiece === piece) positionPieceControls();
+        }
+    }
+    else if (data.type === 'PIECE_ROTATE_START' || data.type === 'PIECE_ROTATE') {
+        const piece = findPieceById(data.pieceId);
+        if (piece) {
+            piece.classList.add('is-remote-rotating');
+            piece.dataset.angle = String(data.angle);
+            piece.style.transform = `rotate(${data.angle}deg)`;
+            showRemoteAngleIndicator(piece, data.delta !== undefined ? data.delta : data.angle);
+            if (selectedPiece === piece) positionPieceControls();
+        }
+    }
+    else if (data.type === 'PIECE_ROTATE_END') {
+        const piece = findPieceById(data.pieceId);
+        if (piece) {
+            piece.classList.remove('is-remote-rotating');
+            piece.dataset.angle = String(data.angle);
+            piece.style.transform = `rotate(${data.angle}deg)`;
+            if (selectedPiece === piece) positionPieceControls();
+        }
     }
     else if (data.type === 'ROLL_DICE') {
         const incomingRolls = Array.isArray(data.rolls) ? data.rolls : [];
@@ -1315,6 +1570,7 @@ function getBoardState(options = {}) {
         if (el.classList.contains('ghost')) return;
         state.pieces.push({
             type: 'unit',
+            unitId: el.dataset.unitId || getPieceId(el),
             name: el.dataset.name,
             x: parseFloat(el.style.left),
             y: parseFloat(el.style.top),
@@ -1329,6 +1585,7 @@ function getBoardState(options = {}) {
     document.querySelectorAll('.terrain').forEach(el => {
         state.pieces.push({
             type: 'terrain',
+            pieceId: el.dataset.pieceId || getPieceId(el),
             subType: el.dataset.subType,
             x: parseFloat(el.style.left),
             y: parseFloat(el.style.top),
@@ -1394,9 +1651,11 @@ function restoreBoardState(jsonString, suppressBroadcast = false) {
 
     data.forEach(obj => {
         if (obj.type === 'unit') {
-            createUnitDOM(obj.name, obj.color, obj.x, obj.y, obj.angle, obj.wounds, obj.stats, obj.activated, obj.owner);
+            const unit = createUnitDOM(obj.name, obj.color, obj.x, obj.y, obj.angle, obj.wounds, obj.stats, obj.activated, obj.owner);
+            if (obj.unitId) unit.dataset.unitId = obj.unitId;
         } else if (obj.type === 'terrain') {
-            createTerrainDOM(obj.subType, obj.x, obj.y, obj.w, obj.h, obj.angle);
+            const piece = createTerrainDOM(obj.subType, obj.x, obj.y, obj.w, obj.h, obj.angle, obj.pieceId);
+            if (obj.pieceId) piece.dataset.pieceId = obj.pieceId;
         }
     });
     saveGame(suppressBroadcast);
@@ -1518,6 +1777,7 @@ function createUnitDOM(name, color, x, y, angle, wounds, stats = null, activated
     div.style.transform = `rotate(${angle}deg)`;
     div.dataset.wounds = wounds || 0;
     div.dataset.activated = activated ? 'true' : 'false';
+    div.dataset.unitId = div.dataset.unitId || ('u_' + Math.random().toString(36).slice(2, 9));
     div._unitStats = unitStats;
     applyUnitTheme(div, name);
 
@@ -1598,7 +1858,7 @@ function createUnitDOM(name, color, x, y, angle, wounds, stats = null, activated
     return div;
 }
 
-function createTerrainDOM(subType, x, y, _w, _h, angle) {
+function createTerrainDOM(subType, x, y, _w, _h, angle, pieceId) {
     if (!subType || subType === "undefined" || subType === "rough") subType = "field";
     const finalW = defaultUnitSizePx.width;
     const finalH = defaultUnitSizePx.height;
@@ -1612,6 +1872,7 @@ function createTerrainDOM(subType, x, y, _w, _h, angle) {
     div.style.height = `${finalH}px`;
     div.dataset.subType = subType;
     div.dataset.angle = angle || 0;
+    div.dataset.pieceId = pieceId || ('t_' + Math.random().toString(36).slice(2, 9));
     div.style.transform = `rotate(${angle}deg)`;
 
     appendRotationHandle(div);
@@ -2521,6 +2782,12 @@ function getActiveTableRect() {
 
 function getTablePointerPosition(event) {
     const tableRect = getActiveTableRect();
+    if (isBoardFlipped()) {
+        return {
+            x: (tableRect.right - event.clientX) / currentScale,
+            y: (tableRect.bottom - event.clientY) / currentScale
+        };
+    }
     return {
         x: (event.clientX - tableRect.left) / currentScale,
         y: (event.clientY - tableRect.top) / currentScale
@@ -2564,6 +2831,16 @@ function onRotationHandlePointerDown(e) {
     hideUnitTooltip();
     positionPieceControls();
 
+    const pieceId = getPieceId(piece);
+    if (pieceId) {
+        sendData({
+            type: 'PIECE_ROTATE_START',
+            pieceId: pieceId,
+            angle: rotationDragStartAngle,
+            delta: 0
+        });
+    }
+
     if (e.currentTarget.setPointerCapture) {
         e.currentTarget.setPointerCapture(e.pointerId);
     }
@@ -2585,13 +2862,29 @@ function updateRotationFromPointer(e) {
         rotationDragUndoPushed = true;
     }
 
-    setPieceAngle(rotatingPiece, nextAngle, nextAngle - rotationDragStartAngle);
+    const delta = nextAngle - rotationDragStartAngle;
+    setPieceAngle(rotatingPiece, nextAngle, delta);
+    broadcastPieceRotateThrottled(rotatingPiece, nextAngle, delta);
 }
 
 function finishRotationDrag() {
     if (!rotatingPiece) return false;
 
     suppressUnitTooltip();
+    const pieceId = getPieceId(rotatingPiece);
+    const finalAngle = parseFloat(rotatingPiece.dataset.angle) || 0;
+    if (pieceRotateBroadcastTimer) {
+        clearTimeout(pieceRotateBroadcastTimer);
+        pieceRotateBroadcastTimer = null;
+    }
+    pendingPieceRotateData = null;
+    if (pieceId) {
+        sendData({
+            type: 'PIECE_ROTATE_END',
+            pieceId: pieceId,
+            angle: finalAngle
+        });
+    }
     if (rotationDragUndoPushed) {
         saveGame();
     }
@@ -2624,9 +2917,11 @@ function onPiecePointerDown(e) {
     pointerStartX = e.clientX;
     pointerStartY = e.clientY;
     isDraggingPiece = false;
-    const rect = pendingDragPiece.getBoundingClientRect();
-    pendingDragPiece.dataset.offsetX = (e.clientX - rect.left) / currentScale;
-    pendingDragPiece.dataset.offsetY = (e.clientY - rect.top) / currentScale;
+    const pointer = getTablePointerPosition(e);
+    const pieceLeft = parseFloat(pendingDragPiece.style.left) || 0;
+    const pieceTop = parseFloat(pendingDragPiece.style.top) || 0;
+    pendingDragPiece.dataset.offsetX = pointer.x - pieceLeft;
+    pendingDragPiece.dataset.offsetY = pointer.y - pieceTop;
 
     if (pendingDragPiece.setPointerCapture) {
         pendingDragPiece.setPointerCapture(e.pointerId);
@@ -2654,12 +2949,22 @@ function startPieceDrag() {
     ghostPiece.removeAttribute('id');
     ghostPiece.style.transform = activePiece.style.transform;
     table.insertBefore(ghostPiece, activePiece);
-    const rect = activePiece.getBoundingClientRect();
-    const tableRect = getActiveTableRect();
-    anchorX = ((rect.left - tableRect.left) + (rect.width / 2)) / currentScale;
-    anchorY = ((rect.top - tableRect.top) + (rect.height / 2)) / currentScale;
+    anchorX = (parseFloat(activePiece.style.left) || 0) + activePieceHalfWidth;
+    anchorY = (parseFloat(activePiece.style.top) || 0) + activePieceHalfHeight;
     showLine(anchorX, anchorY, anchorX, anchorY);
     positionPieceControls();
+
+    const pieceId = getPieceId(activePiece);
+    if (pieceId) {
+        sendData({
+            type: 'PIECE_DRAG_START',
+            pieceId: pieceId,
+            x: Math.round(parseFloat(activePiece.style.left) || 0),
+            y: Math.round(parseFloat(activePiece.style.top) || 0),
+            anchorX: Math.round(anchorX),
+            anchorY: Math.round(anchorY)
+        });
+    }
 }
 
 table.addEventListener('pointerdown', (e) => {
@@ -2745,6 +3050,7 @@ function handlePointerMove(e) {
         activePiece.style.top = `${newTop}px`;
         targetX = newLeft + activePieceHalfWidth;
         targetY = newTop + activePieceHalfHeight;
+        broadcastPieceMoveThrottled(activePiece, newLeft, newTop, anchorX, anchorY, targetX, targetY);
     }
 
     if (anchorX > -1) {
@@ -2754,8 +3060,15 @@ function handlePointerMove(e) {
         const dy = targetY - anchorY;
         const distancePx = Math.sqrt(dx * dx + dy * dy);
         measureTextElement.textContent = `${pxToInches(distancePx)}"`;
-        measureTextElement.setAttribute('x', anchorX + (dx / 2) + 10);
-        measureTextElement.setAttribute('y', anchorY + (dy / 2) - 10);
+        const textX = anchorX + (dx / 2) + 10;
+        const textY = anchorY + (dy / 2) - 10;
+        measureTextElement.setAttribute('x', textX);
+        measureTextElement.setAttribute('y', textY);
+        if (isBoardFlipped()) {
+            measureTextElement.setAttribute('transform', `rotate(180, ${textX}, ${textY})`);
+        } else {
+            measureTextElement.removeAttribute('transform');
+        }
     }
 }
 
@@ -2774,6 +3087,22 @@ function onPointerUp(e) {
 
     if (activePiece) {
         activePiece.classList.remove('is-dragging');
+        const pieceId = getPieceId(activePiece);
+        const finalLeft = parseFloat(activePiece.style.left) || 0;
+        const finalTop = parseFloat(activePiece.style.top) || 0;
+        if (pieceMoveBroadcastTimer) {
+            clearTimeout(pieceMoveBroadcastTimer);
+            pieceMoveBroadcastTimer = null;
+        }
+        pendingPieceMoveData = null;
+        if (pieceId) {
+            sendData({
+                type: 'PIECE_DRAG_END',
+                pieceId: pieceId,
+                x: Math.round(finalLeft),
+                y: Math.round(finalTop)
+            });
+        }
         saveGame();
     }
     activePiece = null;
@@ -2808,23 +3137,54 @@ window.addEventListener('pointercancel', onPointerUp);
 // --- RESPONSIVE TABLE SCALE & BOOTSTRAP ---
 let currentScale = 1;
 function fitTableToScreen() {
+    const appContainer = document.getElementById('container');
     const container = document.getElementById('table-container');
     const table = document.getElementById('game-table');
+    const leftSidebar = document.getElementById('left-sidebar');
+    const rightSidebar = document.getElementById('right-sidebar');
     if (!container || !table) return;
 
-    const availableWidth = Math.max(container.clientWidth - 20, 1);
-    const availableHeight = Math.max(container.clientHeight - 20, 1);
+    if (appContainer && leftSidebar && appContainer.clientWidth > 400 && appContainer.clientHeight > 300) {
+        const totalWidth = appContainer.clientWidth;
+        const totalHeight = appContainer.clientHeight;
+        const isRightHidden = isRightSidebarHidden || (rightSidebar && rightSidebar.classList.contains('sidebar-hidden'));
+        const rightWidth = (rightSidebar && !isRightHidden) ? (rightSidebar.offsetWidth || 210) : 0;
+        const gap = 8;
+        const numGaps = rightWidth > 0 ? 2 : 1;
+
+        // Container borders / padding take ~4px vertically
+        const availableHeight = Math.max(totalHeight - 4, 1);
+        const idealScale = availableHeight / tableHeightPx;
+        const idealTableWidth = tableWidthPx * idealScale;
+        const spaceForLeft = totalWidth - idealTableWidth - rightWidth - (numGaps * gap);
+
+        const minSidebarWidth = 260;
+        const maxSidebarWidth = 440;
+        if (!isNaN(spaceForLeft)) {
+            const targetLeftWidth = Math.max(minSidebarWidth, Math.min(Math.floor(spaceForLeft), maxSidebarWidth));
+            leftSidebar.style.width = `${targetLeftWidth}px`;
+        }
+    }
+
+    const containerWidth = container.clientWidth || (container.getBoundingClientRect ? container.getBoundingClientRect().width : 0) || tableWidthPx;
+    const containerHeight = container.clientHeight || (container.getBoundingClientRect ? container.getBoundingClientRect().height : 0) || tableHeightPx;
+    const availableWidth = Math.max(containerWidth - 4, 1);
+    const availableHeight = Math.max(containerHeight - 4, 1);
     const tableWidth = tableWidthPx;
     const tableHeight = tableHeightPx;
 
     const scaleX = availableWidth / tableWidth;
     const scaleY = availableHeight / tableHeight;
 
-    // Use a unified scale so the battlefield fills the available space
+    // Use a unified scale so the battlefield fills the screen as tall as possible
     // without distorting unit or terrain proportions.
-    currentScale = Math.max(Math.min(scaleX, scaleY), 0.01);
+    currentScale = Math.max(Math.min(scaleX, scaleY), 0.01) || 1;
+    activeTableRect = null;
 
-    table.style.transform = `scale(${currentScale})`;
+    const flipped = isBoardFlipped();
+    table.classList.toggle('is-flipped', flipped);
+    const rotateTransform = flipped ? ' rotate(180deg)' : '';
+    table.style.transform = `scale(${currentScale})${rotateTransform}`;
 }
 
 window.addEventListener('resize', fitTableToScreen);
@@ -2863,5 +3223,20 @@ initGame = async function () {
         fitAllUnitLabels();
     }, 100);
 };
+
+if (typeof window !== 'undefined') {
+    window.hostGame = hostGame;
+    window.joinGame = joinGame;
+    window.isBoardFlipped = isBoardFlipped;
+    window.fitTableToScreen = fitTableToScreen;
+    window.getTablePointerPosition = getTablePointerPosition;
+    window.getPieceId = getPieceId;
+    window.findPieceById = findPieceById;
+    window.createUnitDOM = createUnitDOM;
+    window.createTerrainDOM = createTerrainDOM;
+    window.getBoardState = getBoardState;
+    window.restoreBoardState = restoreBoardState;
+    window.handleIncomingData = handleIncomingData;
+}
 
 initGame();
