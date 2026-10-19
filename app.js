@@ -336,8 +336,15 @@ const tableHeightPx = inchesToPx(TABLE_DEPTH_FT * 12);
 const defaultUnitSizePx = getUnitSizePx({ Footprint: DEFAULT_UNIT_FOOTPRINT });
 
 function getUnitFootprint(stats) {
-    const footprint = ((stats && stats.Footprint) || DEFAULT_UNIT_FOOTPRINT).trim().toUpperCase();
-    return UNIT_FOOTPRINTS_MM[footprint] ? footprint : DEFAULT_UNIT_FOOTPRINT;
+    const explicitFootprint = (stats && stats.Footprint ? `${stats.Footprint}`.trim().toUpperCase() : '');
+    if (explicitFootprint && UNIT_FOOTPRINTS_MM[explicitFootprint]) {
+        return explicitFootprint;
+    }
+    const name = ((stats && (stats.Unit || stats.name)) || "").toLowerCase();
+    if (name.includes('cavalry') || name.includes('mounted')) {
+        return 'SN';
+    }
+    return DEFAULT_UNIT_FOOTPRINT;
 }
 
 function getUnitSizePx(stats) {
@@ -670,13 +677,49 @@ function loadRules() {
 loadRules();
 
 // --- STATS INTEGRATION ---
-const SHEET_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vQXT5eF4DzRhJokOVdTb5g1Lnt6_gFkeh7oEdg2DLYAtY98FxybE-ijwA8uoWDiYtiBb0a3BM-ukWx9/pub?gid=663136589&single=true&output=csv';
-const STATS_CACHE_KEY = 'seize-the-day-unit-stats-cache-v2';
+const SHEET_URL = 'https://docs.google.com/spreadsheets/d/1ONrDG-NfkjDlBoJvRlDNbhBSsCUkxlD_tbmZNQom1PU/export?format=csv&gid=0';
+const STATS_CACHE_KEY = 'seize-the-day-unit-stats-cache-v3';
 const DEFAULT_DRAFT_POOL_SIZE = 12;
+
+const DEFAULT_UNIT_STATS = [
+    { Unit: 'Human Swords', Move: '8/2', Shoot: '-', Strike: '3', Defence: '8' },
+    { Unit: 'Human Spears', Move: '8/1', Shoot: '-', Strike: '2', Defence: '8' },
+    { Unit: 'Human Cavalry', Move: '12/2', Shoot: '-', Strike: '3', Defence: '8' },
+    { Unit: 'Human Mounted Bowmen', Move: '12/3', Shoot: '0/12', Strike: '1', Defence: '7' },
+    { Unit: 'Human Archers', Move: '8/1', Shoot: '1/16', Strike: '0', Defence: '7' },
+    { Unit: 'Human Light Foot', Move: '8/3', Shoot: '0/6', Strike: '1', Defence: '7' },
+    { Unit: 'Elf Swords', Move: '10/3', Shoot: '-', Strike: '4', Defence: '6' },
+    { Unit: 'Elf Spears', Move: '10/2', Shoot: '-', Strike: '3', Defence: '6' },
+    { Unit: 'Elf Cavalry', Move: '16/3', Shoot: '-', Strike: '4', Defence: '6' },
+    { Unit: 'Elf Mounted Bowmen', Move: '16/4', Shoot: '1/14', Strike: '1', Defence: '5' },
+    { Unit: 'Elf Archers', Move: '10/2', Shoot: '2/18', Strike: '0', Defence: '5' },
+    { Unit: 'Elf Light Foot', Move: '10/4', Shoot: '1/8', Strike: '1', Defence: '5' },
+    { Unit: 'Dwarf Swords', Move: '5/3', Shoot: '-', Strike: '4', Defence: '14' },
+    { Unit: 'Dwarf Spears', Move: '5/2', Shoot: '-', Strike: '3', Defence: '15' },
+    { Unit: 'Dwarf Cavalry', Move: '7/3', Shoot: '-', Strike: '4', Defence: '14' },
+    { Unit: 'Dwarf Mounted Bowmen', Move: '7/4', Shoot: '0/12', Strike: '1', Defence: '13' },
+    { Unit: 'Dwarf Archers', Move: '5/2', Shoot: '1/16', Strike: '0', Defence: '13' },
+    { Unit: 'Dwarf Light Foot', Move: '5/4', Shoot: '0/6', Strike: '2', Defence: '13' },
+    { Unit: 'Orc Swords', Move: '8/1', Shoot: '-', Strike: '4', Defence: '7' },
+    { Unit: 'Orc Spears', Move: '8/1', Shoot: '-', Strike: '1', Defence: '7' },
+    { Unit: 'Orc Cavalry', Move: '12/1', Shoot: '-', Strike: '4', Defence: '7' },
+    { Unit: 'Orc Mounted Bowmen', Move: '12/2', Shoot: '0/12', Strike: '2', Defence: '6' },
+    { Unit: 'Orc Archers', Move: '8/1', Shoot: '1/16', Strike: '1', Defence: '6' },
+    { Unit: 'Orc Light Foot', Move: '8/2', Shoot: '0/6', Strike: '3', Defence: '6' },
+    { Unit: 'Undead Swords', Move: '7/1', Shoot: '-', Strike: '3', Defence: '4' },
+    { Unit: 'Undead Spears', Move: '7/1', Shoot: '-', Strike: '2', Defence: '4' },
+    { Unit: 'Undead Cavalry', Move: '10/1', Shoot: '-', Strike: '3', Defence: '4' },
+    { Unit: 'Undead Mounted Bowmen', Move: '10/2', Shoot: '0/12', Strike: '3', Defence: '3' },
+    { Unit: 'Undead Archers', Move: '7/1', Shoot: '0/16', Strike: '2', Defence: '3' },
+    { Unit: 'Undead Light Foot', Move: '7/2', Shoot: '0/16', Strike: '2', Defence: '3' }
+];
 
 let unitStatsDB = {};
 let availableUnitRows = [];
 let statsLoadPromise = null;
+
+// Initialize default stats immediately
+setStatsData(DEFAULT_UNIT_STATS, false);
 
 function normalizeStatsRow(row) {
     const normalized = {};
@@ -743,7 +786,7 @@ function getFreshStatsUrl() {
 }
 
 function loadStats(forceRefresh = false) {
-    if (!forceRefresh && availableUnitRows.length > 0) {
+    if (!forceRefresh && availableUnitRows.length > 0 && availableUnitRows !== DEFAULT_UNIT_STATS) {
         return Promise.resolve(availableUnitRows);
     }
 
@@ -775,8 +818,9 @@ function loadStats(forceRefresh = false) {
                     return;
                 }
 
-                console.error("Error loading stats:", err);
-                reject(err);
+                console.warn("Using default unit stats after load error:", err);
+                setStatsData(DEFAULT_UNIT_STATS, false);
+                resolve(availableUnitRows);
             }
         });
     }).finally(() => {
@@ -800,18 +844,71 @@ function getUnitStats(unitSource) {
         ? (unitSource._unitStats || unitSource.stats || (unitSource.Unit ? unitSource : null))
         : null;
 
+    const matchedStats = storedStats
+        ? normalizeStatsRow(storedStats)
+        : (unitStatsDB[unitName] || Object.values(unitStatsDB).find(s => (s.Unit || '').toLowerCase() === unitName.toLowerCase()) || null);
+
     return {
         unitName,
-        stats: storedStats ? normalizeStatsRow(storedStats) : (unitStatsDB[unitName] || null)
+        stats: matchedStats
     };
 }
 
 function getStatValue(stats, ...keys) {
+    if (!stats) return '-';
     for (const key of keys) {
-        const value = stats ? stats[key] : undefined;
-        if (value !== undefined && value !== null && `${value}`.trim() !== "") {
-            return value;
+        const val = stats[key];
+        if (val !== undefined && val !== null && `${val}`.trim() !== '') {
+            return `${val}`.trim();
         }
+    }
+    const lowerEntries = Object.entries(stats).map(([k, v]) => [typeof k === 'string' ? k.toLowerCase() : k, v]);
+    for (const key of keys) {
+        const lowerKey = typeof key === 'string' ? key.toLowerCase() : key;
+        const match = lowerEntries.find(([k]) => k === lowerKey);
+        if (match && match[1] !== undefined && match[1] !== null && `${match[1]}`.trim() !== '') {
+            return `${match[1]}`.trim();
+        }
+    }
+    return '-';
+}
+
+function formatSpeedDrillStat(stats) {
+    if (!stats) return '-';
+    const move = getStatValue(stats, 'Move');
+    if (typeof move === 'string' && move.includes('/')) {
+        return move.trim();
+    }
+
+    const speed = getStatValue(stats, 'Speed', 'Move');
+    const drill = getStatValue(stats, 'Drill');
+
+    if (speed !== '-' && drill !== '-') {
+        return `${speed}/${drill}`;
+    }
+    if (speed !== '-') {
+        return `${speed}`;
+    }
+    return '-';
+}
+
+function formatShootRangeStat(stats) {
+    if (!stats) return '-';
+    const shoot = getStatValue(stats, 'Shoot', 'Ranged');
+    if (typeof shoot === 'string' && shoot.includes('/')) {
+        return shoot.trim();
+    }
+
+    if (shoot === '-' || shoot === '') {
+        return '-';
+    }
+
+    const range = getStatValue(stats, 'Range');
+    if (shoot !== '-' && range !== '-') {
+        return `${shoot}/${range}`;
+    }
+    if (shoot !== '-') {
+        return `${shoot}`;
     }
     return '-';
 }
@@ -859,21 +956,21 @@ function buildStatsMarkup(unitSource) {
                 <div class="stats-card">
                     <div class="stats-unit-name">${stats.Unit || unitName}</div>
                     <div class="stats-grid">
-                        <div class="stat-chip">
-                            <img class="stat-icon" src="icons/move.svg" alt="Move">
-                            <span class="stat-value">${getStatValue(stats, 'Move')}/${getStatValue(stats, 'Drill')}</span>
+                        <div class="stat-chip" title="Speed / Drill">
+                            <img class="stat-icon" src="icons/move.svg" alt="Speed / Drill">
+                            <span class="stat-value">${formatSpeedDrillStat(stats)}</span>
                         </div>
-                        <div class="stat-chip">
-                            <img class="stat-icon" src="icons/shoot.svg" alt="Shoot">
-                            <span class="stat-value">${getStatValue(stats, 'Shoot')}</span>
+                        <div class="stat-chip" title="Shoot / Range">
+                            <img class="stat-icon" src="icons/shoot.svg" alt="Shoot / Range">
+                            <span class="stat-value">${formatShootRangeStat(stats)}</span>
                         </div>
-                        <div class="stat-chip">
-                            <img class="stat-icon" src="icons/strike.svg" alt="Melee">
-                            <span class="stat-value">${getStatValue(stats, 'Melee', 'Strike')}</span>
+                        <div class="stat-chip" title="Strike">
+                            <img class="stat-icon" src="icons/strike.svg" alt="Strike">
+                            <span class="stat-value">${getStatValue(stats, 'Strike', 'Melee')}</span>
                         </div>
-                        <div class="stat-chip">
+                        <div class="stat-chip" title="Defence">
                             <img class="stat-icon" src="icons/defence.svg" alt="Defence">
-                            <span class="stat-value">${getStatValue(stats, 'Def', 'Defence')}</span>
+                            <span class="stat-value">${getStatValue(stats, 'Defence', 'Def', 'Defense')}</span>
                         </div>
                     </div>
                     ${rulesHtml}
@@ -2104,8 +2201,8 @@ function getMatchupProfiles() {
         if (getUnitQuantity(stats) === 0) return;
 
         const name = stats && stats.Unit ? `${stats.Unit}`.trim() : '';
-        const melee = parseCombatStat(stats, ['Melee']);
-        const defence = parseCombatStat(stats, ['Def', 'Def.', 'Defence', 'Defense']);
+        const melee = parseCombatStat(stats, ['Strike', 'Melee']);
+        const defence = parseCombatStat(stats, ['Defence', 'Def', 'Def.', 'Defense']);
 
         if (!name || melee === null || defence === null) {
             invalidProfileCount += 1;
@@ -3263,6 +3360,14 @@ if (typeof window !== 'undefined') {
     window.onPiecePointerDown = onPiecePointerDown;
     window.onPointerUp = onPointerUp;
     window.handlePointerMove = handlePointerMove;
+    window.formatSpeedDrillStat = formatSpeedDrillStat;
+    window.formatShootRangeStat = formatShootRangeStat;
+    window.buildStatsMarkup = buildStatsMarkup;
+    window.getUnitStats = getUnitStats;
+    window.unitStatsDB = unitStatsDB;
+    window.availableUnitRows = availableUnitRows;
+    window.DEFAULT_UNIT_STATS = DEFAULT_UNIT_STATS;
+    window.SHEET_URL = SHEET_URL;
 }
 
 initGame();
