@@ -98,10 +98,40 @@ function updateBidUI() {
     const btn = document.getElementById('toggle-bids-btn');
     const localPlayerKey = getLocalBidPlayerKey();
     const isMultiplayer = Boolean(localPlayerKey);
+    const opponentStatusEl = document.getElementById('opponent-status');
+
+    if (opponentStatusEl) {
+        if (conn && conn.open) {
+            opponentStatusEl.textContent = '● Opponent Connected';
+            opponentStatusEl.className = 'opponent-status connected';
+        } else if (isHost) {
+            opponentStatusEl.textContent = '○ Waiting for Opponent';
+            opponentStatusEl.className = 'opponent-status connecting';
+        } else if (peer && !conn) {
+            opponentStatusEl.textContent = '○ Connecting...';
+            opponentStatusEl.className = 'opponent-status connecting';
+        } else {
+            opponentStatusEl.textContent = '○ Local Game';
+            opponentStatusEl.className = 'opponent-status offline';
+        }
+    }
+
+    const labelP1 = document.getElementById('label-p1');
+    const labelP2 = document.getElementById('label-p2');
+    if (labelP1 && labelP2) {
+        if (isMultiplayer) {
+            labelP1.textContent = isHost ? 'P1 CP (You)' : 'P1 CP (Opponent)';
+            labelP2.textContent = isHost ? 'P2 CP (Opponent)' : 'P2 CP (You)';
+        } else {
+            labelP1.textContent = 'P1 CP';
+            labelP2.textContent = 'P2 CP';
+        }
+    }
 
     ['p1', 'p2'].forEach(playerKey => {
         const input = getBidInput(playerKey);
         const field = document.querySelector(`[data-bid-player="${playerKey}"]`);
+        const subtextEl = document.getElementById(`subtext-${playerKey}`);
         if (!input || !field) return;
 
         const isOwnBid = playerKey === localPlayerKey;
@@ -113,6 +143,21 @@ function updateBidUI() {
         field.classList.toggle('bid-private', isPrivateToViewer);
         input.readOnly = (isMultiplayer && !isOwnBid) || ['commands', 'complete'].includes(roundState.phase);
         input.setAttribute('aria-label', `${playerKey === 'p1' ? 'Player 1' : 'Player 2'} command point bid${isHiddenFromViewer ? ' hidden' : ''}`);
+
+        if (subtextEl) {
+            if (isMultiplayer) {
+                if (isOwnBid) {
+                    subtextEl.textContent = isVisible ? 'Visible to Opponent' : 'Hidden from Opponent';
+                    subtextEl.className = isVisible ? 'bid-subtext' : 'bid-subtext highlight';
+                } else {
+                    subtextEl.textContent = isVisible ? 'Opponent Revealed' : 'Opponent Bid Hidden';
+                    subtextEl.className = isVisible ? 'bid-subtext highlight' : 'bid-subtext';
+                }
+            } else {
+                subtextEl.textContent = isVisible ? 'Visible' : 'Hidden';
+                subtextEl.className = isVisible ? 'bid-subtext' : 'bid-subtext highlight';
+            }
+        }
     });
 
     if (!btn) return;
@@ -138,6 +183,12 @@ function toggleBidVisibility() {
 
     if (localPlayerKey) {
         bidVisibility[localPlayerKey] = !bidVisibility[localPlayerKey];
+        sendData({
+            type: 'BID_VISIBILITY',
+            player: localPlayerKey,
+            visible: bidVisibility[localPlayerKey],
+            bid: bidVisibility[localPlayerKey] ? getBidInput(localPlayerKey).value : null
+        });
     } else {
         const nextVisibility = !(bidVisibility.p1 && bidVisibility.p2);
         bidVisibility.p1 = nextVisibility;
@@ -167,6 +218,14 @@ function handleCpBidChange(playerKey) {
     }
     rememberCpValue(playerKey);
     saveGame();
+    if (localPlayerKey && bidVisibility[localPlayerKey]) {
+        sendData({
+            type: 'BID_VISIBILITY',
+            player: localPlayerKey,
+            visible: true,
+            bid: getBidInput(localPlayerKey).value
+        });
+    }
 }
 
 function updateRightSidebarUI() {
@@ -810,6 +869,7 @@ function selectPiece(piece) {
 
     selectedPiece = piece;
     selectedPiece.classList.add('is-selected');
+    updateRotationHandleSize(selectedPiece);
     if (piece.classList.contains('unit')) {
         updateStatsPanel(piece);
     } else {
@@ -886,6 +946,18 @@ unitTooltip.addEventListener('click', handleSelectedPieceControlClick);
 
 // --- NETWORKING FUNCTIONS ---
 
+const PEER_CONFIG = {
+    config: {
+        iceServers: [
+            { urls: 'stun:stun.l.google.com:19302' },
+            { urls: 'stun:stun1.l.google.com:19302' },
+            { urls: 'stun:stun2.l.google.com:19302' },
+            { urls: 'stun:stun3.l.google.com:19302' },
+            { urls: 'stun:stun4.l.google.com:19302' }
+        ]
+    }
+};
+
 function generateShortId() {
     const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
     let result = '';
@@ -899,25 +971,28 @@ function hostGame() {
     if (peer) return;
     updateStatus("Initializing...");
     const shortId = generateShortId();
-    peer = new Peer(shortId);
+    peer = new Peer(shortId, PEER_CONFIG);
 
     peer.on('open', (id) => {
         updateStatus("Hosting");
         document.getElementById('my-id-display').value = id;
         isHost = true;
         updateMultiplayerControlsUI();
+        updateBidUI();
     });
 
     peer.on('connection', (c) => {
         conn = c;
         setupConnection();
-        setTimeout(() => sendData({ type: 'SYNC_BOARD', payload: getBoardState({ forNetwork: true }) }), 500);
+        sendData({ type: 'SYNC_BOARD', payload: getBoardState({ forNetwork: true }) });
     });
     peer.on('error', (err) => {
-        console.error(err);
+        console.error("Peer error:", err);
         if (err.type === 'unavailable-id') {
             peer = null;
             hostGame();
+        } else {
+            updateStatus("Error: " + (err.type || err.message));
         }
     });
 }
@@ -926,28 +1001,43 @@ function joinGame() {
     const hostId = document.getElementById('join-input').value.trim();
     if (!hostId) return alert("Enter a Host ID");
     updateStatus("Connecting...");
-    peer = new Peer();
+    peer = new Peer(PEER_CONFIG);
     peer.on('open', () => {
-        conn = peer.connect(hostId);
+        conn = peer.connect(hostId, { reliable: true });
         setupConnection();
     });
     peer.on('error', (err) => {
-        updateStatus("Error");
-        alert("Could not connect. Check ID.");
+        console.error("Peer error:", err);
+        updateStatus("Connection Error");
+        alert("Could not connect. Check Host ID.");
     });
 }
 
 function setupConnection() {
     if (!conn) return;
-    conn.on('open', () => {
+
+    const onOpen = () => {
         updateStatus("Connected!");
-        updateRoundUI();
         document.getElementById('status-indicator').classList.add('status-connected');
+        updateMultiplayerControlsUI();
+        updateRoundUI();
         updateBidUI();
-    });
+
+        if (!isHost) {
+            sendData({ type: 'GUEST_JOIN' });
+        }
+    };
+
+    if (conn.open) {
+        onOpen();
+    } else {
+        conn.on('open', onOpen);
+    }
+
     conn.on('data', (data) => {
         handleIncomingData(data);
     });
+
     conn.on('close', () => {
         updateStatus("Disconnected");
         document.getElementById('status-indicator').classList.remove('status-connected');
@@ -957,10 +1047,22 @@ function setupConnection() {
         updateMultiplayerControlsUI();
         updateBidUI();
     });
+
+    conn.on('error', (err) => {
+        console.error("Data connection error:", err);
+    });
 }
 
 function handleIncomingData(data) {
-    if (data.type === 'SYNC_BOARD') {
+    if (data.type === 'GUEST_JOIN') {
+        updateStatus("Connected!");
+        document.getElementById('status-indicator').classList.add('status-connected');
+        updateMultiplayerControlsUI();
+        updateRoundUI();
+        updateBidUI();
+        sendData({ type: 'SYNC_BOARD', payload: getBoardState({ forNetwork: true }) });
+    }
+    else if (data.type === 'SYNC_BOARD') {
         restoreBoardState(data.payload, true);
     }
     else if (data.type === 'ROLL_DICE') {
@@ -972,6 +1074,13 @@ function handleIncomingData(data) {
             ...bidVisibility,
             [data.player]: data.visible !== false
         });
+        if (data.bid !== undefined && data.bid !== null) {
+            const input = getBidInput(data.player);
+            if (input) {
+                input.value = data.bid;
+                rememberCpValue(data.player);
+            }
+        }
         updateBidUI();
     }
     else if (data.type === 'TOGGLE_BIDS') {
@@ -1072,7 +1181,15 @@ function passCommandWindow() {
     }
 }
 
+function updateTerrainSectionVisibility() {
+    const terrainSection = document.getElementById('terrain-section');
+    if (!terrainSection) return;
+    const isDraftOver = roundState.round >= 1 || roundState.phase !== 'setup';
+    terrainSection.style.display = isDraftOver ? 'none' : 'block';
+}
+
 function updateRoundUI() {
+    updateTerrainSectionVisibility();
     const panel = document.getElementById('round-panel');
     if (!panel) return;
     const state = roundState;
@@ -1307,17 +1424,40 @@ function applyUnitTheme(unitEl, name) {
     else if (unitName.includes('undead')) unitEl.classList.add('faction-undead');
 }
 
+function updateRotationHandleSize(piece) {
+    if (!piece) return;
+    const handle = piece.querySelector('.rotation-handle');
+    if (!handle) return;
+    const w = parseFloat(piece.style.width) || piece.offsetWidth || 70;
+    const h = parseFloat(piece.style.height) || piece.offsetHeight || 50;
+    const diameter = Math.round(Math.hypot(w, h) + 26);
+    handle.style.width = `${diameter}px`;
+    handle.style.height = `${diameter}px`;
+}
+
 function appendRotationHandle(piece) {
     let handle = piece.querySelector('.rotation-handle');
-    if (handle) return;
-
-    handle = document.createElement('div');
-    handle.classList.add('rotation-handle');
-    handle.setAttribute('role', 'button');
-    handle.setAttribute('aria-label', 'Drag to rotate');
-    handle.title = 'Drag to rotate';
-    handle.addEventListener('pointerdown', onRotationHandlePointerDown);
-    piece.appendChild(handle);
+    if (!handle) {
+        handle = document.createElement('div');
+        handle.classList.add('rotation-handle');
+        handle.setAttribute('role', 'button');
+        handle.setAttribute('aria-label', 'Drag ring to rotate');
+        handle.title = 'Drag ring to rotate';
+        handle.innerHTML = `
+            <svg class="rotation-ring-svg" viewBox="0 0 100 100" style="width:100%; height:100%; display:block; pointer-events:none;">
+                <circle class="ring-hit" cx="50" cy="50" r="44" fill="none" stroke="transparent" stroke-width="16" style="pointer-events:stroke;" />
+                <circle class="ring-glow" cx="50" cy="50" r="44" fill="none" stroke="rgba(216, 179, 109, 0.3)" stroke-width="4" style="pointer-events:none;" />
+                <circle class="ring-track" cx="50" cy="50" r="44" fill="none" stroke="rgba(255, 236, 183, 0.85)" stroke-width="2" stroke-dasharray="4 2" style="pointer-events:none;" />
+                <circle cx="50" cy="6" r="3.5" fill="#ffd77a" stroke="#2c1c0d" stroke-width="1" style="pointer-events:none;" />
+                <circle cx="50" cy="94" r="3.5" fill="#ffd77a" stroke="#2c1c0d" stroke-width="1" style="pointer-events:none;" />
+                <circle cx="6" cy="50" r="3.5" fill="#ffd77a" stroke="#2c1c0d" stroke-width="1" style="pointer-events:none;" />
+                <circle cx="94" cy="50" r="3.5" fill="#ffd77a" stroke="#2c1c0d" stroke-width="1" style="pointer-events:none;" />
+            </svg>
+        `;
+        handle.addEventListener('pointerdown', onRotationHandlePointerDown);
+        piece.appendChild(handle);
+    }
+    updateRotationHandleSize(piece);
 }
 
 function unitLabelFits(label) {

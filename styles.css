@@ -409,29 +409,42 @@ p {
 .section-header {
     display: flex;
     align-items: center;
-    justify-content: space-between;
-    gap: 10px;
+    gap: 8px;
+    margin-top: 0;
+    margin-bottom: 6px;
 }
 
 .section-header h3 {
     flex: 1;
+    margin: 0;
 }
 
 .section-toggle {
-    width: 40px !important;
-    min-width: 40px;
-    height: 40px;
+    width: 28px !important;
+    min-width: 28px;
+    height: 28px;
     padding: 0;
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    font-size: 1rem;
+    font-size: 0.85rem;
     line-height: 1;
+    border-radius: 6px;
+    background: rgba(216, 179, 109, 0.15);
+    border: 1px solid rgba(216, 179, 109, 0.35);
+    color: var(--gold);
+    cursor: pointer;
+    flex-shrink: 0;
+}
+
+.section-toggle:hover {
+    background: rgba(216, 179, 109, 0.28);
+    border-color: rgba(216, 179, 109, 0.6);
 }
 
 .section-toggle span {
-    display: block;
-    transition: transform 0.18s ease;
+    display: inline-block;
+    transition: transform 0.2s ease;
 }
 
 .section-toggle[aria-expanded="false"] span {
@@ -745,14 +758,55 @@ input::placeholder {
     box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.35), 0 0 0 2px rgba(216, 179, 109, 0.1);
 }
 
-.cp-field.bid-private::after {
-    content: "Hidden from opponent";
-    width: 100%;
-    min-height: 18px;
+.tracker-bids-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-bottom: 2px;
+}
+
+.opponent-status {
+    font-size: 0.68rem;
+    letter-spacing: 0.05em;
+    padding: 2px 7px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.06);
+    color: var(--ink-muted);
+    border: 1px solid rgba(216, 179, 109, 0.18);
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.opponent-status.connected {
+    background: rgba(47, 94, 59, 0.4);
+    color: #9fe6a0;
+    border-color: rgba(159, 230, 160, 0.4);
+}
+
+.opponent-status.connecting {
+    background: rgba(216, 179, 109, 0.18);
     color: var(--gold);
-    font-size: 0.74rem;
-    line-height: 1.1;
+    border-color: rgba(216, 179, 109, 0.35);
+}
+
+.opponent-status.offline {
+    color: var(--ink-muted);
+}
+
+.bid-subtext {
+    font-size: 0.68rem;
+    color: var(--ink-muted);
     text-align: center;
+    min-height: 14px;
+    line-height: 1.2;
+    margin-top: 3px;
+}
+
+.bid-subtext.highlight {
+    color: var(--gold);
 }
 
 #toggle-bids-btn {
@@ -1036,52 +1090,21 @@ input::placeholder {
 .rotation-handle {
     position: absolute;
     left: 50%;
-    top: calc(100% - 1px);
-    width: 58px;
-    height: 82px;
-    transform: translateX(-50%) scaleY(0.72);
-    transform-origin: top center;
+    top: 50%;
+    transform: translate(-50%, -50%);
     opacity: 0;
     pointer-events: none;
     touch-action: none;
     cursor: grab;
-    z-index: 9;
-    transition: opacity 0.16s ease, transform 0.16s ease;
-}
-
-.rotation-handle::before {
-    content: "";
-    position: absolute;
-    left: 50%;
-    top: 0;
-    width: 12px;
-    height: calc(100% - 22px);
-    transform: translateX(-50%);
-    border-radius: 999px;
-    background: linear-gradient(180deg, rgba(255, 226, 154, 0.92), rgba(173, 118, 47, 0.9));
-    border: 1px solid rgba(44, 28, 13, 0.5);
-    box-shadow: 0 8px 14px rgba(0, 0, 0, 0.26), inset 0 1px 0 rgba(255, 255, 255, 0.42);
-}
-
-.rotation-handle::after {
-    content: "";
-    position: absolute;
-    left: 50%;
-    bottom: 0;
-    width: 34px;
-    height: 34px;
-    transform: translateX(-50%);
+    z-index: 15;
+    transition: opacity 0.16s ease;
     border-radius: 50%;
-    background:
-        radial-gradient(circle at 34% 30%, rgba(255, 244, 199, 0.95), rgba(216, 161, 71, 0.96) 48%, rgba(107, 67, 30, 0.98) 100%);
-    border: 2px solid rgba(255, 236, 183, 0.94);
-    box-shadow: 0 10px 18px rgba(0, 0, 0, 0.34), 0 0 0 4px rgba(20, 13, 8, 0.22);
+    overflow: visible;
 }
 
 .piece.is-selected .rotation-handle {
     opacity: 1;
     pointer-events: auto;
-    transform: translateX(-50%) scaleY(1);
 }
 
 .piece.is-dragging .rotation-handle {
@@ -1089,8 +1112,27 @@ input::placeholder {
     pointer-events: none;
 }
 
-.rotation-handle:active {
+.rotation-handle:hover,
+.rotation-handle:active,
+.piece.is-rotating .rotation-handle {
     cursor: grabbing;
+}
+
+.rotation-ring-svg {
+    width: 100%;
+    height: 100%;
+    display: block;
+    overflow: visible;
+}
+
+.rotation-handle:hover .ring-glow {
+    stroke: rgba(255, 226, 154, 0.65);
+    stroke-width: 6;
+}
+
+.rotation-handle:hover .ring-track,
+.piece.is-rotating .ring-track {
+    stroke: #ffffff;
 }
 
 .unit {
@@ -1864,8 +1906,7 @@ input::placeholder {
     .palette-item,
     .activation-checkbox,
     .wound-marker,
-    .rotation-handle::before,
-    .rotation-handle::after {
+    .rotation-handle {
         box-shadow: none;
     }
 
