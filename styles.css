@@ -1098,9 +1098,8 @@ input::placeholder {
     top: 50%;
     transform: translate(-50%, -50%);
     opacity: 0;
-    pointer-events: none;
+    pointer-events: none !important;
     touch-action: none;
-    cursor: grab;
     z-index: 15;
     transition: opacity 0.16s ease;
     border-radius: 50%;
@@ -1109,13 +1108,35 @@ input::placeholder {
 
 .piece.is-selected .rotation-handle {
     opacity: 1;
-    pointer-events: auto;
+    pointer-events: none !important;
+}
+
+.rotation-handle * {
+    pointer-events: none;
+}
+
+/* Only the ring stroke hit area and compass nodes intercept pointer events */
+.piece.is-selected:not(.is-dragging):not(.is-remote-moving) .rotation-handle .ring-hit {
+    pointer-events: stroke;
+    cursor: grab;
+}
+
+.piece.is-selected:not(.is-dragging):not(.is-remote-moving) .rotation-handle .ring-node {
+    pointer-events: all;
+    cursor: grab;
+}
+
+.rotation-handle .ring-hit:active,
+.rotation-handle .ring-node:active,
+.piece.is-rotating .rotation-handle .ring-hit,
+.piece.is-rotating .rotation-handle .ring-node {
+    cursor: grabbing;
 }
 
 .piece.is-dragging .rotation-handle,
 .piece.is-remote-moving .rotation-handle {
     opacity: 0;
-    pointer-events: none;
+    pointer-events: none !important;
 }
 
 .piece.is-remote-moving {
@@ -1133,25 +1154,23 @@ input::placeholder {
     transition: none !important;
 }
 
-.rotation-handle:hover,
-.rotation-handle:active,
-.piece.is-rotating .rotation-handle {
-    cursor: grabbing;
-}
-
 .rotation-ring-svg {
     width: 100%;
     height: 100%;
     display: block;
     overflow: visible;
+    pointer-events: none;
 }
 
-.rotation-handle:hover .ring-glow {
+.rotation-handle.is-ring-hovered .ring-glow,
+.rotation-handle:hover .ring-hit:hover ~ .ring-glow,
+.piece.is-rotating .ring-glow {
     stroke: rgba(255, 226, 154, 0.65);
     stroke-width: 6;
 }
 
-.rotation-handle:hover .ring-track,
+.rotation-handle.is-ring-hovered .ring-track,
+.rotation-handle:hover .ring-hit:hover ~ .ring-track,
 .piece.is-rotating .ring-track {
     stroke: #ffffff;
 }

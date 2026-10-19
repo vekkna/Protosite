@@ -59,6 +59,11 @@ test('Remote sync, piece IDs, board flip, and responsive layout features', () =>
                         else if (sel === '.unit' && child.classList.contains('unit')) results.push(child);
                         else if (sel === '.terrain' && child.classList.contains('terrain')) results.push(child);
                         else if (sel === '.unit-label' && child.classList.contains('unit-label')) results.push(child);
+                        else if (sel === '.rotation-handle' && child.classList.contains('rotation-handle')) results.push(child);
+                        else if (sel === '.ring-hit' && child.classList.contains('ring-hit')) results.push(child);
+                        else if (sel === '.ring-node' && child.classList.contains('ring-node')) results.push(child);
+                        else if (sel === '.ring-glow' && child.classList.contains('ring-glow')) results.push(child);
+                        else if (sel === '.ring-track' && child.classList.contains('ring-track')) results.push(child);
                         search(child);
                     }
                 };
@@ -69,6 +74,17 @@ test('Remote sync, piece IDs, board flip, and responsive layout features', () =>
                 if (sel.startsWith('#')) return elements[sel.slice(1)] || null;
                 const matches = this.querySelectorAll(sel);
                 return matches.length ? matches[0] : null;
+            },
+            closest(sel) {
+                let cur = this;
+                while (cur) {
+                    if (sel === '.piece' && cur.classList && cur.classList.contains('piece')) return cur;
+                    if (sel === '.unit' && cur.classList && cur.classList.contains('unit')) return cur;
+                    if (sel.includes('.ring-hit') && cur.classList && cur.classList.contains('ring-hit')) return cur;
+                    if (sel.includes('.ring-node') && cur.classList && cur.classList.contains('ring-node')) return cur;
+                    cur = cur.parentElement;
+                }
+                return null;
             },
             replaceChildren(...nodes) {
                 this.children = [];
@@ -97,6 +113,24 @@ test('Remote sync, piece IDs, board flip, and responsive layout features', () =>
                 return clone;
             }
         };
+
+        let _innerHTML = '';
+        Object.defineProperty(el, 'innerHTML', {
+            get() { return _innerHTML; },
+            set(val) {
+                _innerHTML = String(val);
+                this.children = [];
+                const regex = /<(\w+)[^>]*class="([^"]+)"[^>]*>/g;
+                let match;
+                while ((match = regex.exec(val)) !== null) {
+                    const child = createElement(match[1]);
+                    const classes = match[2].split(/\s+/).filter(Boolean);
+                    child.classList.add(...classes);
+                    this.appendChild(child);
+                }
+            }
+        });
+
         return el;
     };
 
@@ -313,4 +347,102 @@ test('Remote sync, piece IDs, board flip, and responsive layout features', () =>
     const widthWithoutRightSidebar = parseInt(leftSidebar.style.width, 10);
     assert.ok(widthWithoutRightSidebar > widthWithRightSidebar, 'Left sidebar must expand when right sidebar is hidden');
     assert.ok(widthWithoutRightSidebar <= 440, 'Left sidebar width must be capped at 440px');
+
+    // 7. Enlarged Rotation Ring Sizing & Clearance
+    const testUnit = createUnitDOM('Footmen', '#336699', 100, 100, 0, 0);
+    tableEl.appendChild(testUnit);
+    const unitW = parseFloat(testUnit.style.width) || 70;
+    const unitH = parseFloat(testUnit.style.height) || 50;
+    const unitHypot = Math.hypot(unitW, unitH);
+    const handleEl = testUnit.querySelector('.rotation-handle');
+    assert.ok(handleEl, 'Unit must have a rotation-handle element');
+    const handleDiameter = parseFloat(handleEl.style.width);
+    assert.ok(
+        handleDiameter >= unitHypot + 60,
+        `Handle diameter (${handleDiameter}px) must provide > 60px clearance over unit hypotenuse (${unitHypot.toFixed(1)}px)`
+    );
+
+    // Verify ring elements in SVG
+    const ringHit = handleEl.querySelector('.ring-hit');
+    assert.ok(ringHit, 'Handle must contain .ring-hit element');
+    const ringNodes = handleEl.querySelectorAll('.ring-node');
+    assert.equal(ringNodes.length, 4, 'Handle must contain 4 .ring-node compass elements');
+
+    // 8. Event Separation: Unit Pressing vs Ring Touching
+    testUnit.classList.add('is-selected');
+
+    // (A) Pressing on unit body / handle container must NOT trigger rotation
+    let pointerCaptured = false;
+    let defaultPrevented = false;
+    let propagationStopped = false;
+    handleEl.setPointerCapture = () => { pointerCaptured = true; };
+
+    const nonRingEvent = {
+        isPrimary: true,
+        button: 0,
+        pointerId: 42,
+        target: testUnit,
+        currentTarget: handleEl,
+        preventDefault() { defaultPrevented = true; },
+        stopPropagation() { propagationStopped = true; }
+    };
+
+    window.onRotationHandlePointerDown(nonRingEvent);
+    assert.equal(defaultPrevented, false, 'Pressing on unit must not preventDefault in rotation handler');
+    assert.equal(propagationStopped, false, 'Pressing on unit must not stopPropagation in rotation handler');
+    assert.equal(pointerCaptured, false, 'Pointer must not be captured for non-ring target');
+    assert.equal(testUnit.classList.contains('is-rotating'), false, 'Piece must not be rotating');
+
+    // (B) Pressing and dragging on the unit moves the unit (dragging state, NOT rotation)
+    let piecePointerCaptured = false;
+    testUnit.setPointerCapture = () => { piecePointerCaptured = true; };
+    const unitPressEvent = {
+        isPrimary: true,
+        button: 0,
+        pointerId: 43,
+        clientX: 120,
+        clientY: 110,
+        currentTarget: testUnit,
+        preventDefault() {},
+        stopPropagation() {}
+    };
+    window.onPiecePointerDown(unitPressEvent);
+    assert.equal(piecePointerCaptured, true, 'Unit must capture pointer on piece pointerdown for movement');
+
+    // Move pointer beyond drag threshold
+    window.handlePointerMove({
+        pointerId: 43,
+        clientX: 150,
+        clientY: 140
+    });
+    assert.equal(testUnit.classList.contains('is-dragging'), true, 'Unit must enter is-dragging state on drag');
+    assert.equal(testUnit.classList.contains('is-rotating'), false, 'Unit must NOT enter is-rotating state on unit drag');
+
+    window.onPointerUp({ pointerId: 43 });
+    assert.equal(testUnit.classList.contains('is-dragging'), false, 'Unit must exit is-dragging state after release');
+
+    // (C) Touching the rotation ring (.ring-hit) initiates rotation
+    defaultPrevented = false;
+    propagationStopped = false;
+    pointerCaptured = false;
+    const ringTouchEvent = {
+        isPrimary: true,
+        button: 0,
+        pointerId: 44,
+        target: ringHit,
+        currentTarget: handleEl,
+        preventDefault() { defaultPrevented = true; },
+        stopPropagation() { propagationStopped = true; }
+    };
+
+    window.onRotationHandlePointerDown(ringTouchEvent);
+    assert.equal(defaultPrevented, true, 'Touching ring-hit must preventDefault');
+    assert.equal(propagationStopped, true, 'Touching ring-hit must stopPropagation');
+    assert.equal(pointerCaptured, true, 'Pointer must be captured on handle when touching ring-hit');
+    assert.equal(testUnit.classList.contains('is-rotating'), true, 'Piece must enter is-rotating state');
+    assert.equal(testUnit.classList.contains('is-dragging'), false, 'Piece must NOT enter is-dragging state when rotating');
+
+    // Clean up rotation state via pointer up
+    window.onPointerUp({ pointerId: 44 });
+    assert.equal(testUnit.classList.contains('is-rotating'), false, 'Piece must exit is-rotating state on pointer up');
 });

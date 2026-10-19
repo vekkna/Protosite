@@ -1689,7 +1689,7 @@ function updateRotationHandleSize(piece) {
     if (!handle) return;
     const w = parseFloat(piece.style.width) || piece.offsetWidth || 70;
     const h = parseFloat(piece.style.height) || piece.offsetHeight || 50;
-    const diameter = Math.round(Math.hypot(w, h) + 26);
+    const diameter = Math.round(Math.hypot(w, h) + 64);
     handle.style.width = `${diameter}px`;
     handle.style.height = `${diameter}px`;
 }
@@ -1703,17 +1703,31 @@ function appendRotationHandle(piece) {
         handle.setAttribute('aria-label', 'Drag ring to rotate');
         handle.title = 'Drag ring to rotate';
         handle.innerHTML = `
-            <svg class="rotation-ring-svg" viewBox="0 0 100 100" style="width:100%; height:100%; display:block; pointer-events:none;">
-                <circle class="ring-hit" cx="50" cy="50" r="44" fill="none" stroke="transparent" stroke-width="16" style="pointer-events:stroke;" />
-                <circle class="ring-glow" cx="50" cy="50" r="44" fill="none" stroke="rgba(216, 179, 109, 0.3)" stroke-width="4" style="pointer-events:none;" />
-                <circle class="ring-track" cx="50" cy="50" r="44" fill="none" stroke="rgba(255, 236, 183, 0.85)" stroke-width="2" stroke-dasharray="4 2" style="pointer-events:none;" />
-                <circle cx="50" cy="6" r="3.5" fill="#ffd77a" stroke="#2c1c0d" stroke-width="1" style="pointer-events:none;" />
-                <circle cx="50" cy="94" r="3.5" fill="#ffd77a" stroke="#2c1c0d" stroke-width="1" style="pointer-events:none;" />
-                <circle cx="6" cy="50" r="3.5" fill="#ffd77a" stroke="#2c1c0d" stroke-width="1" style="pointer-events:none;" />
-                <circle cx="94" cy="50" r="3.5" fill="#ffd77a" stroke="#2c1c0d" stroke-width="1" style="pointer-events:none;" />
+            <svg class="rotation-ring-svg" viewBox="0 0 100 100">
+                <circle class="ring-hit" cx="50" cy="50" r="44" fill="none" stroke="transparent" stroke-width="16" />
+                <circle class="ring-glow" cx="50" cy="50" r="44" fill="none" stroke="rgba(216, 179, 109, 0.3)" stroke-width="4" />
+                <circle class="ring-track" cx="50" cy="50" r="44" fill="none" stroke="rgba(255, 236, 183, 0.85)" stroke-width="2" stroke-dasharray="4 2" />
+                <circle class="ring-node" cx="50" cy="6" r="3.5" fill="#ffd77a" stroke="#2c1c0d" stroke-width="1" />
+                <circle class="ring-node" cx="50" cy="94" r="3.5" fill="#ffd77a" stroke="#2c1c0d" stroke-width="1" />
+                <circle class="ring-node" cx="6" cy="50" r="3.5" fill="#ffd77a" stroke="#2c1c0d" stroke-width="1" />
+                <circle class="ring-node" cx="94" cy="50" r="3.5" fill="#ffd77a" stroke="#2c1c0d" stroke-width="1" />
             </svg>
         `;
         handle.addEventListener('pointerdown', onRotationHandlePointerDown);
+
+        const setRingHover = (hovered) => {
+            handle.classList.toggle('is-ring-hovered', hovered);
+        };
+        const ringHit = handle.querySelector('.ring-hit');
+        if (ringHit) {
+            ringHit.addEventListener('pointerenter', () => setRingHover(true));
+            ringHit.addEventListener('pointerleave', () => setRingHover(false));
+        }
+        handle.querySelectorAll('.ring-node').forEach(node => {
+            node.addEventListener('pointerenter', () => setRingHover(true));
+            node.addEventListener('pointerleave', () => setRingHover(false));
+        });
+
         piece.appendChild(handle);
     }
     updateRotationHandleSize(piece);
@@ -2808,6 +2822,12 @@ function getPointerAngleFromPieceCenter(piece, event) {
 
 function onRotationHandlePointerDown(e) {
     if (!e.isPrimary || e.button !== 0 || activePointerId !== null) return;
+    const isRing = Boolean(e.target && (
+        (e.target.classList && (e.target.classList.contains('ring-hit') || e.target.classList.contains('ring-node'))) ||
+        (e.target.closest && e.target.closest('.ring-hit, .ring-node'))
+    ));
+    if (!isRing) return;
+
     e.preventDefault();
     e.stopPropagation();
 
@@ -3237,6 +3257,12 @@ if (typeof window !== 'undefined') {
     window.getBoardState = getBoardState;
     window.restoreBoardState = restoreBoardState;
     window.handleIncomingData = handleIncomingData;
+    window.updateRotationHandleSize = updateRotationHandleSize;
+    window.appendRotationHandle = appendRotationHandle;
+    window.onRotationHandlePointerDown = onRotationHandlePointerDown;
+    window.onPiecePointerDown = onPiecePointerDown;
+    window.onPointerUp = onPointerUp;
+    window.handlePointerMove = handlePointerMove;
 }
 
 initGame();
