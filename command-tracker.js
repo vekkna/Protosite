@@ -1,8 +1,9 @@
 // Round transitions are independent of the board so they can be checked in isolation.
 const CommandTracker = {
-    create() {
+    create(options = {}) {
+        const firstTie = options.firstTie || (options.firstDraftPick ? (options.firstDraftPick === 'p1' ? 'p2' : 'p1') : 'p2');
         return { round: 0, phase: 'setup', master: null, window: 0,
-            remaining: { p1: 0, p2: 0 }, bids: { p1: 0, p2: 0 }, firstTie: 'p2' };
+            remaining: { p1: 0, p2: 0 }, bids: { p1: 0, p2: 0 }, firstTie };
     },
     activePlayer(state) {
         if (state.phase !== 'commands') return null;
@@ -21,7 +22,7 @@ const CommandTracker = {
             bids: { ...bids }, remaining: { ...bids } };
     },
     pass(state, player) {
-        if (this.activePlayer(state) !== player || !player) throw new Error('Only the active player can pass.');
+        if (player && this.activePlayer(state) !== player) throw new Error('Only the active player can pass.');
         if (state.window === 2) return { ...state, phase: 'complete', remaining: { p1: 0, p2: 0 } };
         return { ...state, window: state.window + 1 };
     },
@@ -39,3 +40,4 @@ const CommandTracker = {
     }
 };
 if (typeof module !== 'undefined') module.exports = CommandTracker;
+if (typeof window !== 'undefined') window.CommandTracker = CommandTracker;

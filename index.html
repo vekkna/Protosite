@@ -23,17 +23,6 @@
                     <span class="option-badge badge-p1">Player 1</span>
                     <h3>Host Battle</h3>
                     <p>Create a game room and get a 4-letter code to share with your opponent.</p>
-                    <div class="dice-count-field pool-count-field landing-pool-config">
-                        <label for="starting-pool-count">Starting Pool Units</label>
-                        <div class="dice-count-adjuster pool-adjuster">
-                            <button type="button" class="btn-grey dice-step-button" onclick="adjustPoolCount(-2)"
-                                aria-label="Decrease pool units">&minus;</button>
-                            <input type="number" id="starting-pool-count" value="12" min="2" max="40" step="2"
-                                onchange="normalizeStartingPoolCount()">
-                            <button type="button" class="btn-grey dice-step-button" onclick="adjustPoolCount(2)"
-                                aria-label="Increase pool units">+</button>
-                        </div>
-                    </div>
                     <button id="landing-host-btn" class="btn-blue landing-action-btn" onclick="hostGameFromLanding()">Host New Game</button>
                 </div>
 
@@ -47,11 +36,11 @@
                     </div>
                 </div>
 
-                <div class="landing-option solo-option">
+                <div class="landing-option hotseat-option is-disabled">
                     <span class="option-badge">Local</span>
-                    <h3>Play Solo / Local</h3>
-                    <p>Sandbox play on a single screen without networking.</p>
-                    <button id="landing-solo-btn" class="btn-grey landing-action-btn" onclick="playSoloFromLanding()">Play Local Sandbox</button>
+                    <h3>Play Hotseat</h3>
+                    <p>Pass-and-play on a single device screen.</p>
+                    <button class="btn-grey landing-action-btn" disabled>Hotseat (Coming Soon)</button>
                 </div>
             </div>
 
@@ -67,75 +56,129 @@
     </div>
 
     <div id="container" style="display: none;">
-        <div id="left-sidebar" class="sidebar">
+        <div class="sidebar" id="left-sidebar">
             <!-- Player Identity & Room Card -->
             <div id="player-banner" class="player-banner">
-                <div class="player-banner-top">
+                <div class="player-banner-top" id="player-banner-top" onclick="toggleRoomCodeArea()" role="button" tabindex="0" title="Tuck or expand game code panel" aria-expanded="true">
                     <div class="player-role-badge badge-p1" id="player-role-badge">Player 1</div>
-                    <button id="toggle-room-code-btn" type="button" class="btn-toggle-badge" onclick="toggleRoomCodeArea()" title="Toggle game code display" aria-label="Toggle game code display">Hide Code</button>
+                    <button id="toggle-room-code-btn" type="button" class="panel-tuck-btn" onclick="event.stopPropagation(); toggleRoomCodeArea()" title="Tuck room code" aria-label="Tuck room code" aria-expanded="true">
+                        <span class="tuck-chevron">▾</span>
+                    </button>
                 </div>
                 <div id="room-code-area" class="room-code-area">
                     <div class="room-code-badge" id="room-code-badge">
                         <span id="room-code-text">Code: ----</span>
-                        <button id="copy-room-link-btn" class="btn-copy-sm" onclick="copyRoomLink()" title="Copy invite link">Copy Link</button>
+                        <button id="copy-room-link-btn" class="btn-copy-sm" onclick="event.stopPropagation(); copyRoomLink()" title="Copy invite link">Copy Link</button>
                     </div>
                     <div id="network-status" class="network-status">Waiting for opponent...</div>
+                    <div class="room-code-tuck-tab" onclick="toggleRoomCodeArea()" title="Tuck room code">
+                        <span>Tuck Code</span>
+                        <span class="tuck-chevron-sm">▴</span>
+                    </div>
                 </div>
                 <button id="exit-game-btn" class="btn-text-sm" onclick="exitToLanding()">Exit to Menu</button>
             </div>
-            <span class="sidebar-kicker">War Council</span>
-            <section id="round-panel" aria-label="Round and commands">
-                <span class="sidebar-kicker">Round &amp; Commands</span>
-                <h3 id="round-title">Battle setup</h3>
-                <p id="round-status" role="status" aria-live="polite"></p>
-                <ol id="command-windows" aria-label="Activation windows"></ol>
-                <div id="command-totals"></div>
-                <div id="tracker-bids">
-                    <div class="tracker-bids-header">
-                        <span class="sidebar-kicker">Bid for Initiative</span>
-                        <span id="opponent-status" class="opponent-status offline">Local Game</span>
-                    </div>
-                    <div class="cp-container">
-                        <div class="cp-field" data-bid-player="p1">
-                            <span class="cp-label" id="label-p1">P1 CP</span>
-                            <div class="bid-input-box">
-                                <input type="number" id="cp1" value="1" min="1" onchange="handleCpBidChange('p1')">
-                            </div>
-                            <button type="button" class="btn-blue btn-sm bid-set-btn" id="btn-set-p1" onclick="toggleSetBid('p1')">Set</button>
-                            <span class="bid-subtext" id="subtext-p1"></span>
-                        </div>
-                        <div class="cp-field" data-bid-player="p2">
-                            <span class="cp-label" id="label-p2">P2 CP</span>
-                            <div class="bid-input-box">
-                                <input type="number" id="cp2" value="1" min="1" onchange="handleCpBidChange('p2')">
-                            </div>
-                            <button type="button" class="btn-blue btn-sm bid-set-btn" id="btn-set-p2" onclick="toggleSetBid('p2')">Set</button>
-                            <span class="bid-subtext" id="subtext-p2"></span>
-                        </div>
-                    </div>
-                    <button id="toggle-bids-btn" class="btn-grey" onclick="triggerRevealBids()" disabled>Reveal Bids</button>
-                </div>
-                <label id="first-tie-field" class="tracker-field">Picked second in draft
-                    <select id="first-tie-player" onchange="setFirstRoundTie(this.value)">
-                        <option value="p2">P2 (wins first-round ties)</option>
-                        <option value="p1">P1 (wins first-round ties)</option>
-                    </select>
-                </label>
-                <button id="round-action-btn" type="button" class="btn-blue" onclick="advanceRound()">Start round 1</button>
-                <button id="pass-command-btn" type="button" class="btn-grey" onclick="passCommandWindow()" hidden>Pass</button>
-                <details id="army-assignment">
-                    <summary>Army assignment</summary>
-                    <p class="sidebar-description">Position assigns P1 to the bottom half and P2 to the top half when round 1 starts. Override below before resolving bids.</p>
-                    <div id="army-roster"></div>
-                </details>
-                <p id="command-feedback" role="alert"></p>
-            </section>
-            <span class="sidebar-kicker" style="margin-top: 14px;">Battle Tools</span>
-            <div class="tools-btn-grid">
-                <button id="fullscreen-btn" type="button" class="btn-grey btn-sm" onclick="toggleFullscreen()">Full Screen</button>
-                <button id="matchup-analysis-btn" type="button" class="btn-blue btn-sm" onclick="openMatchupAnalysis()"
-                    aria-haspopup="dialog" aria-controls="matchup-modal">Matchups</button>
+
+            <!-- Draft Pick Notice -->
+            <div id="draft-notice-banner" class="draft-notice-banner">
+                <span class="draft-notice-kicker">Deployment Draft</span>
+                <p id="draft-notice-text">Preparing draft...</p>
             </div>
+
+            <!-- Top Left Bids & Turn Section -->
+            <section id="bidding-turn-panel" class="bidding-turn-panel" aria-label="Bidding and Turn Management">
+                <div id="bidding-zone" class="bidding-zone">
+                    <span class="sidebar-kicker" id="bidding-header-kicker">Bidding Area (Bid for Initiative)</span>
+                    <div class="bid-cards-row">
+                        <div class="bid-card my-bid-card">
+                            <span class="bid-card-label">Your Bid</span>
+                            <div id="bid-input-wrap" class="bid-input-wrap">
+                                <input type="number" id="my-bid-input" min="1" max="24" value="2">
+                                <button id="lock-bid-btn" class="btn-blue btn-sm" onclick="lockLocalBid()">Set</button>
+                            </div>
+                            <div id="bid-locked-wrap" class="bid-locked-wrap" style="display: none;">
+                                <span id="my-locked-bid-val" class="locked-val">2</span>
+                                <button class="btn-grey btn-xs" onclick="unlockLocalBid()">Edit</button>
+                            </div>
+                        </div>
+
+                        <div class="bid-card opponent-bid-card">
+                            <span class="bid-card-label">Opponent</span>
+                            <div id="opponent-bid-status" class="opponent-bid-status">
+                                <span id="opponent-status-dot" class="status-dot"></span>
+                                <span id="opponent-bid-text">Waiting...</span>
+                            </div>
+                        </div>
+                    </div>
+                    <button id="reveal-bids-btn" class="btn-gold" onclick="triggerRevealBids()" disabled>Reveal Bids</button>
+                </div>
+
+                <!-- Turn Sequence Zone (shown once revealed) -->
+                <div id="turn-zone" class="turn-zone" style="display: none;">
+                    <div id="master-tactician-banner" class="master-tactician-banner">
+                        <span class="mt-crown">👑</span>
+                        <div class="mt-details">
+                            <strong id="mt-player-label">P1 is Master Tactician</strong>
+                            <span id="mt-bids-summary" class="mt-bids-summary">P1: 2 · P2: 4</span>
+                        </div>
+                    </div>
+
+                    <div class="turn-status-card">
+                        <span class="turn-phase-kicker">Current Turn</span>
+                        <h4 id="current-turn-title">Master Tactician's 1st Turn</h4>
+                        <button id="pass-turn-btn" class="btn-blue pass-btn" onclick="handlePassTurn()">Pass</button>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Command Staging Zone (to the left of the battlefield) -->
+            <section id="command-staging-panel" class="command-staging-panel">
+                <span class="sidebar-kicker">Command Markers</span>
+                <p class="staging-hint">Drag onto your units</p>
+
+                <div class="command-group" id="your-commands-group">
+                    <div class="command-group-header">
+                        <span class="command-group-title">Your commands</span>
+                    </div>
+                    <div id="your-command-tray" class="command-tray">
+                        <span class="tray-placeholder">Reveal bids to show commands.</span>
+                    </div>
+                </div>
+
+                <div class="command-group" id="opp-commands-group">
+                    <div class="command-group-header">
+                        <span class="command-group-title">Opponent's commands</span>
+                    </div>
+                    <div id="opp-command-tray" class="command-tray">
+                        <span class="tray-placeholder">Reveal bids to show commands.</span>
+                    </div>
+                </div>
+
+                <div id="command-tray" style="display: none;"></div>
+            </section>
+
+            <!-- Battle Tools: Dice Roller -->
+            <section class="battle-tools-section">
+                <span class="sidebar-kicker">Dice Roller</span>
+                <div class="dice-controls">
+                    <div class="dice-count-field">
+                        <label for="dice-count">Number of d6</label>
+                        <div class="dice-count-adjuster">
+                            <button type="button" class="btn-grey dice-step-button" onclick="adjustDiceCount(-1)"
+                                aria-label="Decrease number of dice">&#9660;</button>
+                            <input type="number" id="dice-count" value="2" min="1" max="20" onchange="normalizeDiceCount()">
+                            <button type="button" class="btn-grey dice-step-button" onclick="adjustDiceCount(1)"
+                                aria-label="Increase number of dice">&#9650;</button>
+                        </div>
+                    </div>
+                    <button id="dice-btn" class="btn-red" onclick="rollDice()">Roll</button>
+                </div>
+                <div id="dice-roll-card" class="dice-roll-card">
+                    <div id="dice-values" class="dice-values">
+                        <span class="die-face empty">-</span>
+                    </div>
+                </div>
+            </section>
         </div>
         <div id="table-container">
             <div id="game-table">
@@ -163,49 +206,28 @@
             <span class="sidebar-kicker">Battlefield Dressing</span>
             <div class="stats-panel-header">
                 <h3>How to Play</h3>
-                <div class="how-to-play-grid">
-                    <button id="controls-help-btn" type="button" class="btn-grey btn-sm" onclick="openControlsHelp()"
+                <div class="sidebar-btn-row">
+                    <button id="controls-help-btn" type="button" class="btn-grey" onclick="openControlsHelp()"
                         aria-haspopup="dialog" aria-controls="controls-modal">Controls</button>
-                    <button type="button" class="btn-grey btn-sm" onclick="openRulebook()">Rulebook</button>
+                    <button class="btn-grey" onclick="openRulebook()">Rulebook</button>
+                    <button id="fullscreen-btn" type="button" class="btn-grey" onclick="toggleFullscreen()">Full Screen</button>
                 </div>
+                <h3 style="margin-top:0">Terrain</h3>
             </div>
-            <div id="terrain-section">
-                <h3 style="margin-top:10px">Terrain</h3>
-                <p class="sidebar-description">Drag the revealed card onto the field.</p>
-                <div id="terrain-card" class="palette-item terrain-deck-card is-empty"
-                    onpointerdown="playTerrainCard(event)" role="button" aria-disabled="true"
-                    aria-label="Terrain deck empty.">
-                    <span class="terrain-card-kicker">Revealed Card</span>
-                    <span id="terrain-card-title" class="palette-title">Deck Empty</span>
-                    <span id="terrain-card-note" class="palette-note">All Terrain Placed</span>
-                </div>
-            </div>
-            <div id="dice-section">
-                <span class="sidebar-kicker">Roll Dice</span>
-                <div class="dice-controls">
-                    <div class="dice-count-field">
-                        <label for="dice-count">Number of d6</label>
-                        <div class="dice-count-adjuster">
-                            <button type="button" class="btn-grey dice-step-button" onclick="adjustDiceCount(-1)"
-                                aria-label="Decrease number of dice">&minus;</button>
-                            <input type="number" id="dice-count" value="2" min="1" max="20" onchange="normalizeDiceCount()">
-                            <button type="button" class="btn-grey dice-step-button" onclick="adjustDiceCount(1)"
-                                aria-label="Increase number of dice">+</button>
-                        </div>
-                    </div>
-                    <button id="dice-btn" class="btn-red" onclick="rollDice()">Roll</button>
-                </div>
-                <div id="dice-roll-card" class="dice-roll-card">
-                    <div id="dice-values" class="dice-values">
-                        <span class="die-face empty">-</span>
-                    </div>
-                </div>
+            <p class="sidebar-description">Drag the revealed card onto the field.</p>
+            <div id="terrain-card" class="palette-item terrain-deck-card is-empty"
+                onpointerdown="playTerrainCard(event)" role="button" aria-disabled="true"
+                aria-label="Terrain deck empty. Use Reset Board to create a new deck.">
+                <span class="terrain-card-kicker">Revealed Card</span>
+                <span id="terrain-card-title" class="palette-title">Deck Empty</span>
+                <span id="terrain-card-note" class="palette-note">Use Reset Board</span>
             </div>
             <div id="stats-panel">
                 <div id="stats-content">
                     <span class="stats-empty">Select a unit to inspect its profile.</span>
                 </div>
             </div>
+
         </div>
         <button id="right-sidebar-toggle" type="button" class="btn-grey" onclick="toggleRightSidebar()"
             aria-controls="right-sidebar" aria-expanded="true" aria-label="Hide right sidebar"
@@ -229,10 +251,9 @@
                     <div class="controls-group mouse-only">
                         <span class="controls-group-label">Mouse and Keyboard</span>
                         <ul class="controls-help-list">
-                            <li>Host a game or play locally from the landing menu</li>
-                            <li>Hide your bid, set it, then reveal it. Start the round after both bids are revealed.</li>
-                            <li>Check a unit’s activation box to spend a command. Pass to advance the highlighted activation window.</li>
-                            <li>After the final pass, use Next round to clear activation markers and bid again.</li>
+                            <li>Lock your bid, and reveal when both players are ready.</li>
+                            <li>Drag command circles onto units to activate them.</li>
+                            <li>Pass to advance the turn between Master Tactician and Player X.</li>
                             <li>Drag a unit or terrain to move it.</li>
                             <li>Drag on the battlefield to measure distance.</li>
                             <li>Mouse wheel, arrow keys, or the pop-up bar rotate pieces.</li>
@@ -245,29 +266,13 @@
                         <span class="controls-group-label">Touch</span>
                         <ul class="controls-help-list">
                             <li>Drag units or terrain with one finger.</li>
+                            <li>Drag command circles onto units.</li>
                             <li>Select a piece to show movement controls.</li>
-                            <li>Check a unit’s activation box to spend a command. Use Pass to advance the round’s activation windows.</li>
+                            <li>Use Pass to advance the round’s turns.</li>
                             <li>Use the pop-up controls to rotate pieces or adjust wounds.</li>
                             <li>Drag empty battlefield space to measure distance.</li>
                         </ul>
                     </div>
-                </div>
-            </div>
-        </div>
-    </div>
-    <div id="matchup-modal" class="modal-overlay" onclick="closeMatchupAnalysis()" aria-hidden="true">
-        <div class="modal-content matchup-modal-content" role="dialog" aria-modal="true"
-            aria-labelledby="matchup-modal-title" onclick="event.stopPropagation()">
-            <div class="modal-header matchup-modal-header">
-                <div>
-                    <span class="matchup-modal-kicker">Expected-Value Combat</span>
-                    <h2 id="matchup-modal-title">Matchup Analysis</h2>
-                </div>
-                <button class="btn-red" onclick="closeMatchupAnalysis()" aria-label="Close matchup analysis">X</button>
-            </div>
-            <div class="modal-body matchup-modal-body">
-                <div id="matchup-results" aria-live="polite">
-                    <p class="matchup-status">Loading unit profiles…</p>
                 </div>
             </div>
         </div>
