@@ -43,6 +43,10 @@ test('E2E UI Simulation: hover popup disabled, wound controls active, commands s
                 this.classList._classes = new Set((val || '').split(/\s+/).filter(Boolean));
             },
             querySelectorAll(sel) {
+                if (/^\.[\w-]+$/.test(sel)) {
+                    const descendants = this.children.flatMap(child => [child, ...child.querySelectorAll(sel)]);
+                    return descendants.filter(child => child.classList.contains(sel.slice(1)));
+                }
                 if (sel.includes('.unit')) {
                     return this.children.filter(c => c.classList && c.classList.contains('unit'));
                 }
@@ -92,8 +96,11 @@ test('E2E UI Simulation: hover popup disabled, wound controls active, commands s
     elements['landing-screen'].style.display = 'flex';
     elements['container'].style.display = 'none';
 
+    const windowHandlers = {};
     global.window = {
-        addEventListener() {},
+        addEventListener(type, handler) {
+            (windowHandlers[type] ||= []).push(handler);
+        },
         location: { origin: 'http://localhost:8000', pathname: '/', search: '' },
         innerWidth: 1200,
         innerHeight: 800
@@ -136,6 +143,28 @@ test('E2E UI Simulation: hover popup disabled, wound controls active, commands s
 
     // Draft banner should be visible initially in round 1 before reveal
     assert.equal(elements['draft-notice-banner'].style.display, 'block');
+    assert.equal(elements['terrain-section'].hidden, false, 'Terrain is available during deployment');
+    global.window.triggerRevealBids();
+    assert.equal(global.window.getBiddingState().revealed, false, 'An unset bid cannot be revealed through the action handler');
+    const firstUnit = tableEl.children.find(el => el.classList.contains('unit'));
+    const profile = firstUnit.children.find(el => el.classList.contains('unit-card-stats'));
+    assert.equal(profile, undefined, 'Unit cards show their names without profile stats');
+    for (const [input, expected] of [['99', 6], ['0', 1], ['6', 6], ['1', 1]]) {
+        elements['my-bid-input'].value = input;
+        global.window.lockLocalBid();
+        assert.equal(global.window.getBiddingState().p1.value, expected, 'Bid stays within 1–6');
+        global.window.unlockLocalBid();
+    }
+
+    global.window.spawnTerrain('forest');
+    const terrain = tableEl.children.find(el => el.classList.contains('terrain'));
+    assert.equal(terrain.style.width, terrain.style.height, 'Placed terrain has a circular footprint');
+    assert.equal(terrain.style.height, `${88 / 25.4 * 20}px`, 'Terrain diameter equals the long edge of a standard card');
+    const countBeforeTyping = tableEl.children.length;
+    windowHandlers.keydown.forEach(handler => handler({
+        key: 'z', ctrlKey: true, target: { tagName: 'INPUT' }, preventDefault() {}
+    }));
+    assert.equal(tableEl.children.length, countBeforeTyping, 'Typing in an input does not run the board undo shortcut');
 
     // 2. Test unit hover vs selection tooltip
     const sampleUnit = createElement('div');
@@ -160,6 +189,12 @@ test('E2E UI Simulation: hover popup disabled, wound controls active, commands s
 
     // Banner should be hidden now!
     assert.equal(elements['draft-notice-banner'].style.display, 'none', 'Draft banner must be hidden after reveal');
+    assert.equal(elements['terrain-section'].hidden, true, 'Terrain is hidden after the first reveal');
+    assert.equal(JSON.parse(global.localStorage.getItem('wargameSave_v6')).biddingState.battleStarted, true,
+        'Saved games retain the end of terrain deployment');
+    const piecesAfterReveal = tableEl.children.length;
+    global.window.spawnTerrain('forest');
+    assert.equal(tableEl.children.length, piecesAfterReveal, 'Terrain cannot be added after deployment');
 
     // 4. Test command token separation
     // For Host (p1): your-command-tray gets p1 tokens (3 tokens), opp-command-tray gets p2 tokens (4 tokens)
@@ -169,6 +204,8 @@ test('E2E UI Simulation: hover popup disabled, wound controls active, commands s
     const oppTokens = oppTray.children.filter(c => c.classList && c.classList.contains('command-token'));
     assert.equal(yourTokens.length, 3, 'Your commands tray should hold 3 p1 tokens for Host');
     assert.equal(oppTokens.length, 4, "Opponent's commands tray should hold 4 p2 tokens for Host");
+    global.window.handlePeerData({ type: 'ROUND_RESET' });
+    assert.equal(elements['terrain-section'].hidden, true, 'Terrain stays hidden when bidding resets for another round');
 
     // 5. Test Challenger join: table flips 180 degrees
     elements['landing-join-code'].value = 'TEST';
@@ -188,18 +225,20 @@ test('E2E UI Simulation: hover popup disabled, wound controls active, commands s
     global.window.fitTableToScreen();
     const widthWithRightSidebar = parseInt(leftSidebarEl.style.width, 10);
     assert.ok(widthWithRightSidebar >= 260, `Left sidebar width should be at least 260px (got ${widthWithRightSidebar}px)`);
+    assert.ok(parseInt(rightSidebarEl.style.width, 10) > 210, 'Right sidebar also uses spare width');
 
     // When right sidebar is hidden, left sidebar expands to claim the freed battlefield space
     rightSidebarEl.classList.add('sidebar-hidden');
     global.window.fitTableToScreen();
     const widthWithoutRightSidebar = parseInt(leftSidebarEl.style.width, 10);
     assert.ok(widthWithoutRightSidebar > widthWithRightSidebar, 'Left sidebar should expand when right sidebar is hidden');
-    assert.ok(widthWithoutRightSidebar <= 440, 'Left sidebar should be capped at sensible max');
+    const boardWidth = (960 - 4) * 4 / 3;
+    assert.ok(widthWithoutRightSidebar + boardWidth + 8 <= 1920, 'Panel growth reserves the full height-limited board width');
 
     // 7. Verify CSS styles for bottom-left command dock and bid inputs
     const cssContent = fs.readFileSync('styles.css', 'utf8');
     assert.match(cssContent, /\.unit-command-dock\s*\{[^}]*bottom:\s*-8px/, 'unit-command-dock must be positioned with bottom: -8px');
     assert.match(cssContent, /\.unit-command-dock\s*\{[^}]*left:\s*-8px/, 'unit-command-dock must be positioned with left: -8px');
     assert.match(cssContent, /#left-sidebar\s*\{[^}]*min-width:\s*2[56]0px/, '#left-sidebar must have min-width at least 250px');
-    assert.match(cssContent, /\.bid-input-wrap\s+input[^}]*appearance:\s*textfield/, 'bid input must remove browser spin buttons for maximum visibility');
+    assert.match(cssContent, /\.bid-input-wrap\s+input[^}]*appearance:\s*auto/, 'bid input keeps native increment and decrement arrows');
 });

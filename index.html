@@ -30,17 +30,10 @@
                     <span class="option-badge badge-p2">Player 2</span>
                     <h3>Join Battle</h3>
                     <p>Enter the 4-letter game code from your opponent.</p>
-                    <div class="join-input-group">
-                        <input type="text" id="landing-join-code" maxlength="4" placeholder="CODE" autocomplete="off" spellcheck="false">
-                        <button id="landing-join-btn" class="btn-blue landing-action-btn" onclick="joinGameFromLanding()">Join</button>
-                    </div>
-                </div>
-
-                <div class="landing-option hotseat-option is-disabled">
-                    <span class="option-badge">Local</span>
-                    <h3>Play Hotseat</h3>
-                    <p>Pass-and-play on a single device screen.</p>
-                    <button class="btn-grey landing-action-btn" disabled>Hotseat (Coming Soon)</button>
+                    <form class="join-input-group" onsubmit="event.preventDefault(); joinGameFromLanding()">
+                        <input type="text" id="landing-join-code" maxlength="4" placeholder="Room code" aria-label="Room code" minlength="4" required autocomplete="off" spellcheck="false">
+                        <button id="landing-join-btn" class="btn-blue landing-action-btn">Join</button>
+                    </form>
                 </div>
             </div>
 
@@ -56,14 +49,12 @@
     </div>
 
     <div id="container" style="display: none;">
-        <div class="sidebar" id="left-sidebar">
+        <div class="sidebar" id="left-sidebar" role="complementary" aria-label="Battle controls">
             <!-- Player Identity & Room Card -->
             <div id="player-banner" class="player-banner">
-                <div class="player-banner-top" id="player-banner-top" onclick="toggleRoomCodeArea()" role="button" tabindex="0" title="Tuck or expand game code panel" aria-expanded="true">
+                <div class="player-banner-top" id="player-banner-top">
+                    <button id="toggle-room-code-btn" type="button" class="hosting-toggle" onclick="toggleRoomCodeArea()" aria-controls="room-code-area" aria-expanded="true" aria-label="Hide hosting info" title="Hide hosting info"><span class="tuck-chevron" aria-hidden="true">▾</span></button>
                     <div class="player-role-badge badge-p1" id="player-role-badge">Player 1</div>
-                    <button id="toggle-room-code-btn" type="button" class="panel-tuck-btn" onclick="event.stopPropagation(); toggleRoomCodeArea()" title="Tuck room code" aria-label="Tuck room code" aria-expanded="true">
-                        <span class="tuck-chevron">▾</span>
-                    </button>
                 </div>
                 <div id="room-code-area" class="room-code-area">
                     <div class="room-code-badge" id="room-code-badge">
@@ -71,12 +62,8 @@
                         <button id="copy-room-link-btn" class="btn-copy-sm" onclick="event.stopPropagation(); copyRoomLink()" title="Copy invite link">Copy Link</button>
                     </div>
                     <div id="network-status" class="network-status">Waiting for opponent...</div>
-                    <div class="room-code-tuck-tab" onclick="toggleRoomCodeArea()" title="Tuck room code">
-                        <span>Tuck Code</span>
-                        <span class="tuck-chevron-sm">▴</span>
-                    </div>
                 </div>
-                <button id="exit-game-btn" class="btn-text-sm" onclick="exitToLanding()">Exit to Menu</button>
+
             </div>
 
             <!-- Draft Pick Notice -->
@@ -88,14 +75,15 @@
             <!-- Top Left Bids & Turn Section -->
             <section id="bidding-turn-panel" class="bidding-turn-panel" aria-label="Bidding and Turn Management">
                 <div id="bidding-zone" class="bidding-zone">
-                    <span class="sidebar-kicker" id="bidding-header-kicker">Bidding Area (Bid for Initiative)</span>
+                    <p id="round-status" class="round-status" aria-live="polite">Round 1 · Initiative</p>
+                    <h3 id="bidding-header-kicker">Initiative bid</h3>
                     <div class="bid-cards-row">
                         <div class="bid-card my-bid-card">
-                            <span class="bid-card-label">Your Bid</span>
-                            <div id="bid-input-wrap" class="bid-input-wrap">
-                                <input type="number" id="my-bid-input" min="1" max="24" value="2">
-                                <button id="lock-bid-btn" class="btn-blue btn-sm" onclick="lockLocalBid()">Set</button>
-                            </div>
+                            <label class="bid-card-label" for="my-bid-input">Your bid</label>
+                            <form id="bid-input-wrap" class="bid-input-wrap" onsubmit="event.preventDefault(); lockLocalBid()">
+                                <input type="number" id="my-bid-input" min="1" max="6" step="1" value="2" aria-label="Your initiative bid">
+                                <button id="lock-bid-btn" type="submit" class="btn-blue btn-sm">Set bid</button>
+                            </form>
                             <div id="bid-locked-wrap" class="bid-locked-wrap" style="display: none;">
                                 <span id="my-locked-bid-val" class="locked-val">2</span>
                                 <button class="btn-grey btn-xs" onclick="unlockLocalBid()">Edit</button>
@@ -110,6 +98,7 @@
                             </div>
                         </div>
                     </div>
+                    <p id="bidding-help" class="field-help" aria-live="polite">Set your bid, then reveal when both players are ready.</p>
                     <button id="reveal-bids-btn" class="btn-gold" onclick="triggerRevealBids()" disabled>Reveal Bids</button>
                 </div>
 
@@ -124,8 +113,9 @@
                     </div>
 
                     <div class="turn-status-card">
-                        <span class="turn-phase-kicker">Current Turn</span>
+                        <span id="turn-phase-label" class="turn-phase-kicker">First command window</span>
                         <h4 id="current-turn-title">Master Tactician's 1st Turn</h4>
+                        <p id="turn-help" class="field-help" aria-live="polite"></p>
                         <button id="pass-turn-btn" class="btn-blue pass-btn" onclick="handlePassTurn()">Pass</button>
                     </div>
                 </div>
@@ -156,29 +146,9 @@
 
                 <div id="command-tray" style="display: none;"></div>
             </section>
+            <footer class="game-menu-footer"><button id="exit-game-btn" type="button" class="btn-grey" onclick="exitToLanding()">← Back to Main Menu</button><span>Your battle is saved for resuming.</span></footer>
 
-            <!-- Battle Tools: Dice Roller -->
-            <section class="battle-tools-section">
-                <span class="sidebar-kicker">Dice Roller</span>
-                <div class="dice-controls">
-                    <div class="dice-count-field">
-                        <label for="dice-count">Number of d6</label>
-                        <div class="dice-count-adjuster">
-                            <button type="button" class="btn-grey dice-step-button" onclick="adjustDiceCount(-1)"
-                                aria-label="Decrease number of dice">&#9660;</button>
-                            <input type="number" id="dice-count" value="2" min="1" max="20" onchange="normalizeDiceCount()">
-                            <button type="button" class="btn-grey dice-step-button" onclick="adjustDiceCount(1)"
-                                aria-label="Increase number of dice">&#9650;</button>
-                        </div>
-                    </div>
-                    <button id="dice-btn" class="btn-red" onclick="rollDice()">Roll</button>
-                </div>
-                <div id="dice-roll-card" class="dice-roll-card">
-                    <div id="dice-values" class="dice-values">
-                        <span class="die-face empty">-</span>
-                    </div>
-                </div>
-            </section>
+
         </div>
         <div id="table-container">
             <div id="game-table">
@@ -202,31 +172,57 @@
                 </svg>
             </div>
         </div>
-        <div id="right-sidebar" class="sidebar">
-            <span class="sidebar-kicker">Battlefield Dressing</span>
-            <div class="stats-panel-header">
-                <h3>How to Play</h3>
+        <div id="right-sidebar" class="sidebar" role="complementary" aria-label="Battle tools">
+            <section id="terrain-section" aria-label="Terrain deployment">
+                <h3>Terrain</h3>
+            <p class="sidebar-description">Drag the revealed card onto the field.</p>
+            <div id="terrain-card" class="palette-item terrain-deck-card is-empty"
+                onpointerdown="playTerrainCard(event)" role="button" aria-disabled="true"
+                aria-label="Terrain deck empty. Start a new battle to create a terrain deck.">
+                <span class="terrain-card-kicker">Revealed Card</span>
+                <span id="terrain-card-title" class="palette-title">Deck Empty</span>
+                <span id="terrain-card-note" class="palette-note">All terrain drawn</span>
+            </div>
+            </section>
+            <!-- Battle Tools: Dice Roller -->
+            <section class="battle-tools-section">
+                <span class="sidebar-kicker">Dice Roller</span>
+                <div class="dice-controls">
+                    <div class="dice-count-field">
+                        <label for="dice-count">Number of d6</label>
+                        <div class="dice-count-adjuster">
+                            <button type="button" class="btn-grey dice-step-button" onclick="adjustDiceCount(-1)"
+                                aria-label="Decrease number of dice">−</button>
+                            <input type="number" id="dice-count" value="2" min="1" max="20" onchange="normalizeDiceCount()">
+                            <button type="button" class="btn-grey dice-step-button" onclick="adjustDiceCount(1)"
+                                aria-label="Increase number of dice">+</button>
+                        </div>
+                    </div>
+                    <button id="dice-btn" class="btn-blue" onclick="rollDice()">Roll</button>
+                </div>
+                <div id="dice-roll-card" class="dice-roll-card" role="status" aria-label="Dice roll result" aria-live="polite" aria-atomic="true">
+                    <div id="dice-values" class="dice-values">
+                        <span class="die-face empty">-</span>
+                    </div>
+                </div>
+            </section>
+
+            <div id="stats-panel">
+                <h3>Unit profile</h3>
+                <div id="stats-content">
+                    <span class="stats-empty">Select a unit to inspect its profile.</span>
+                </div>
+            </div>
+            <details class="help-section">
+                <summary>Help &amp; display</summary>
                 <div class="sidebar-btn-row">
                     <button id="controls-help-btn" type="button" class="btn-grey" onclick="openControlsHelp()"
                         aria-haspopup="dialog" aria-controls="controls-modal">Controls</button>
                     <button class="btn-grey" onclick="openRulebook()">Rulebook</button>
                     <button id="fullscreen-btn" type="button" class="btn-grey" onclick="toggleFullscreen()">Full Screen</button>
                 </div>
-                <h3 style="margin-top:0">Terrain</h3>
-            </div>
-            <p class="sidebar-description">Drag the revealed card onto the field.</p>
-            <div id="terrain-card" class="palette-item terrain-deck-card is-empty"
-                onpointerdown="playTerrainCard(event)" role="button" aria-disabled="true"
-                aria-label="Terrain deck empty. Use Reset Board to create a new deck.">
-                <span class="terrain-card-kicker">Revealed Card</span>
-                <span id="terrain-card-title" class="palette-title">Deck Empty</span>
-                <span id="terrain-card-note" class="palette-note">Use Reset Board</span>
-            </div>
-            <div id="stats-panel">
-                <div id="stats-content">
-                    <span class="stats-empty">Select a unit to inspect its profile.</span>
-                </div>
-            </div>
+            </details>
+
 
         </div>
         <button id="right-sidebar-toggle" type="button" class="btn-grey" onclick="toggleRightSidebar()"
@@ -244,7 +240,7 @@
             aria-labelledby="controls-modal-title" onclick="event.stopPropagation()">
             <div class="modal-header">
                 <h2 id="controls-modal-title">Field Controls</h2>
-                <button class="btn-red" onclick="closeControlsHelp()" aria-label="Close field controls">X</button>
+                <button class="btn-grey" onclick="closeControlsHelp()" aria-label="Close field controls">X</button>
             </div>
             <div class="modal-body controls-modal-body">
                 <div id="controls-hint">
@@ -256,8 +252,8 @@
                             <li>Pass to advance the turn between Master Tactician and Player X.</li>
                             <li>Drag a unit or terrain to move it.</li>
                             <li>Drag on the battlefield to measure distance.</li>
-                            <li>Mouse wheel, arrow keys, or the pop-up bar rotate pieces.</li>
-                            <li>+/- over a unit changes wounds.</li>
+                            <li>Drag the circle around a selected piece to rotate it.</li>
+                            <li>+/- over a unit changes strain.</li>
                             <li>Z or Ctrl+Z undoes the last change.</li>
                             <li>F toggles full screen.</li>
                         </ul>
@@ -269,7 +265,7 @@
                             <li>Drag command circles onto units.</li>
                             <li>Select a piece to show movement controls.</li>
                             <li>Use Pass to advance the round’s turns.</li>
-                            <li>Use the pop-up controls to rotate pieces or adjust wounds.</li>
+                            <li>Drag the circle around a selected piece to rotate; use +/- to adjust strain.</li>
                             <li>Drag empty battlefield space to measure distance.</li>
                         </ul>
                     </div>
@@ -282,7 +278,7 @@
             onclick="event.stopPropagation()">
             <div class="modal-header">
                 <h2 id="rulebook-modal-title" style="margin:0; color:#fff;">Rulebook</h2>
-                <button class="btn-red" onclick="closeRulebook()" style="padding: 5px 10px;"
+                <button class="btn-grey" onclick="closeRulebook()" style="padding: 5px 10px;"
                     aria-label="Close rulebook">X</button>
             </div>
             <div class="modal-body">

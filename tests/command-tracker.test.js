@@ -55,6 +55,8 @@ test('bids must be integers within the surviving army size', () => {
     assert.throws(() => tracker.start(tracker.create(), { p1: 1, p2: 1 }, { p1: 0, p2: 6 }));
     assert.throws(() => tracker.start(start(), { p1: 1, p2: 1 }, counts));
     assert.throws(() => tracker.next(start()));
+    assert.throws(() => tracker.start(tracker.create(), { p1: 7, p2: 1 }, { p1: 24, p2: 24 }),
+        'An army larger than six still cannot bid more than six');
 });
 
 test('saved tracker state preserves windows, commands and tie history', () => {

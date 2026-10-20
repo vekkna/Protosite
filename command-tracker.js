@@ -12,8 +12,9 @@ const CommandTracker = {
     start(state, bids, counts) {
         if (!['setup', 'bidding'].includes(state.phase)) throw new Error('Finish the current round first.');
         for (const player of ['p1', 'p2']) {
-            if (!Number.isInteger(bids[player]) || bids[player] < 1 || bids[player] > counts[player]) {
-                throw new Error(`${player.toUpperCase()} must bid from 1 to ${counts[player]} (their units on the battlefield).`);
+            const limit = Math.min(6, counts[player]);
+            if (!Number.isInteger(bids[player]) || bids[player] < 1 || bids[player] > limit) {
+                throw new Error(`${player.toUpperCase()} must bid from 1 to ${limit}.`);
             }
         }
         const master = bids.p1 === bids.p2 ? (state.master || state.firstTie)

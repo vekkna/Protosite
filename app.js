@@ -190,6 +190,7 @@ function renderActiveGamesUI() {
 function toggleRoomCodeArea() {
     isRoomCodeHidden = !isRoomCodeHidden;
     updateRoomCodeVisibility();
+    saveUIState();
 }
 
 function updateRoomCodeVisibility() {
@@ -198,14 +199,16 @@ function updateRoomCodeVisibility() {
     const header = document.getElementById('player-banner-top');
     const banner = document.getElementById('player-banner');
     if (!area) return;
+    area.inert = isRoomCodeHidden;
+    area.setAttribute('aria-hidden', String(isRoomCodeHidden));
 
     if (isRoomCodeHidden) {
         area.classList.add('is-tucked');
         if (banner) banner.classList.add('is-tucked');
         if (btn) {
             btn.setAttribute('aria-expanded', 'false');
-            btn.title = 'Expand room code';
-            btn.setAttribute('aria-label', 'Expand room code');
+            btn.title = 'Show hosting info';
+            btn.setAttribute('aria-label', 'Show hosting info');
         }
         if (header) {
             header.setAttribute('aria-expanded', 'false');
@@ -216,8 +219,8 @@ function updateRoomCodeVisibility() {
         if (banner) banner.classList.remove('is-tucked');
         if (btn) {
             btn.setAttribute('aria-expanded', 'true');
-            btn.title = 'Tuck room code';
-            btn.setAttribute('aria-label', 'Tuck room code');
+            btn.title = 'Hide hosting info';
+            btn.setAttribute('aria-label', 'Hide hosting info');
         }
         if (header) {
             header.setAttribute('aria-expanded', 'true');
@@ -247,10 +250,23 @@ function updateDraftNoticeUI() {
     }
 }
 
+function hasBattleStarted() {
+    return Boolean(biddingState.battleStarted || biddingState.revealed || biddingState.round > 1);
+}
+
+function updateTerrainVisibility() {
+    const section = document.getElementById('terrain-section');
+    if (section) {
+        section.hidden = hasBattleStarted();
+        section.style.display = section.hidden ? 'none' : '';
+    }
+}
+
 function loadUIState() {
     try {
         const savedState = JSON.parse(localStorage.getItem(UI_STATE_KEY) || '{}');
         isMultiplayerPanelCollapsed = Boolean(savedState.isMultiplayerPanelCollapsed);
+        isRoomCodeHidden = Boolean(savedState.isRoomCodeHidden);
     } catch (err) {
         console.warn("Unable to load UI state:", err);
     }
@@ -259,7 +275,8 @@ function loadUIState() {
 function saveUIState() {
     try {
         localStorage.setItem(UI_STATE_KEY, JSON.stringify({
-            isMultiplayerPanelCollapsed
+            isMultiplayerPanelCollapsed,
+            isRoomCodeHidden
         }));
     } catch (err) {
         console.warn("Unable to save UI state:", err);
@@ -275,6 +292,9 @@ function getOpponentPlayerKey() {
 }
 
 function updateBiddingUI() {
+    const roundLabel = document.getElementById('round-status');
+    if (roundLabel) roundLabel.textContent = `Round ${biddingState.round} · Initiative`;
+    updateTerrainVisibility();
     updateDraftNoticeUI();
     const localKey = getLocalBidPlayerKey();
     const biddingZone = document.getElementById('bidding-zone');
@@ -320,7 +340,7 @@ function updateOpponentBidStatusUI() {
     const isPeerConnected = Boolean(conn && conn.open);
     if (!isPeerConnected) {
         dot.classList.remove('is-ready');
-        text.textContent = 'Solo / Sandbox';
+        text.textContent = 'Not connected';
         text.title = 'No peer connected yet. Setting your bid enables Reveal.';
         return;
     }
@@ -343,12 +363,25 @@ function checkRevealReadiness() {
         ? (biddingState.p1.ready && biddingState.p2.ready)
         : Boolean(biddingState[localKey].ready);
     btn.disabled = !canReveal;
+    const help = document.getElementById('bidding-help');
+    const message = !biddingState[localKey].ready
+        ? 'Choose 1–6 commands, then set your bid.'
+        : !isPeerConnected
+            ? 'Your bid is set. You can reveal to try a solo round.'
+            : canReveal ? 'Both bids are set. Ready to reveal.' : 'Your bid is set. Waiting for your opponent.';
+    if (help) help.textContent = message;
+    btn.title = canReveal ? 'Reveal the bids and begin the round' : message;
+}
+
+function normalizeCommandBid(value) {
+    const parsed = parseInt(value, 10);
+    return Math.max(1, Math.min(6, Number.isFinite(parsed) ? parsed : 2));
 }
 
 function lockLocalBid() {
     const localKey = getLocalBidPlayerKey();
     const input = document.getElementById('my-bid-input');
-    const val = Math.max(1, Math.min(24, parseInt(input.value, 10) || 2));
+    const val = normalizeCommandBid(input.value);
     biddingState[localKey].value = val;
     biddingState[localKey].ready = true;
     updateBiddingUI();
@@ -362,15 +395,21 @@ function unlockLocalBid() {
     updateBiddingUI();
     sendData({ type: 'BID_READY', player: localKey, ready: false });
     saveGame();
+    const input = document.getElementById('my-bid-input');
+    if (input && input.focus) input.focus();
 }
 
 function triggerRevealBids() {
+    checkRevealReadiness();
+    const revealButton = document.getElementById('reveal-bids-btn');
+    if (revealButton && revealButton.disabled) return;
     const localKey = getLocalBidPlayerKey();
     sendData({ type: 'REVEAL_BIDS', player: localKey, bid: biddingState[localKey].value });
     executeRevealBids();
 }
 
 function executeRevealBids() {
+    biddingState.battleStarted = true;
     biddingState.revealed = true;
     const localKey = getLocalBidPlayerKey();
     const oppKey = getOpponentPlayerKey();
@@ -379,8 +418,10 @@ function executeRevealBids() {
         biddingState[oppKey].value = biddingState[oppKey].value || biddingState[localKey].value || 2;
         biddingState[oppKey].ready = true;
     }
-    const p1 = biddingState.p1.value || 1;
-    const p2 = biddingState.p2.value || 1;
+    const p1 = normalizeCommandBid(biddingState.p1.value);
+    biddingState.p1.value = p1;
+    const p2 = normalizeCommandBid(biddingState.p2.value);
+    biddingState.p2.value = p2;
 
     let master;
     if (p1 < p2) {
@@ -399,7 +440,7 @@ function executeRevealBids() {
     biddingState.turnStep = 0;
 
     try {
-        roundState = CommandTracker.start(roundState, { p1, p2 }, { p1: 24, p2: 24 });
+        roundState = CommandTracker.start(roundState, { p1, p2 }, { p1: 6, p2: 6 });
     } catch(err) {
         console.warn('CommandTracker.start note:', err);
     }
@@ -446,21 +487,17 @@ function updateTurnZoneUI() {
     const localKey = getLocalBidPlayerKey();
     const isMaster = (biddingState.master === localKey);
     masterLabel.textContent = isMaster ? 'You are Master Tactician' : 'Your opponent is Master Tactician';
-    bidsSummary.textContent = `P1: ${biddingState.p1.value} · P2: ${biddingState.p2.value}`;
+    bidsSummary.textContent = `You: ${biddingState[localKey].value} · Opponent: ${biddingState[getOpponentPlayerKey()].value}`;
 
     const activeKey = getActivePlayerKey();
     const isLocalActive = (activeKey === localKey);
 
-    if (biddingState.turnStep === 0) {
-        turnTitle.textContent = isMaster ? "Master Tactician's 1st Turn (You)" : "Master Tactician's 1st Turn (Opponent)";
-        passBtn.textContent = isLocalActive ? 'Pass' : 'Opponent’s Turn';
-    } else if (biddingState.turnStep === 1) {
-        turnTitle.textContent = !isMaster ? "Your Turn" : "Opponent's Turn";
-        passBtn.textContent = isLocalActive ? 'Pass' : 'Opponent’s Turn';
-    } else if (biddingState.turnStep === 2) {
-        turnTitle.textContent = isMaster ? "Master Tactician's 2nd Turn (You)" : "Master Tactician's 2nd Turn (Opponent)";
-        passBtn.textContent = isLocalActive ? 'Pass (End Round)' : 'Opponent’s Turn';
-    }
+    turnTitle.textContent = isLocalActive ? 'Your turn' : 'Opponent’s turn';
+    const phaseLabel = document.getElementById('turn-phase-label');
+    if (phaseLabel) phaseLabel.textContent = `Round ${biddingState.round} · ${['First', 'Second', 'Final'][biddingState.turnStep]} command window`;
+    passBtn.textContent = biddingState.turnStep === 2 ? 'End round' : 'Pass turn';
+    const turnHelp = document.getElementById('turn-help');
+    if (turnHelp) turnHelp.textContent = isLocalActive ? 'Place your commands. Pass when you are finished.' : 'Your opponent is placing commands.';
 
     passBtn.disabled = !isLocalActive;
 }
@@ -621,7 +658,10 @@ async function toggleFullscreen() {
 
 function handleFullscreenChange() {
     updateFullscreenUI();
-    requestAnimationFrame(() => fitTableToScreen());
+    requestAnimationFrame(() => {
+        fitTableToScreen();
+        requestAnimationFrame(fitTableToScreen);
+    });
 }
 
 document.addEventListener('fullscreenchange', handleFullscreenChange);
@@ -630,6 +670,7 @@ document.addEventListener('webkitfullscreenchange', handleFullscreenChange);
 const tableWidthPx = inchesToPx(TABLE_WIDTH_FT * 12);
 const tableHeightPx = inchesToPx(TABLE_DEPTH_FT * 12);
 const defaultUnitSizePx = getUnitSizePx({ Footprint: DEFAULT_UNIT_FOOTPRINT });
+const terrainDiameterPx = Math.max(defaultUnitSizePx.width, defaultUnitSizePx.height);
 
 function getUnitFootprint(stats) {
     const footprint = ((stats && stats.Footprint) || DEFAULT_UNIT_FOOTPRINT).trim().toUpperCase();
@@ -797,13 +838,14 @@ function loadRules() {
 loadRules();
 
 // --- STATS INTEGRATION ---
-const SHEET_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vQXT5eF4DzRhJokOVdTb5g1Lnt6_gFkeh7oEdg2DLYAtY98FxybE-ijwA8uoWDiYtiBb0a3BM-ukWx9/pub?gid=663136589&single=true&output=csv';
-const STATS_CACHE_KEY = 'seize-the-day-unit-stats-cache-v2';
+const SHEET_URL = 'https://docs.google.com/spreadsheets/d/1ONrDG-NfkjDlBoJvRlDNbhBSsCUkxlD_tbmZNQom1PU/export?format=csv&gid=663136589';
+const STATS_CACHE_KEY = 'seize-the-day-unit-stats-cache-v4';
 const DEFAULT_DRAFT_POOL_SIZE = 12;
 
 let unitStatsDB = {};
 let availableUnitRows = [];
 let statsLoadPromise = null;
+let statsLoadedFromSource = false;
 
 function normalizeStatsRow(row) {
     const normalized = {};
@@ -894,7 +936,7 @@ function getFreshStatsUrl() {
 }
 
 function loadStats(forceRefresh = false) {
-    if (!forceRefresh && availableUnitRows.length > 0) {
+    if (!forceRefresh && statsLoadedFromSource && availableUnitRows.length > 0) {
         return Promise.resolve(availableUnitRows);
     }
 
@@ -914,7 +956,14 @@ function loadStats(forceRefresh = false) {
                 if (results.data.length > 0) {
                     console.log("CSV Headers Detected:", Object.keys(results.data[0]));
                 }
-                setStatsData(results.data, true);
+                const rows = results.data.filter(row => row.Unit && row.Unit.trim());
+                if (!rows.length) {
+                    console.warn('Stats source returned no unit profiles; keeping cached or fallback stats.');
+                    resolve(availableUnitRows);
+                    return;
+                }
+                setStatsData(rows, true);
+                statsLoadedFromSource = true;
                 resolve(availableUnitRows);
             },
             error: function (err) {
@@ -926,8 +975,8 @@ function loadStats(forceRefresh = false) {
                     return;
                 }
 
-                console.error("Error loading stats:", err);
-                reject(err);
+                console.warn("Using fallback stats after load error:", err);
+                resolve(availableUnitRows);
             }
         });
     }).finally(() => {
@@ -1012,18 +1061,22 @@ function buildStatsMarkup(unitSource) {
                     <div class="stats-grid">
                         <div class="stat-chip">
                             <img class="stat-icon" src="icons/move.svg" alt="Move">
-                            <span class="stat-value">${getStatValue(stats, 'Move')}/${getStatValue(stats, 'Drill')}</span>
+                            <span class="stat-label">Speed / Drill</span>
+                            <span class="stat-value">${getStatValue(stats, 'Speed', 'Move')}/${getStatValue(stats, 'Drill')}</span>
                         </div>
                         <div class="stat-chip">
                             <img class="stat-icon" src="icons/shoot.svg" alt="Shoot">
-                            <span class="stat-value">${getStatValue(stats, 'Shoot')}</span>
+                            <span class="stat-label">Ranged</span>
+                            <span class="stat-value">${getStatValue(stats, 'Ranged', 'Shoot')}</span>
                         </div>
                         <div class="stat-chip">
                             <img class="stat-icon" src="icons/strike.svg" alt="Melee">
+                            <span class="stat-label">Melee</span>
                             <span class="stat-value">${getStatValue(stats, 'Melee', 'Strike')}</span>
                         </div>
                         <div class="stat-chip">
                             <img class="stat-icon" src="icons/defence.svg" alt="Defence">
+                            <span class="stat-label">Defence</span>
                             <span class="stat-value">${getStatValue(stats, 'Def', 'Defence')}</span>
                         </div>
                     </div>
@@ -1044,8 +1097,8 @@ function buildUnitControlsMarkup() {
     return `
         <div class="unit-popup-controls" role="toolbar" aria-label="Selected unit controls">
             <div id="unit-popup-wounds" class="piece-control-row">
-                <button type="button" class="btn-red" data-wound-step="-1" aria-label="Remove one wound">-</button>
-                <button type="button" class="btn-red" data-wound-step="1" aria-label="Add one wound">+</button>
+                <button type="button" class="btn-grey" data-wound-step="-1" aria-label="Remove one strain">−</button>
+                <button type="button" class="btn-grey" data-wound-step="1" aria-label="Add one strain">+</button>
             </div>
         </div>
     `;
@@ -1902,7 +1955,7 @@ function handleIncomingData(data) {
         }
     } else if (data.type === 'REVEAL_BIDS') {
         const oppKey = isHost ? 'p2' : 'p1';
-        biddingState[oppKey].value = Number(data.bid);
+        biddingState[oppKey].value = normalizeCommandBid(data.bid);
         biddingState[oppKey].ready = true;
         const localKey = isHost ? 'p1' : 'p2';
         if (biddingState[localKey].ready) {
@@ -1943,7 +1996,7 @@ function onCommandTokenPointerDown(e, token) {
 
     floatingTokenEl = document.createElement('div');
     floatingTokenEl.className = `command-token token-${token.player} is-floating`;
-    floatingTokenEl.textContent = token.num;
+    floatingTokenEl.textContent = '';
     floatingTokenEl.style.left = `${e.clientX}px`;
     floatingTokenEl.style.top = `${e.clientY}px`;
     document.body.appendChild(floatingTokenEl);
@@ -2031,10 +2084,10 @@ function renderAllCommandTokens() {
         const tokenEl = document.createElement('div');
         tokenEl.className = `command-token token-${token.player}`;
         tokenEl.dataset.tokenId = token.id;
-        tokenEl.textContent = token.num;
+        tokenEl.textContent = '';
         tokenEl.setAttribute('role', 'button');
         const isMine = token.player === localKey;
-        tokenEl.setAttribute('aria-label', `${isMine ? 'Your' : "Opponent's"} command ${token.num}`);
+        tokenEl.setAttribute('aria-label', `${isMine ? 'Your' : "Opponent's"} command marker`);
         tokenEl.title = 'Drag command marker to attach or move';
         tokenEl.addEventListener('pointerdown', (e) => onCommandTokenPointerDown(e, token));
 
@@ -2125,6 +2178,7 @@ function getBoardState(options = {}) {
         terrainDeck: [...terrainDeck],
         roundState,
         biddingState: {
+            battleStarted: hasBattleStarted(),
             round: biddingState.round,
             revealed: biddingState.revealed,
             master: biddingState.master,
@@ -2206,6 +2260,7 @@ function restoreBoardState(jsonString, suppressBroadcast = false) {
 
             biddingState.round = state.biddingState.round || 1;
             biddingState.revealed = Boolean(state.biddingState.revealed);
+            biddingState.battleStarted = Boolean(state.biddingState.battleStarted || biddingState.revealed || biddingState.round > 1);
             biddingState.master = state.biddingState.master || null;
             biddingState.turnStep = state.biddingState.turnStep || 0;
             if (state.biddingState.firstDraftPick) {
@@ -2218,7 +2273,7 @@ function restoreBoardState(jsonString, suppressBroadcast = false) {
             if (state.biddingState[oppKey]) {
                 biddingState[oppKey].ready = Boolean(state.biddingState[oppKey].ready);
                 if (state.biddingState[oppKey].value !== undefined) {
-                    biddingState[oppKey].value = state.biddingState[oppKey].value;
+                    biddingState[oppKey].value = normalizeCommandBid(state.biddingState[oppKey].value);
                 }
             }
 
@@ -2227,7 +2282,7 @@ function restoreBoardState(jsonString, suppressBroadcast = false) {
                 biddingState[localKey].ready = myPrevReady;
             } else {
                 if (state.biddingState[localKey]) {
-                    biddingState[localKey].value = state.biddingState[localKey].value;
+                    biddingState[localKey].value = normalizeCommandBid(state.biddingState[localKey].value);
                     biddingState[localKey].ready = state.biddingState[localKey].ready;
                 }
             }
@@ -2290,21 +2345,58 @@ function applyUnitTheme(unitEl, name) {
     else if (unitName.includes('undead')) unitEl.classList.add('faction-undead');
 }
 
+function updateRotationHandleSize(piece) {
+    if (!piece) return;
+    const handle = piece.querySelector('.rotation-handle');
+    if (!handle) return;
+    const w = parseFloat(piece.style.width) || piece.offsetWidth || 70;
+    const h = parseFloat(piece.style.height) || piece.offsetHeight || 50;
+    const diameter = Math.round(Math.hypot(w, h) + 64);
+    handle.style.width = `${diameter}px`;
+    handle.style.height = `${diameter}px`;
+}
+
 function appendRotationHandle(piece) {
     let handle = piece.querySelector('.rotation-handle');
-    if (handle) return;
+    if (!handle) {
+        handle = document.createElement('div');
+        handle.classList.add('rotation-handle');
+        handle.setAttribute('role', 'button');
+        handle.setAttribute('aria-label', 'Drag ring to rotate');
+        handle.title = 'Drag ring to rotate';
+        handle.innerHTML = `
+            <svg class="rotation-ring-svg" viewBox="0 0 100 100">
+                <circle class="ring-hit" cx="50" cy="50" r="44" fill="none" stroke="transparent" stroke-width="16" />
+                <circle class="ring-glow" cx="50" cy="50" r="44" fill="none" stroke="rgba(216, 179, 109, 0.3)" stroke-width="4" />
+                <circle class="ring-track" cx="50" cy="50" r="44" fill="none" stroke="rgba(255, 236, 183, 0.85)" stroke-width="2" stroke-dasharray="4 2" />
+                <circle class="ring-node" cx="50" cy="6" r="3.5" fill="#ffd77a" stroke="#2c1c0d" stroke-width="1" />
+                <circle class="ring-node" cx="50" cy="94" r="3.5" fill="#ffd77a" stroke="#2c1c0d" stroke-width="1" />
+                <circle class="ring-node" cx="6" cy="50" r="3.5" fill="#ffd77a" stroke="#2c1c0d" stroke-width="1" />
+                <circle class="ring-node" cx="94" cy="50" r="3.5" fill="#ffd77a" stroke="#2c1c0d" stroke-width="1" />
+            </svg>
+        `;
+        handle.addEventListener('pointerdown', onRotationHandlePointerDown);
 
-    handle = document.createElement('div');
-    handle.classList.add('rotation-handle');
-    handle.setAttribute('role', 'button');
-    handle.setAttribute('aria-label', 'Drag to rotate');
-    handle.title = 'Drag to rotate';
-    handle.addEventListener('pointerdown', onRotationHandlePointerDown);
-    piece.appendChild(handle);
+        const setRingHover = (hovered) => {
+            handle.classList.toggle('is-ring-hovered', hovered);
+        };
+        const ringHit = handle.querySelector('.ring-hit');
+        if (ringHit) {
+            ringHit.addEventListener('pointerenter', () => setRingHover(true));
+            ringHit.addEventListener('pointerleave', () => setRingHover(false));
+        }
+        handle.querySelectorAll('.ring-node').forEach(node => {
+            node.addEventListener('pointerenter', () => setRingHover(true));
+            node.addEventListener('pointerleave', () => setRingHover(false));
+        });
+
+        piece.appendChild(handle);
+    }
+    updateRotationHandleSize(piece);
 }
 
 function unitLabelFits(label) {
-    return label.scrollWidth <= label.clientWidth + 1;
+    return label.scrollWidth <= label.clientWidth + 1 && label.scrollHeight <= label.clientHeight + 1;
 }
 
 function fitAllUnitLabels() {
@@ -2395,7 +2487,7 @@ function createUnitDOM(name, color, x, y, angle, wounds, stats = null, activated
         hoveredUnit = null;
         removeRangeRing();
         if (selectedPiece !== div) {
-            updateStatsPanel(null);
+            updateStatsPanel(selectedPiece && selectedPiece.classList.contains('unit') ? selectedPiece : null);
             if (!selectedPiece) {
                 hideUnitTooltip();
             }
@@ -2414,8 +2506,8 @@ function createUnitDOM(name, color, x, y, angle, wounds, stats = null, activated
 
 function createTerrainDOM(subType, x, y, _w, _h, angle, pieceId = null) {
     if (!subType || subType === "undefined" || subType === "rough") subType = "field";
-    const finalW = defaultUnitSizePx.width;
-    const finalH = defaultUnitSizePx.height;
+    const finalW = terrainDiameterPx;
+    const finalH = terrainDiameterPx;
 
     const div = document.createElement('div');
     div.classList.add('piece', 'terrain', subType);
@@ -3143,9 +3235,9 @@ function renderTerrainCard() {
         card.classList.add('is-empty');
         card.dataset.cardType = '';
         card.setAttribute('aria-disabled', 'true');
-        card.setAttribute('aria-label', 'Terrain deck empty. Use Reset Board to create a new deck.');
+        card.setAttribute('aria-label', 'All terrain drawn. Start a new battle to create a terrain deck.');
         title.textContent = 'Deck Empty';
-        note.textContent = 'Use Reset Board';
+        note.textContent = 'All terrain drawn';
         return;
     }
 
@@ -3165,8 +3257,8 @@ function renderTerrainCard() {
 function createDefaultTerrain() {
     const terrainTypes = ['forest', 'forest', 'hills', 'hills', 'field', 'field'];
     terrainTypes.forEach((type) => {
-        const w = defaultUnitSizePx.width;
-        const h = defaultUnitSizePx.height;
+        const w = terrainDiameterPx;
+        const h = terrainDiameterPx;
         const x = Math.random() * (tableWidthPx - w - 100) + 50;
         const y = Math.random() * (inchesToPx(26) - inchesToPx(10)) + inchesToPx(10);
         const angle = Math.floor(Math.random() * 360);
@@ -3175,6 +3267,7 @@ function createDefaultTerrain() {
 }
 
 function beginTerrainDrag(type, event, shouldPushUndo = true) {
+    if (hasBattleStarted()) return;
     if (event && event.button !== 0) return;
     if (event) {
         event.preventDefault();
@@ -3183,8 +3276,8 @@ function beginTerrainDrag(type, event, shouldPushUndo = true) {
 
     clearPieceSelection();
     if (shouldPushUndo) pushUndo();
-    const w = defaultUnitSizePx.width;
-    const h = defaultUnitSizePx.height;
+    const w = terrainDiameterPx;
+    const h = terrainDiameterPx;
     const div = createTerrainDOM(type, (tableWidthPx - w) / 2, (tableHeightPx - h) / 2, w, h, 0);
     activePiece = div;
     pendingDragPiece = null;
@@ -3194,6 +3287,14 @@ function beginTerrainDrag(type, event, shouldPushUndo = true) {
     div.dataset.offsetY = h / 2;
     isDraggingPiece = true;
     activePointerId = event ? event.pointerId : null;
+    activePieceHalfWidth = w / 2;
+    activePieceHalfHeight = h / 2;
+    activeTableRect = table.getBoundingClientRect();
+    if (event) {
+        const pointer = getTablePointerPosition(event);
+        div.style.left = `${pointer.x - w / 2}px`;
+        div.style.top = `${pointer.y - h / 2}px`;
+    }
     suppressUnitTooltip(Number.MAX_SAFE_INTEGER);
     if (event && event.currentTarget.setPointerCapture) {
         event.currentTarget.setPointerCapture(event.pointerId);
@@ -3206,6 +3307,7 @@ window.spawnTerrain = function (type, event) {
 };
 
 window.playTerrainCard = function (event) {
+    if (hasBattleStarted()) return;
     if (activePointerId !== null || isTerrainCardAnimating || !terrainDeck.length) return;
     if (event && (event.button !== 0 || event.isPrimary === false)) return;
     if (event) {
@@ -3237,6 +3339,7 @@ function isEditableShortcutTarget(target) {
 }
 
 window.addEventListener('keydown', (e) => {
+    if (isEditableShortcutTarget(e.target)) return;
     if (!e.repeat && !e.altKey && !e.ctrlKey && !e.metaKey && e.key.toLowerCase() === 'f' && !isEditableShortcutTarget(e.target)) {
         e.preventDefault();
         toggleFullscreen();
@@ -3690,6 +3793,29 @@ window.addEventListener('pointercancel', onPointerUp);
 
 // --- RESPONSIVE TABLE SCALE & BOOTSTRAP ---
 let currentScale = 1;
+// Reserve the board at the scale allowed by the original minimum panel widths.
+// Only spare horizontal space is distributed to the sidebars.
+function calculatePanelLayout(width, height, rightVisible, fullscreen = false) {
+    if (fullscreen) {
+        const boardScale = Math.max(0.01, (height - 4) / tableHeightPx);
+        const gaps = rightVisible ? 16 : 8;
+        const panelCount = rightVisible ? 2 : 1;
+        const panelSpace = Math.max(180 * panelCount, width - tableWidthPx * boardScale - gaps - 4);
+        const left = Math.floor(panelSpace / panelCount);
+        return { left, right: rightVisible ? Math.floor(panelSpace - left) : 0, boardScale };
+    }
+    const leftBase = 260;
+    const rightBase = rightVisible ? 210 : 0;
+    const gaps = rightVisible ? 16 : 8;
+    const boardScale = Math.max(0.01, Math.min(
+        Math.max(1, height - 4) / tableHeightPx,
+        Math.max(1, width - leftBase - rightBase - gaps - 4) / tableWidthPx
+    ));
+    const spare = Math.max(0, width - tableWidthPx * boardScale - gaps - 4 - leftBase - rightBase);
+    const leftExtra = rightVisible ? Math.floor(spare / 2) : Math.floor(spare);
+    return { left: leftBase + leftExtra, right: rightBase + (rightVisible ? Math.floor(spare - leftExtra) : 0), boardScale };
+}
+
 function fitTableToScreen() {
     const appContainer = document.getElementById('container');
     const container = document.getElementById('table-container');
@@ -3698,26 +3824,20 @@ function fitTableToScreen() {
     const rightSidebar = document.getElementById('right-sidebar');
     if (!container || !table) return;
 
-    if (appContainer && leftSidebar && appContainer.clientWidth > 400 && appContainer.clientHeight > 300) {
-        const totalWidth = appContainer.clientWidth;
-        const totalHeight = appContainer.clientHeight;
-        const isRightHidden = isRightSidebarHidden || (rightSidebar && rightSidebar.classList.contains('sidebar-hidden'));
-        const rightWidth = (rightSidebar && !isRightHidden) ? (rightSidebar.offsetWidth || 210) : 0;
-        const gap = 8;
-        const numGaps = rightWidth > 0 ? 2 : 1;
-
-        // Container borders / padding take ~4px vertically
-        const availableHeight = Math.max(totalHeight - 4, 1);
-        const idealScale = availableHeight / tableHeightPx;
-        const idealTableWidth = tableWidthPx * idealScale;
-        const spaceForLeft = totalWidth - idealTableWidth - rightWidth - (numGaps * gap);
-
-        const minSidebarWidth = 260;
-        const maxSidebarWidth = 440;
-        if (!isNaN(spaceForLeft)) {
-            const targetLeftWidth = Math.max(minSidebarWidth, Math.min(Math.floor(spaceForLeft), maxSidebarWidth));
-            leftSidebar.style.width = `${targetLeftWidth}px`;
-        }
+    const fullscreen = Boolean(getFullscreenElement());
+    const stackedPanels = !fullscreen && window.matchMedia && window.matchMedia('(max-width: 860px) and (orientation: portrait)').matches;
+    if (stackedPanels) {
+        container.style.minWidth = "";
+        if (leftSidebar) leftSidebar.style.width = '100%';
+        if (rightSidebar) rightSidebar.style.width = '100%';
+    } else if (appContainer && leftSidebar && appContainer.clientWidth > 400 && appContainer.clientHeight > 300) {
+        const rightVisible = Boolean(rightSidebar && !isRightSidebarHidden && !rightSidebar.classList.contains('sidebar-hidden'));
+        const layout = calculatePanelLayout(appContainer.clientWidth, appContainer.clientHeight, rightVisible, fullscreen);
+        container.style.minWidth = fullscreen ? Math.ceil(tableWidthPx * layout.boardScale + 4) + "px" : "";
+        leftSidebar.style.width = layout.left + 'px';
+        if (rightSidebar && rightVisible) rightSidebar.style.width = layout.right + 'px';
+        const toggle = document.getElementById('right-sidebar-toggle');
+        if (toggle) toggle.style.right = rightVisible ? layout.right + 'px' : '0px';
     }
 
     const availableWidth = Math.max(container.clientWidth - 4, 1);
@@ -3738,6 +3858,14 @@ function fitTableToScreen() {
 }
 
 window.addEventListener('resize', fitTableToScreen);
+// Fullscreen and panel changes can settle after the window resize event.
+if (typeof ResizeObserver !== 'undefined') {
+    const layoutObserver = new ResizeObserver(fitTableToScreen);
+    ['container', 'table-container'].forEach(id => {
+        const element = document.getElementById(id);
+        if (element) layoutObserver.observe(element);
+    });
+}
 
 if (document.fonts && document.fonts.ready) {
     document.fonts.ready.then(fitAllUnitLabels).catch(err => {
