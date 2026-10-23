@@ -1169,6 +1169,7 @@ function isTouchPointer(event) {
 }
 
 function clearPieceSelection() {
+    clearSelectionRanges();
     if (selectedPiece) {
         selectedPiece.classList.remove('is-selected');
     }
@@ -1181,6 +1182,7 @@ function clearPieceSelection() {
 }
 
 function positionPieceControls() {
+    updateSelectionRanges();
     const controls = document.getElementById('piece-controls');
     if (!selectedPiece || !selectedPiece.isConnected || isDraggingPiece || rotatingPiece) {
         controls.classList.remove('visible');
@@ -1969,6 +1971,7 @@ function handleIncomingData(data) {
     } else if (data.type === 'ROUND_RESET') {
         endRoundAndResetBidding(false);
     }
+    if (data.type.startsWith('PIECE_')) updateSelectionRanges();
 }
 
 function sendData(dataObj) {
@@ -3392,6 +3395,107 @@ function removeRangeRing() {
 }
 
 // --- ROTATION HELPERS ---
+// Unit fronts point up at zero degrees, in board coordinates for both players.
+function getUnitGeometry(unit) {
+    const angle = (parseFloat(unit.dataset.angle) || 0) * Math.PI / 180;
+    const halfWidth = (parseFloat(unit.style.width) || unit.offsetWidth) / 2;
+    const halfHeight = (parseFloat(unit.style.height) || unit.offsetHeight) / 2;
+    return {
+        x: (parseFloat(unit.style.left) || 0) + halfWidth,
+        y: (parseFloat(unit.style.top) || 0) + halfHeight,
+        right: { x: Math.cos(angle), y: Math.sin(angle) },
+        forward: { x: Math.sin(angle), y: -Math.cos(angle) },
+        halfWidth, halfHeight
+    };
+}
+
+// Swept separating-axis test: find first contact of the full moving footprint.
+function getForwardMovement(unit, maxDistance) {
+    const moving = getUnitGeometry(unit);
+    let distance = maxDistance;
+    let blocker = null;
+    const dot = (a, b) => a.x * b.x + a.y * b.y;
+    const radius = (shape, axis) => shape.halfWidth * Math.abs(dot(shape.right, axis))
+        + shape.halfHeight * Math.abs(dot(shape.forward, axis));
+    table.querySelectorAll('.unit').forEach(other => {
+        if (other === unit || other.classList.contains('ghost')) return;
+        const target = getUnitGeometry(other);
+        const delta = { x: target.x - moving.x, y: target.y - moving.y };
+        let entry = -Infinity;
+        let exit = Infinity;
+        for (const axis of [moving.right, moving.forward, target.right, target.forward]) {
+            const separation = dot(delta, axis);
+            const extent = radius(moving, axis) + radius(target, axis);
+            const velocity = dot(moving.forward, axis);
+            if (Math.abs(velocity) < 1e-8) {
+                // A tangential edge does not block movement alongside a unit.
+                if (Math.abs(separation) >= extent - 1e-8) return;
+            } else {
+                const a = (separation - extent) / velocity;
+                const b = (separation + extent) / velocity;
+                entry = Math.max(entry, Math.min(a, b));
+                exit = Math.min(exit, Math.max(a, b));
+            }
+        }
+        if (entry <= exit && exit > 1e-8 && Math.max(0, entry) <= distance) {
+            distance = Math.max(0, entry);
+            blocker = other;
+        }
+    });
+    return { distance, blocker };
+}
+
+let selectionRangeElements = [];
+let movementRangeBlocker = null;
+
+function clearSelectionRanges() {
+    selectionRangeElements.forEach(element => element.remove());
+    selectionRangeElements = [];
+    if (movementRangeBlocker) movementRangeBlocker.classList.remove('is-movement-blocker');
+    movementRangeBlocker = null;
+}
+
+function updateSelectionRanges() {
+    clearSelectionRanges();
+    if (!selectedPiece || !selectedPiece.classList.contains('unit')) return;
+    const unit = selectedPiece;
+    const geometry = getUnitGeometry(unit);
+    const { stats } = getUnitStats(unit);
+    const speed = parseFloat(getStatValue(stats, 'Speed', 'Move'));
+    const ranged = String(getStatValue(stats, 'Ranged', 'Shoot')).split('/');
+    const shootingRange = ranged.length > 1 ? parseFloat(ranged[1]) : 0;
+    const frontX = geometry.x + geometry.forward.x * geometry.halfHeight;
+    const frontY = geometry.y + geometry.forward.y * geometry.halfHeight;
+    const angle = parseFloat(unit.dataset.angle) || 0;
+    const addOverlay = (className) => {
+        const element = document.createElement('div');
+        element.classList.add('selection-range', className);
+        element.setAttribute('aria-hidden', 'true');
+        element.style.left = `${frontX}px`;
+        element.style.top = `${frontY}px`;
+        table.appendChild(element);
+        selectionRangeElements.push(element);
+        return element;
+    };
+    if (shootingRange > 0) {
+        const arc = addOverlay('shooting-range');
+        const radius = inchesToPx(shootingRange);
+        arc.style.width = `${radius * 2}px`;
+        arc.style.height = `${radius}px`;
+        arc.style.marginLeft = `${-radius}px`;
+        arc.style.marginTop = `${-radius}px`;
+        arc.style.transform = `rotate(${angle}deg)`;
+    }
+    if (speed >= 0) {
+        const movement = getForwardMovement(unit, inchesToPx(speed));
+        const line = addOverlay('movement-range');
+        line.style.width = `${movement.distance}px`;
+        line.style.transform = `rotate(${angle - 90}deg)`;
+        movementRangeBlocker = movement.blocker;
+        if (movementRangeBlocker) movementRangeBlocker.classList.add('is-movement-blocker');
+    }
+}
+
 function normalizeAngle(angle) {
     let normalized = angle % 360;
     if (normalized > 180) normalized -= 360;
@@ -3605,6 +3709,7 @@ function startPieceDrag() {
     activePiece.classList.add('is-dragging');
     activePieceHalfWidth = activePiece.offsetWidth / 2;
     activePieceHalfHeight = activePiece.offsetHeight / 2;
+    clearSelectionRanges();
     ghostPiece = activePiece.cloneNode(true);
     ghostPiece.classList.add('ghost');
     ghostPiece.classList.remove('is-selected');
@@ -3614,7 +3719,7 @@ function startPieceDrag() {
     anchorX = (parseFloat(activePiece.style.left) || 0) + activePieceHalfWidth;
     anchorY = (parseFloat(activePiece.style.top) || 0) + activePieceHalfHeight;
     showLine(anchorX, anchorY, anchorX, anchorY);
-    positionPieceControls();
+    selectPiece(activePiece);
 
     const pieceId = getPieceId(activePiece);
     if (pieceId) {
@@ -3706,13 +3811,21 @@ function handlePointerMove(e) {
     if (activePiece) {
         const offX = parseFloat(activePiece.dataset.offsetX);
         const offY = parseFloat(activePiece.dataset.offsetY);
-        const newLeft = pointer.x - offX;
-        const newTop = pointer.y - offY;
+        let newLeft = pointer.x - offX;
+        let newTop = pointer.y - offY;
+        if (activePiece.classList.contains('unit')) {
+            const { forward } = getUnitGeometry(ghostPiece || activePiece);
+            const displacement = (newLeft + activePieceHalfWidth - anchorX) * forward.x
+                + (newTop + activePieceHalfHeight - anchorY) * forward.y;
+            newLeft = anchorX + forward.x * displacement - activePieceHalfWidth;
+            newTop = anchorY + forward.y * displacement - activePieceHalfHeight;
+        }
         activePiece.style.left = `${newLeft}px`;
         activePiece.style.top = `${newTop}px`;
         targetX = newLeft + activePieceHalfWidth;
         targetY = newTop + activePieceHalfHeight;
         broadcastPieceMoveThrottled(activePiece, newLeft, newTop, anchorX, anchorY, targetX, targetY);
+        updateSelectionRanges();
     }
 
     if (anchorX > -1) {
