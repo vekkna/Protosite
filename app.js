@@ -4101,9 +4101,10 @@ window.addEventListener('pointercancel', onPointerUp);
 
 // --- RESPONSIVE TABLE SCALE & BOOTSTRAP ---
 let currentScale = 1;
-// The play panel has a bounded width; the board fits the remaining rectangle.
+// Reclaim panel width when needed to bring the board closer to full height.
 function calculatePanelLayout(width, height) {
-    const left = Math.min(280, Math.max(228, Math.floor(width * 0.24)));
+    const fullHeightBoardWidth = tableWidthPx * Math.max(1, height - 4) / tableHeightPx;
+    const left = Math.min(280, Math.max(208, Math.floor(width - fullHeightBoardWidth - 12)));
     const boardScale = Math.max(0.01, Math.min(
         Math.max(1, height - 4) / tableHeightPx,
         Math.max(1, width - left - 8 - 4) / tableWidthPx

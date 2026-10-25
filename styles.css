@@ -3320,8 +3320,9 @@ html:fullscreen #table-container, html:-webkit-full-screen #table-container { mi
     .staging-hint { display: none; }
     .command-group { gap: 2px; margin-top: 0; }
     .command-group-header { margin: 0; }
-    .command-tray { padding: 4px; gap: 3px; min-height: 38px; }
-    .command-tray .command-token { width: 30px; height: 30px; font-size: 14px; }
+    .command-tray { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); padding: 4px; gap: 3px; min-height: 38px; }
+    .command-tray .tray-placeholder { grid-column: 1 / -1; }
+    .command-tray .command-token { width: 100%; max-width: 30px; height: auto; aspect-ratio: 1; font-size: 14px; }
     .battle-tools-section { padding-top: 4px; gap: 4px; border-top: 1px solid var(--panel-border); }
     .battle-tools-section > .sidebar-kicker { display: none; }
     .dice-controls { flex-direction: row; gap: 5px; align-items: end; }
