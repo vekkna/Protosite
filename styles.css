@@ -3341,3 +3341,48 @@ html:fullscreen #table-container, html:-webkit-full-screen #table-container { mi
 }
 
 .unit { -webkit-touch-callout: none; }
+
+.deployment-zone {
+    display: none;
+    position: absolute;
+    left: 0;
+    width: 100%;
+    height: 120px;
+    background: rgba(0, 0, 0, 0.28);
+    pointer-events: none;
+    z-index: 1;
+}
+.is-deploying .deployment-zone { display: block; }
+.deployment-zone-top { top: 0; border-bottom: 2px dashed rgba(255, 235, 190, 0.65); }
+.deployment-zone-bottom { bottom: 0; border-top: 2px dashed rgba(255, 235, 190, 0.65); }
+.terrain-drag-preview {
+    position: fixed;
+    width: 90px;
+    height: 90px;
+    transform: translate(-50%, -50%);
+    border: 2px solid var(--gold);
+    border-radius: 50%;
+    align-items: center;
+    justify-content: center;
+    background-color: var(--panel-top);
+    background-size: cover;
+    color: white;
+    font-weight: 700;
+    text-shadow: 0 1px 3px #000;
+    pointer-events: none;
+    z-index: 10000;
+    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.35);
+}
+.terrain-deck-info { font-size: 11px; line-height: 1.3; margin-top: 4px; color: var(--ink-soft); }
+.terrain-deck-info:empty { display: none; }
+#terrain-card { touch-action: none; -webkit-touch-callout: none; }
+
+.bid-number-field { position: relative; width: 100%; }
+.bid-step-buttons { display: none; }
+@media (any-pointer: coarse) {
+    .bid-number-field #my-bid-input { padding-right: 34px; height: 48px; appearance: textfield; -moz-appearance: textfield; }
+    .bid-number-field #my-bid-input::-webkit-inner-spin-button,
+    .bid-number-field #my-bid-input::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+    .bid-step-buttons { display: flex; flex-direction: column; position: absolute; top: 2px; right: 2px; bottom: 2px; width: 30px; }
+    .sidebar .bid-step-buttons button { min-height: 22px; height: 22px; width: 30px; padding: 0; margin: 0; font-size: 11px; line-height: 1; border-radius: 3px; }
+}

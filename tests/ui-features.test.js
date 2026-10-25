@@ -144,6 +144,18 @@ test('E2E UI Simulation: hover popup disabled, wound controls active, commands s
     // Draft banner should be visible initially in round 1 before reveal
     assert.equal(elements['draft-notice-banner'].style.display, 'block');
     assert.equal(elements['terrain-section'].hidden, false, 'Terrain is available during deployment');
+    assert.equal(tableEl.classList.contains('is-deploying'), true, 'Deployment zones show before the first reveal');
+    assert.equal(elements['deployment-zone-top'].style.height, '120px', 'Top zone spans six inches');
+    assert.equal(elements['deployment-zone-bottom'].style.height, '120px', 'Bottom zone spans six inches');
+    assert.equal(elements['room-code-area'].getAttribute('aria-hidden'), 'false', 'New games open the hosting section');
+    assert.equal(global.window.getBiddingState().p1.value, 1, 'New games default to one command');
+    assert.equal(elements['my-bid-input'].value, 1);
+    global.window.adjustLocalBid(1);
+    assert.equal(elements['my-bid-input'].value, 2, 'The up arrow increments the bid');
+    global.window.adjustLocalBid(-1);
+    assert.equal(elements['my-bid-input'].value, 1, 'The down arrow decrements the bid');
+    global.window.adjustLocalBid(-1);
+    assert.equal(elements['my-bid-input'].value, 1, 'The down arrow stops at one');
     global.window.triggerRevealBids();
     assert.equal(global.window.getBiddingState().revealed, false, 'An unset bid cannot be revealed through the action handler');
     const firstUnit = tableEl.children.find(el => el.classList.contains('unit'));
@@ -190,6 +202,7 @@ test('E2E UI Simulation: hover popup disabled, wound controls active, commands s
     // Banner should be hidden now!
     assert.equal(elements['draft-notice-banner'].style.display, 'none', 'Draft banner must be hidden after reveal');
     assert.equal(elements['terrain-section'].hidden, true, 'Terrain is hidden after the first reveal');
+    assert.equal(tableEl.classList.contains('is-deploying'), false, 'Deployment shading disappears after the first reveal');
     assert.equal(JSON.parse(global.localStorage.getItem('wargameSave_v6')).biddingState.battleStarted, true,
         'Saved games retain the end of terrain deployment');
     const piecesAfterReveal = tableEl.children.length;
@@ -206,6 +219,7 @@ test('E2E UI Simulation: hover popup disabled, wound controls active, commands s
     assert.equal(oppTokens.length, 4, "Opponent's commands tray should hold 4 p2 tokens for Host");
     global.window.handlePeerData({ type: 'ROUND_RESET' });
     assert.equal(elements['terrain-section'].hidden, true, 'Terrain stays hidden when bidding resets for another round');
+    assert.equal(global.window.getBiddingState().p1.value, 1, 'Each new round defaults to one command');
 
     // 5. Test Challenger join: table flips 180 degrees
     elements['landing-join-code'].value = 'TEST';

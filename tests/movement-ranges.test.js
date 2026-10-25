@@ -208,7 +208,7 @@ test('unit dragging is free during deployment, then follows facing in battle; te
             const y = 200 + forward.y * 60 * direction + right.y * 35;
             let battleStarted = false;
             const run = new Function('activePiece', 'getUnitGeometry', 'hasBattleStarted', `
-                const activePointerId = 1, rotatingPiece = null, pendingDragPiece = null;
+                const activePointerId = 1, rotatingPiece = null, pendingDragPiece = null, activeTerrainCardDrag = null;
                 const isMeasuring = false, ghostPiece = null;
                 const activePieceHalfWidth = 20, activePieceHalfHeight = 10;
                 const anchorX = 100, anchorY = 200, isHost = true;

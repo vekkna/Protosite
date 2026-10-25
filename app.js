@@ -44,8 +44,8 @@ let conn = null;
 let isHost = false;
 let roundState = null;
 let biddingState = {
-    p1: { value: 2, ready: false },
-    p2: { value: 2, ready: false },
+    p1: { value: 1, ready: false },
+    p2: { value: 1, ready: false },
     revealed: false,
     master: null,
     round: 1,
@@ -256,6 +256,12 @@ function hasBattleStarted() {
 }
 
 function updateTerrainVisibility() {
+    const deploying = !hasBattleStarted();
+    table.classList.toggle('is-deploying', deploying);
+    ['deployment-zone-top', 'deployment-zone-bottom'].forEach(id => {
+        const zone = document.getElementById(id);
+        if (zone) zone.style.height = `${inchesToPx(DEPLOY_INCHES)}px`;
+    });
     const section = document.getElementById('terrain-section');
     if (section) {
         section.hidden = hasBattleStarted();
@@ -323,7 +329,7 @@ function updateBiddingUI() {
             } else {
                 inputWrap.style.display = 'flex';
                 lockedWrap.style.display = 'none';
-                myInput.value = biddingState[localKey].value || 2;
+                myInput.value = biddingState[localKey].value || 1;
             }
         }
 
@@ -376,7 +382,17 @@ function checkRevealReadiness() {
 
 function normalizeCommandBid(value) {
     const parsed = parseInt(value, 10);
-    return Math.max(1, Math.min(6, Number.isFinite(parsed) ? parsed : 2));
+    return Math.max(1, Math.min(6, Number.isFinite(parsed) ? parsed : 1));
+}
+
+function adjustLocalBid(step) {
+    const localKey = getLocalBidPlayerKey();
+    if (biddingState.revealed || biddingState[localKey].ready) return;
+    const input = document.getElementById('my-bid-input');
+    if (!input) return;
+    const value = normalizeCommandBid(normalizeCommandBid(input.value) + step);
+    input.value = value;
+    biddingState[localKey].value = value;
 }
 
 function lockLocalBid() {
@@ -416,7 +432,7 @@ function executeRevealBids() {
     const oppKey = getOpponentPlayerKey();
     const isPeerConnected = Boolean(conn && conn.open);
     if (!isPeerConnected && !biddingState[oppKey].ready) {
-        biddingState[oppKey].value = biddingState[oppKey].value || biddingState[localKey].value || 2;
+        biddingState[oppKey].value = biddingState[oppKey].value || biddingState[localKey].value || 1;
         biddingState[oppKey].ready = true;
     }
     const p1 = normalizeCommandBid(biddingState.p1.value);
@@ -544,6 +560,8 @@ function endRoundAndResetBidding(shouldBroadcast = true) {
     biddingState.turnStep = 0;
     biddingState.p1.ready = false;
     biddingState.p2.ready = false;
+    biddingState.p1.value = 1;
+    biddingState.p2.value = 1;
 
     updateBiddingUI();
 
@@ -774,6 +792,7 @@ let didLongPressSelect = false;
 let unitLongPressTimer = null;
 let undoStack = [];
 let terrainDeck = [];
+let activeTerrainCardDrag = null;
 roundState = CommandTracker.create();
 let terrainCardRemoveTimer = null;
 let terrainCardRevealTimer = null;
@@ -1404,6 +1423,7 @@ function hostGameFromLanding() {
 
     currentRoomCode = shortId;
     isHost = true;
+    isRoomCodeHidden = false;
 
     // Immediately switch the view so the UI responds instantly
     const landing = document.getElementById('landing-screen');
@@ -1447,8 +1467,8 @@ function hostGameFromLanding() {
     const firstTie = (firstPick === 'p1') ? 'p2' : 'p1';
 
     biddingState = {
-        p1: { value: 2, ready: false },
-        p2: { value: 2, ready: false },
+        p1: { value: 1, ready: false },
+        p2: { value: 1, ready: false },
         revealed: false,
         master: null,
         round: 1,
@@ -1505,6 +1525,7 @@ function joinGameFromLanding() {
 
     currentRoomCode = code;
     isHost = false;
+    isRoomCodeHidden = false;
 
     // Immediately switch the view so the UI responds instantly
     const landing = document.getElementById('landing-screen');
@@ -3245,6 +3266,8 @@ function cancelTerrainCardAnimation() {
     terrainCardRemoveTimer = null;
     terrainCardRevealTimer = null;
     isTerrainCardAnimating = false;
+    const status = document.getElementById('terrain-draw-status');
+    if (status) status.textContent = '';
 
     const card = document.getElementById('terrain-card');
     if (card) {
@@ -3289,6 +3312,8 @@ function renderTerrainCard() {
     const card = document.getElementById('terrain-card');
     const title = document.getElementById('terrain-card-title');
     const note = document.getElementById('terrain-card-note');
+    const count = document.getElementById('terrain-deck-count');
+    if (count) count.textContent = `${terrainDeck.length} cards remaining`;
     if (!card || !title || !note) return;
 
     card.classList.remove(
@@ -3313,11 +3338,11 @@ function renderTerrainCard() {
     card.dataset.cardType = revealedCard;
     card.setAttribute('aria-disabled', 'false');
     card.setAttribute('aria-label', revealedCard === TERRAIN_NO_FEATURE_CARD
-        ? 'Revealed X card. Drag to discard it and reveal the next card.'
+        ? 'Revealed X card. Drag onto the battlefield to discard it and reveal the next card.'
         : `Revealed ${label} card. Drag it onto the battlefield.`);
     title.textContent = label;
     note.textContent = revealedCard === TERRAIN_NO_FEATURE_CARD
-        ? 'Discard — no terrain'
+        ? 'Drag onto battlefield — no terrain'
         : 'Drag onto battlefield';
 }
 
@@ -3375,24 +3400,59 @@ window.spawnTerrain = function (type, event) {
 
 window.playTerrainCard = function (event) {
     if (hasBattleStarted()) return;
-    if (activePointerId !== null || isTerrainCardAnimating || !terrainDeck.length) return;
-    if (event && (event.button !== 0 || event.isPrimary === false)) return;
-    if (event) {
-        event.preventDefault();
-        event.stopPropagation();
-    }
-
-    pushUndo();
-    const revealedCard = terrainDeck.shift();
-    animateTerrainCardAdvance();
-
-    if (revealedCard === TERRAIN_NO_FEATURE_CARD) {
-        saveGame();
-        return;
-    }
-
-    beginTerrainDrag(revealedCard, event, false);
+    if (!event || activePointerId !== null || isTerrainCardAnimating || !terrainDeck.length) return;
+    if (event.button !== 0 || event.isPrimary === false) return;
+    event.preventDefault();
+    event.stopPropagation();
+    clearPieceSelection();
+    activePointerId = event.pointerId;
+    activeTableRect = table.getBoundingClientRect();
+    pointerStartX = event.clientX;
+    pointerStartY = event.clientY;
+    const preview = document.createElement('div');
+    preview.classList.add('terrain-drag-preview', `terrain-card-${terrainDeck[0]}`);
+    preview.textContent = getTerrainCardLabel(terrainDeck[0]);
+    preview.setAttribute('aria-hidden', 'true');
+    document.body.appendChild(preview);
+    activeTerrainCardDrag = { type: terrainDeck[0], preview, moved: false };
+    updateTerrainCardDrag(event);
+    if (event.currentTarget.setPointerCapture) event.currentTarget.setPointerCapture(event.pointerId);
 };
+
+function updateTerrainCardDrag(event) {
+    if (!activeTerrainCardDrag) return;
+    const drag = activeTerrainCardDrag;
+    drag.moved = drag.moved || Math.hypot(event.clientX - pointerStartX, event.clientY - pointerStartY) >= DRAG_THRESHOLD_PX;
+    drag.preview.style.display = drag.moved ? 'flex' : 'none';
+    drag.preview.style.left = `${event.clientX}px`;
+    drag.preview.style.top = `${event.clientY}px`;
+}
+
+function finishTerrainCardDrag(event) {
+    const drag = activeTerrainCardDrag;
+    if (!drag) return;
+    updateTerrainCardDrag(event);
+    const pointer = getTablePointerPosition(event);
+    const validDrop = event.type !== 'pointercancel' && drag.moved && !hasBattleStarted()
+        && pointer.x >= 0 && pointer.x <= tableWidthPx && pointer.y >= 0 && pointer.y <= tableHeightPx;
+    drag.preview.remove();
+    activeTerrainCardDrag = null;
+    activePointerId = null;
+    activeTableRect = null;
+    if (!validDrop || terrainDeck[0] !== drag.type) return;
+    pushUndo();
+    terrainDeck.shift();
+    if (drag.type !== TERRAIN_NO_FEATURE_CARD) {
+        const diameter = terrainDiameterPx;
+        createTerrainDOM(drag.type,
+            Math.max(0, Math.min(tableWidthPx - diameter, pointer.x - diameter / 2)),
+            Math.max(0, Math.min(tableHeightPx - diameter, pointer.y - diameter / 2)), diameter, diameter, 0);
+    }
+    const status = document.getElementById('terrain-draw-status');
+    if (status) status.textContent = `${drag.type === TERRAIN_NO_FEATURE_CARD ? 'X discarded — no terrain' : `${getTerrainCardLabel(drag.type)} placed`}. ${terrainDeck.length} cards remaining.`;
+    animateTerrainCardAdvance();
+    saveGame();
+}
 
 function attachListeners(element) {
     element.addEventListener('pointerdown', onPiecePointerDown);
@@ -3916,6 +3976,10 @@ function queuePointerMove(e) {
 
 function handlePointerMove(e) {
     if (e.pointerId !== activePointerId) return;
+    if (activeTerrainCardDrag) {
+        updateTerrainCardDrag(e);
+        return;
+    }
 
     if (rotatingPiece) {
         updateRotationFromPointer(e);
@@ -3976,6 +4040,10 @@ function onPointerUp(e) {
     if (e.pointerId !== activePointerId) return;
     cancelUnitLongPress();
     flushPendingPointerMove();
+    if (activeTerrainCardDrag) {
+        finishTerrainCardDrag(e);
+        return;
+    }
 
     if (rotatingPiece) {
         finishRotationDrag();
@@ -4149,6 +4217,7 @@ window.exitToLanding = exitToLanding;
 window.toggleRoomCodeArea = toggleRoomCodeArea;
 window.copyRoomLink = copyRoomLink;
 window.lockLocalBid = lockLocalBid;
+window.adjustLocalBid = adjustLocalBid;
 window.unlockLocalBid = unlockLocalBid;
 window.triggerRevealBids = triggerRevealBids;
 window.handlePassTurn = handlePassTurn;
