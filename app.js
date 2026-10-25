@@ -467,6 +467,7 @@ function executeRevealBids() {
 
     updateBiddingUI();
     renderAllCommandTokens();
+    updateSelectionRanges();
     saveGame();
 }
 
@@ -3446,6 +3447,7 @@ window.addEventListener('keyup', (e) => {
 });
 
 function showRangeRing(unit) {
+    if (!hasBattleStarted()) return;
     if (unit.querySelector('.range-ring')) return;
     const ring = document.createElement('div');
     ring.classList.add('range-ring');
@@ -3537,6 +3539,7 @@ function clearSelectionRanges() {
 
 function updateSelectionRanges() {
     clearSelectionRanges();
+    if (!hasBattleStarted()) return;
     const units = new Set(inspectedUnits);
     if (selectedPiece && selectedPiece.classList.contains('unit')) units.add(selectedPiece);
     units.forEach(unit => {
@@ -3935,7 +3938,7 @@ function handlePointerMove(e) {
         const offY = parseFloat(activePiece.dataset.offsetY);
         let newLeft = pointer.x - offX;
         let newTop = pointer.y - offY;
-        if (activePiece.classList.contains('unit')) {
+        if (activePiece.classList.contains('unit') && hasBattleStarted()) {
             const { forward } = getUnitGeometry(ghostPiece || activePiece);
             const displacement = (newLeft + activePieceHalfWidth - anchorX) * forward.x
                 + (newTop + activePieceHalfHeight - anchorY) * forward.y;

@@ -28,6 +28,7 @@ function unit(x, y, angle = 0, width = 40, height = 20) {
 }
 
 function harness(units, selected = units[0]) {
+    const phase = { battleStarted: true, revealed: true, round: 1 };
     const overlays = [];
     const table = { querySelectorAll: () => units, appendChild: el => overlays.push(el) };
     const document = { createElement: () => element(), getElementById: () => element() };
@@ -35,7 +36,9 @@ function harness(units, selected = units[0]) {
     const tapSource = source.slice(source.indexOf('function handlePieceTap('), source.indexOf('const pieceControls ='));
     const holdSource = source.slice(source.indexOf('function cancelUnitLongPress('), source.indexOf('function onPiecePointerDown('));
     const queueSource = source.slice(source.indexOf('function queuePointerMove('), source.indexOf('function handlePointerMove('));
-    const factory = new Function('table', 'document', 'selectedPiece', 'getUnitStats', 'getStatValue', 'inchesToPx', `${geometrySource}
+    const battleStartSource = source.slice(source.indexOf('function hasBattleStarted('), source.indexOf('function updateTerrainVisibility('));
+    const factory = new Function('table', 'document', 'selectedPiece', 'getUnitStats', 'getStatValue', 'inchesToPx', 'biddingState', `${battleStartSource}
+        ${geometrySource}
         const updateStatsPanel = () => {};
         const isTouchPointer = e => e.pointerType === 'touch' || e.pointerType === 'pen';
         let unitLongPressTimer = null, pendingDragPiece = null, activePointerId = null;
@@ -59,8 +62,8 @@ function harness(units, selected = units[0]) {
             didHoldSelect() { return didLongPressSelect; }
         };`);
     return {
-        ...factory(table, document, selected, u => ({ stats: u._unitStats }), (stats, ...keys) => keys.map(k => stats[k]).find(v => v !== undefined) || '-', n => n * 20),
-        overlays
+        ...factory(table, document, selected, u => ({ stats: u._unitStats }), (stats, ...keys) => keys.map(k => stats[k]).find(v => v !== undefined) || '-', n => n * 20, phase),
+        overlays, phase
     };
 }
 
@@ -72,6 +75,24 @@ test('movement preview stops at nearest footprint and ignores ghosts, rear and o
     const h = harness([moving, unit(100, 80), unit(100, 250), unit(180, 160), nearest, ghost]);
     assert.deepEqual(h.getForwardMovement(moving, 120), { distance: 50, blocker: nearest });
     assert.deepEqual(h.getForwardMovement(moving, 40), { distance: 40, blocker: null });
+});
+
+test('deployment hides selection ranges until first reveal, then keeps them through later bidding', () => {
+    const archer = unit(100, 200);
+    archer._unitStats.Ranged = '4/24';
+    const blocker = unit(100, 130);
+    const h = harness([archer, blocker]);
+    Object.assign(h.phase, { battleStarted: false, revealed: false });
+    h.handlePieceTap(archer, {});
+    assert.equal(h.overlays.filter(el => !el.removed).length, 0);
+    assert.equal(blocker.classList.contains('is-movement-blocker'), false);
+    h.phase.revealed = true;
+    h.updateSelectionRanges();
+    assert.equal(h.overlays.filter(el => !el.removed).length, 2);
+    assert.ok(blocker.classList.contains('is-movement-blocker'));
+    Object.assign(h.phase, { battleStarted: true, revealed: false, round: 2 });
+    h.updateSelectionRanges();
+    assert.equal(h.overlays.filter(el => !el.removed).length, 2);
 });
 
 test('comparison keeps multiple ranges during movement, toggles individual units, and clears on deselection', () => {
@@ -174,7 +195,7 @@ test('selection uses profile speed and shooting range and removes obsolete overl
     assert.equal(latest[0].style.transform, 'rotate(90deg)');
 });
 
-test('pointer dragging projects forward and backward onto facing at any angle while terrain stays free', () => {
+test('unit dragging is free during deployment, then follows facing in battle; terrain stays free', () => {
     const handlerSource = source.slice(source.indexOf('function handlePointerMove('), source.indexOf('function onPointerUp('));
     for (const angle of [0, 45, 90, 180, 270]) {
         for (const direction of [1, -1]) {
@@ -185,7 +206,8 @@ test('pointer dragging projects forward and backward onto facing at any angle wh
             const { forward, right } = h.getUnitGeometry(moving);
             const x = 100 + forward.x * 60 * direction + right.x * 35;
             const y = 200 + forward.y * 60 * direction + right.y * 35;
-            const run = new Function('activePiece', 'getUnitGeometry', `
+            let battleStarted = false;
+            const run = new Function('activePiece', 'getUnitGeometry', 'hasBattleStarted', `
                 const activePointerId = 1, rotatingPiece = null, pendingDragPiece = null;
                 const isMeasuring = false, ghostPiece = null;
                 const activePieceHalfWidth = 20, activePieceHalfHeight = 10;
@@ -197,7 +219,11 @@ test('pointer dragging projects forward and backward onto facing at any angle wh
                 const pxToInches = n => (n / 20).toFixed(1);
                 ${handlerSource}
                 return handlePointerMove;
-            `)(moving, h.getUnitGeometry);
+            `)(moving, h.getUnitGeometry, () => battleStarted);
+            run({ pointerId: 1, clientX: x, clientY: y });
+            assert.equal(parseFloat(moving.style.left), x - 20, 'Deployment permits sideways movement');
+            assert.equal(parseFloat(moving.style.top), y - 10, 'Deployment follows the pointer freely');
+            battleStarted = true;
             run({ pointerId: 1, clientX: x, clientY: y });
             assert.ok(Math.abs(parseFloat(moving.style.left) + 20 - (100 + forward.x * 60 * direction)) < 1e-6);
             assert.ok(Math.abs(parseFloat(moving.style.top) + 10 - (200 + forward.y * 60 * direction)) < 1e-6);
