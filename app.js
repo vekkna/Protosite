@@ -22,6 +22,7 @@ const UI_STATE_KEY = 'wargameUiState_v1';
 const TOOLTIP_HOVER_DELAY_MS = 350;
 const TOOLTIP_SUPPRESS_AFTER_MANIPULATION_MS = 300;
 const DRAG_THRESHOLD_PX = 8;
+const UNIT_LONG_PRESS_MS = 500;
 const TOUCH_ROTATION_STEP_DEG = 5;
 const UNIT_LABEL_MAX_FONT_PX = 10.5;
 const UNIT_LABEL_MIN_FONT_PX = 4.5;
@@ -37,7 +38,7 @@ const ACTIVE_GAMES_KEY = 'seize_the_day_active_games_v1';
 const getGameSaveKey = (roomCode) => 'seize_the_day_save_' + (roomCode || '').toUpperCase();
 
 let currentRoomCode = '';
-let isRoomCodeHidden = false;
+let isRoomCodeHidden = true;
 let peer = null;
 let conn = null;
 let isHost = false;
@@ -266,7 +267,7 @@ function loadUIState() {
     try {
         const savedState = JSON.parse(localStorage.getItem(UI_STATE_KEY) || '{}');
         isMultiplayerPanelCollapsed = Boolean(savedState.isMultiplayerPanelCollapsed);
-        isRoomCodeHidden = Boolean(savedState.isRoomCodeHidden);
+        isRoomCodeHidden = savedState.isRoomCodeHidden !== false;
     } catch (err) {
         console.warn("Unable to load UI state:", err);
     }
@@ -486,7 +487,8 @@ function updateTurnZoneUI() {
 
     const localKey = getLocalBidPlayerKey();
     const isMaster = (biddingState.master === localKey);
-    masterLabel.textContent = isMaster ? 'You are Master Tactician' : 'Your opponent is Master Tactician';
+    masterLabel.textContent = isMaster ? 'MT: You' : 'MT: Opponent';
+    masterLabel.setAttribute('aria-label', isMaster ? 'You are Master Tactician' : 'Your opponent is Master Tactician');
     bidsSummary.textContent = `You: ${biddingState[localKey].value} · Opponent: ${biddingState[getOpponentPlayerKey()].value}`;
 
     const activeKey = getActivePlayerKey();
@@ -494,7 +496,7 @@ function updateTurnZoneUI() {
 
     turnTitle.textContent = isLocalActive ? 'Your turn' : 'Opponent’s turn';
     const phaseLabel = document.getElementById('turn-phase-label');
-    if (phaseLabel) phaseLabel.textContent = `Round ${biddingState.round} · ${['First', 'Second', 'Final'][biddingState.turnStep]} command window`;
+    if (phaseLabel) phaseLabel.textContent = `Round ${biddingState.round} · ${['First', 'Second', 'Final'][biddingState.turnStep]} commands`;
     passBtn.textContent = biddingState.turnStep === 2 ? 'End round' : 'Pass turn';
     const turnHelp = document.getElementById('turn-help');
     if (turnHelp) turnHelp.textContent = isLocalActive ? 'Place your commands. Pass when you are finished.' : 'Your opponent is placing commands.';
@@ -632,6 +634,42 @@ function updateFullscreenUI() {
     button.title = supported
         ? (isFullscreen ? 'Exit full screen' : 'Open game in full screen')
         : 'Full screen is unavailable in this browser';
+    const help = document.getElementById('display-help');
+    if (help) help.textContent = !supported
+        ? 'Full screen is unavailable in this browser. You can still play here.'
+        : isFullscreen ? 'Use Exit Full Screen to return to your browser.'
+        : 'Full screen gives the battlefield more room.';
+    updateLandscapeUI();
+}
+
+function updateLandscapeUI() {
+    const button = document.getElementById('landscape-btn');
+    if (!button) return;
+    const root = document.documentElement;
+    const orientation = window.screen && window.screen.orientation;
+    button.hidden = !(orientation && typeof orientation.lock === 'function'
+        && (getFullscreenElement() || (root && root.requestFullscreen)));
+    button.textContent = getFullscreenElement() ? 'Use Landscape' : 'Landscape + Full Screen';
+}
+
+async function requestLandscape() {
+    const help = document.getElementById('landscape-help');
+    const button = document.getElementById('landscape-btn');
+    if (button) button.disabled = true;
+    try {
+        const orientation = window.screen && window.screen.orientation;
+        if (!orientation || typeof orientation.lock !== 'function') throw new Error('Orientation locking unavailable');
+        // Fullscreen is requested only by this explicitly labelled user action.
+        if (!getFullscreenElement()) await document.documentElement.requestFullscreen();
+        await orientation.lock('landscape');
+        if (help) help.textContent = 'Landscape enabled. Exit full screen to return to normal rotation.';
+    } catch (err) {
+        if (help) help.textContent = 'Rotate your device sideways. If it stays upright, enable auto-rotate or turn off orientation lock. This browser could not switch automatically.';
+    } finally {
+        if (button) button.disabled = false;
+        updateFullscreenUI();
+        fitTableToScreen();
+    }
 }
 
 async function toggleFullscreen() {
@@ -656,7 +694,15 @@ async function toggleFullscreen() {
     updateFullscreenUI();
 }
 
+function releaseLandscapeLock() {
+    const orientation = window.screen && window.screen.orientation;
+    if (orientation && typeof orientation.unlock === 'function') {
+        try { orientation.unlock(); } catch (err) { /* Browser already released the lock. */ }
+    }
+}
+
 function handleFullscreenChange() {
+    if (!getFullscreenElement()) releaseLandscapeLock();
     updateFullscreenUI();
     requestAnimationFrame(() => {
         fitTableToScreen();
@@ -723,6 +769,8 @@ let activePieceHalfHeight = 0;
 let pendingPointerMove = null;
 let pointerMoveFrame = null;
 let measurementPointerId = null;
+let didLongPressSelect = false;
+let unitLongPressTimer = null;
 let undoStack = [];
 let terrainDeck = [];
 roundState = CommandTracker.create();
@@ -804,6 +852,7 @@ function closeMatchupAnalysis() {
 
 window.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') {
+        clearPieceSelection();
         closeRulebook();
         closeControlsHelp();
         closeMatchupAnalysis();
@@ -1169,6 +1218,8 @@ function isTouchPointer(event) {
 }
 
 function clearPieceSelection() {
+    cancelUnitLongPress();
+    clearRangeInspections();
     clearSelectionRanges();
     if (selectedPiece) {
         selectedPiece.classList.remove('is-selected');
@@ -1224,12 +1275,14 @@ function positionPieceControls() {
     controls.style.visibility = 'visible';
 }
 
-function selectPiece(piece) {
+function selectPiece(piece, preserveRanges = false) {
     if (!piece || !piece.classList.contains('piece')) {
         clearPieceSelection();
         return;
     }
 
+    if (!preserveRanges) clearRangeInspections();
+    if (piece.classList.contains('unit')) inspectUnitRange(piece);
     if (selectedPiece && selectedPiece !== piece) {
         selectedPiece.classList.remove('is-selected');
     }
@@ -1288,7 +1341,16 @@ function adjustUnitWounds(unit, delta) {
 }
 
 function handlePieceTap(piece, event) {
-    selectPiece(piece);
+    const additive = Boolean(event && event.shiftKey) || (isTouchPointer(event || {}) && isTouchMultiSelectActive);
+    if (additive && inspectedUnits.has(piece)) {
+        inspectedUnits.delete(piece);
+        piece.classList.remove('is-range-inspected', 'is-selected');
+        if (selectedPiece === piece) selectedPiece = null;
+        if (!inspectedUnits.size) isTouchMultiSelectActive = false;
+        positionPieceControls();
+        return;
+    }
+    selectPiece(piece, additive);
 }
 
 const pieceControls = document.getElementById('piece-controls');
@@ -1555,6 +1617,7 @@ function exitToLanding() {
     currentRoomCode = '';
 
     document.getElementById('container').style.display = 'none';
+    releaseLandscapeLock();
     document.getElementById('landing-screen').style.display = 'flex';
     renderActiveGamesUI();
 }
@@ -3333,6 +3396,9 @@ window.playTerrainCard = function (event) {
 function attachListeners(element) {
     element.addEventListener('pointerdown', onPiecePointerDown);
     element.addEventListener('wheel', onWheel);
+    element.addEventListener('contextmenu', event => {
+        if (element.classList.contains('unit')) event.preventDefault();
+    });
 }
 
 // --- KEYBOARD INPUT ---
@@ -3446,19 +3512,44 @@ function getForwardMovement(unit, maxDistance) {
 }
 
 let selectionRangeElements = [];
-let movementRangeBlocker = null;
+let movementRangeBlockers = new Set();
+const inspectedUnits = new Set();
+let isTouchMultiSelectActive = false;
+
+function inspectUnitRange(unit) {
+    if (!unit || !unit.classList.contains('unit')) return;
+    inspectedUnits.add(unit);
+    unit.classList.add('is-range-inspected');
+}
+
+function clearRangeInspections() {
+    inspectedUnits.forEach(unit => unit.classList.remove('is-range-inspected'));
+    inspectedUnits.clear();
+    isTouchMultiSelectActive = false;
+}
 
 function clearSelectionRanges() {
     selectionRangeElements.forEach(element => element.remove());
     selectionRangeElements = [];
-    if (movementRangeBlocker) movementRangeBlocker.classList.remove('is-movement-blocker');
-    movementRangeBlocker = null;
+    movementRangeBlockers.forEach(unit => unit.classList.remove('is-movement-blocker'));
+    movementRangeBlockers.clear();
 }
 
 function updateSelectionRanges() {
     clearSelectionRanges();
-    if (!selectedPiece || !selectedPiece.classList.contains('unit')) return;
-    const unit = selectedPiece;
+    const units = new Set(inspectedUnits);
+    if (selectedPiece && selectedPiece.classList.contains('unit')) units.add(selectedPiece);
+    units.forEach(unit => {
+        if (unit.isConnected === false) {
+            inspectedUnits.delete(unit);
+            unit.classList.remove('is-range-inspected');
+            return;
+        }
+        renderUnitSelectionRanges(unit);
+    });
+}
+
+function renderUnitSelectionRanges(unit) {
     const geometry = getUnitGeometry(unit);
     const { stats } = getUnitStats(unit);
     const speed = parseFloat(getStatValue(stats, 'Speed', 'Move'));
@@ -3470,6 +3561,8 @@ function updateSelectionRanges() {
     const addOverlay = (className) => {
         const element = document.createElement('div');
         element.classList.add('selection-range', className);
+        element.dataset.rangeUnitId = unit.dataset.unitId || '';
+        if (unit.dataset.owner === 'p2') element.classList.add('opponent-range');
         element.setAttribute('aria-hidden', 'true');
         element.style.left = `${frontX}px`;
         element.style.top = `${frontY}px`;
@@ -3491,8 +3584,10 @@ function updateSelectionRanges() {
         const line = addOverlay('movement-range');
         line.style.width = `${movement.distance}px`;
         line.style.transform = `rotate(${angle - 90}deg)`;
-        movementRangeBlocker = movement.blocker;
-        if (movementRangeBlocker) movementRangeBlocker.classList.add('is-movement-blocker');
+        if (movement.blocker) {
+            movementRangeBlockers.add(movement.blocker);
+            movement.blocker.classList.add('is-movement-blocker');
+        }
     }
 }
 
@@ -3672,6 +3767,22 @@ function finishRotationDrag() {
 }
 
 // --- DRAG LOGIC ---
+function cancelUnitLongPress() {
+    if (unitLongPressTimer !== null) clearTimeout(unitLongPressTimer);
+    unitLongPressTimer = null;
+}
+
+function beginUnitLongPress(unit, pointerId) {
+    cancelUnitLongPress();
+    unitLongPressTimer = setTimeout(() => {
+        unitLongPressTimer = null;
+        if (activePointerId !== pointerId || pendingDragPiece !== unit || isDraggingPiece) return;
+        isTouchMultiSelectActive = true;
+        didLongPressSelect = true;
+        selectPiece(unit, true);
+    }, UNIT_LONG_PRESS_MS);
+}
+
 function onPiecePointerDown(e) {
     if (!e.isPrimary || e.button !== 0 || activePointerId !== null) return;
     e.preventDefault();
@@ -3683,6 +3794,7 @@ function onPiecePointerDown(e) {
     pointerStartX = e.clientX;
     pointerStartY = e.clientY;
     isDraggingPiece = false;
+    didLongPressSelect = false;
     const pointer = getTablePointerPosition(e);
     const pieceLeft = parseFloat(pendingDragPiece.style.left) || 0;
     const pieceTop = parseFloat(pendingDragPiece.style.top) || 0;
@@ -3695,11 +3807,13 @@ function onPiecePointerDown(e) {
 
     if (isTouchPointer(e)) {
         hideUnitTooltip();
+        if (pendingDragPiece.classList.contains('unit')) beginUnitLongPress(pendingDragPiece, e.pointerId);
     }
 }
 
 function startPieceDrag() {
     if (!pendingDragPiece) return;
+    cancelUnitLongPress();
 
     suppressUnitTooltip(Number.MAX_SAFE_INTEGER);
     pushUndo();
@@ -3713,13 +3827,14 @@ function startPieceDrag() {
     ghostPiece = activePiece.cloneNode(true);
     ghostPiece.classList.add('ghost');
     ghostPiece.classList.remove('is-selected');
+    ghostPiece.classList.remove('is-range-inspected', 'is-movement-blocker');
     ghostPiece.removeAttribute('id');
     ghostPiece.style.transform = activePiece.style.transform;
     table.insertBefore(ghostPiece, activePiece);
     anchorX = (parseFloat(activePiece.style.left) || 0) + activePieceHalfWidth;
     anchorY = (parseFloat(activePiece.style.top) || 0) + activePieceHalfHeight;
     showLine(anchorX, anchorY, anchorX, anchorY);
-    selectPiece(activePiece);
+    selectPiece(activePiece, true);
 
     const pieceId = getPieceId(activePiece);
     if (pieceId) {
@@ -3733,6 +3848,12 @@ function startPieceDrag() {
         });
     }
 }
+
+document.getElementById('table-container').addEventListener('pointerdown', (e) => {
+    if (e.target === e.currentTarget && e.isPrimary && e.button === 0 && activePointerId === null) {
+        clearPieceSelection();
+    }
+});
 
 table.addEventListener('pointerdown', (e) => {
     if (!e.isPrimary || e.button !== 0 || activePointerId !== null) return;
@@ -3776,6 +3897,7 @@ function flushPendingPointerMove() {
 
 function queuePointerMove(e) {
     if (e.pointerId !== activePointerId) return;
+    if (Math.hypot(e.clientX - pointerStartX, e.clientY - pointerStartY) >= DRAG_THRESHOLD_PX) cancelUnitLongPress();
     pendingPointerMove = {
         pointerId: e.pointerId,
         clientX: e.clientX,
@@ -3849,6 +3971,7 @@ function handlePointerMove(e) {
 
 function onPointerUp(e) {
     if (e.pointerId !== activePointerId) return;
+    cancelUnitLongPress();
     flushPendingPointerMove();
 
     if (rotatingPiece) {
@@ -3856,7 +3979,7 @@ function onPointerUp(e) {
         return;
     }
 
-    if (pendingDragPiece && !isDraggingPiece && e.type !== 'pointercancel') {
+    if (pendingDragPiece && !isDraggingPiece && !didLongPressSelect && e.type !== 'pointercancel') {
         handlePieceTap(pendingDragPiece, e);
     }
 
@@ -3878,6 +4001,7 @@ function onPointerUp(e) {
     activePiece = null;
     pendingDragPiece = null;
     activePointerId = null;
+    didLongPressSelect = false;
     activeTableRect = null;
     activePieceHalfWidth = 0;
     activePieceHalfHeight = 0;
@@ -3906,27 +4030,14 @@ window.addEventListener('pointercancel', onPointerUp);
 
 // --- RESPONSIVE TABLE SCALE & BOOTSTRAP ---
 let currentScale = 1;
-// Reserve the board at the scale allowed by the original minimum panel widths.
-// Only spare horizontal space is distributed to the sidebars.
-function calculatePanelLayout(width, height, rightVisible, fullscreen = false) {
-    if (fullscreen) {
-        const boardScale = Math.max(0.01, (height - 4) / tableHeightPx);
-        const gaps = rightVisible ? 16 : 8;
-        const panelCount = rightVisible ? 2 : 1;
-        const panelSpace = Math.max(180 * panelCount, width - tableWidthPx * boardScale - gaps - 4);
-        const left = Math.floor(panelSpace / panelCount);
-        return { left, right: rightVisible ? Math.floor(panelSpace - left) : 0, boardScale };
-    }
-    const leftBase = 260;
-    const rightBase = rightVisible ? 210 : 0;
-    const gaps = rightVisible ? 16 : 8;
+// The play panel has a bounded width; the board fits the remaining rectangle.
+function calculatePanelLayout(width, height) {
+    const left = Math.min(280, Math.max(228, Math.floor(width * 0.24)));
     const boardScale = Math.max(0.01, Math.min(
         Math.max(1, height - 4) / tableHeightPx,
-        Math.max(1, width - leftBase - rightBase - gaps - 4) / tableWidthPx
+        Math.max(1, width - left - 8 - 4) / tableWidthPx
     ));
-    const spare = Math.max(0, width - tableWidthPx * boardScale - gaps - 4 - leftBase - rightBase);
-    const leftExtra = rightVisible ? Math.floor(spare / 2) : Math.floor(spare);
-    return { left: leftBase + leftExtra, right: rightBase + (rightVisible ? Math.floor(spare - leftExtra) : 0), boardScale };
+    return { left, boardScale };
 }
 
 function fitTableToScreen() {
@@ -3934,23 +4045,17 @@ function fitTableToScreen() {
     const container = document.getElementById('table-container');
     const table = document.getElementById('game-table');
     const leftSidebar = document.getElementById('left-sidebar');
-    const rightSidebar = document.getElementById('right-sidebar');
     if (!container || !table) return;
 
     const fullscreen = Boolean(getFullscreenElement());
-    const stackedPanels = !fullscreen && window.matchMedia && window.matchMedia('(max-width: 860px) and (orientation: portrait)').matches;
+    const stackedPanels = !fullscreen && window.matchMedia && window.matchMedia('(max-width: 1100px) and (orientation: portrait)').matches;
     if (stackedPanels) {
         container.style.minWidth = "";
         if (leftSidebar) leftSidebar.style.width = '100%';
-        if (rightSidebar) rightSidebar.style.width = '100%';
     } else if (appContainer && leftSidebar && appContainer.clientWidth > 400 && appContainer.clientHeight > 300) {
-        const rightVisible = Boolean(rightSidebar && !isRightSidebarHidden && !rightSidebar.classList.contains('sidebar-hidden'));
-        const layout = calculatePanelLayout(appContainer.clientWidth, appContainer.clientHeight, rightVisible, fullscreen);
-        container.style.minWidth = fullscreen ? Math.ceil(tableWidthPx * layout.boardScale + 4) + "px" : "";
+        const layout = calculatePanelLayout(appContainer.clientWidth, appContainer.clientHeight);
+        container.style.minWidth = '';
         leftSidebar.style.width = layout.left + 'px';
-        if (rightSidebar && rightVisible) rightSidebar.style.width = layout.right + 'px';
-        const toggle = document.getElementById('right-sidebar-toggle');
-        if (toggle) toggle.style.right = rightVisible ? layout.right + 'px' : '0px';
     }
 
     const availableWidth = Math.max(container.clientWidth - 4, 1);
@@ -4045,6 +4150,7 @@ window.unlockLocalBid = unlockLocalBid;
 window.triggerRevealBids = triggerRevealBids;
 window.handlePassTurn = handlePassTurn;
 window.toggleFullscreen = toggleFullscreen;
+window.requestLandscape = requestLandscape;
 window.fitTableToScreen = fitTableToScreen;
 window.getBiddingState = () => biddingState;
 window.handlePeerData = handleIncomingData;

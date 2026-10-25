@@ -1850,7 +1850,35 @@ input::placeholder {
     display: none;
 }
 
-@media (max-width: 860px) and (orientation: portrait) {
+.display-options {
+    padding: 10px;
+    border: 1px solid var(--panel-border);
+    border-radius: 10px;
+    background: var(--panel-top);
+}
+
+.display-options button {
+    width: 100%;
+    min-height: 44px;
+    margin-top: 8px;
+}
+
+.display-options p {
+    font-size: 0.8rem;
+    line-height: 1.4;
+    color: var(--ink-soft);
+    margin-top: 6px;
+}
+
+.display-options [hidden] {
+    display: none;
+}
+
+@media (max-width: 1100px) and (orientation: portrait) {
+    #landscape-notice {
+        display: block;
+    }
+
     body {
         height: auto;
         overflow: auto;
@@ -2097,39 +2125,6 @@ input::placeholder {
         min-height: 42px;
         padding: 8px;
         font-size: 0.72rem;
-    }
-}
-
-@media (any-pointer: coarse) and (orientation: portrait) and (min-width: 600px) and (max-width: 1100px) {
-    body {
-        align-items: center;
-        padding: 20px;
-    }
-
-    #container {
-        display: none;
-    }
-
-    #landscape-notice {
-        position: relative;
-        z-index: 1;
-        display: flex;
-        max-width: 360px;
-        padding: 30px 26px;
-        flex-direction: column;
-        align-items: center;
-        gap: 14px;
-        text-align: center;
-        border: 1px solid var(--panel-border);
-        border-radius: 22px;
-        background: linear-gradient(180deg, var(--panel-top), var(--panel-bottom));
-        box-shadow: 0 22px 40px rgba(55, 62, 49, 0.12);
-    }
-
-    #landscape-notice p {
-        color: var(--ink-soft);
-        font-size: 1.15rem;
-        line-height: 1.3;
     }
 }
 
@@ -3270,7 +3265,7 @@ button:focus-visible, input:focus-visible, summary:focus-visible, [tabindex]:foc
     *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
 }
 
-/* Fullscreen reserves the board's height before allocating panel width. */
+/* Fullscreen uses the same two-column fit as the normal battlefield. */
 html:fullscreen, html:-webkit-full-screen { width: 100%; height: 100%; }
 html:fullscreen body, html:-webkit-full-screen body {
     height: 100vh;
@@ -3282,8 +3277,67 @@ html:fullscreen body, html:-webkit-full-screen body {
 html:fullscreen #container, html:-webkit-full-screen #container {
     height: 100%;
     min-height: 0;
-    overflow-x: auto;
+    overflow: hidden;
     flex-direction: row;
 }
-html:fullscreen #left-sidebar, html:-webkit-full-screen #left-sidebar { min-width: 180px; }
-html:fullscreen #table-container, html:-webkit-full-screen #table-container { flex-shrink: 0; min-height: 0; }
+html:fullscreen #left-sidebar, html:-webkit-full-screen #left-sidebar { min-width: 0; }
+html:fullscreen #table-container, html:-webkit-full-screen #table-container { min-width: 0; min-height: 0; }
+
+/* Keep play controls together and give all remaining space to the board. */
+#left-sidebar { min-width: 0; }
+#table-container { min-width: 0; flex: 1 1 0; overflow: clip; }
+.room-code-area { max-height: 600px; }
+.player-banner-top #fullscreen-btn { width: auto; min-height: 32px; padding: 4px 8px; font-size: 12px; }
+.display-options { border: 0; padding: 0; background: transparent; }
+#display-help { display: none; }
+.battle-extras { border-top: 1px solid var(--panel-border); padding-top: 6px; }
+.battle-extras summary { cursor: pointer; padding: 6px 0; font-size: 13px; font-weight: 600; }
+.battle-extras > section, .battle-extras > div { margin-top: 10px; }
+.unit.is-range-inspected { outline: 2px dashed #78cdff; outline-offset: 3px; }
+.unit.is-selected { outline: 3px solid #ffe29a; outline-offset: 4px; }
+.unit.is-movement-blocker { outline: 3px solid #ff9b68; outline-offset: 3px; }
+.shooting-range.opponent-range { border-color: rgba(255, 151, 112, 0.8); background: rgba(255, 151, 112, 0.12); }
+
+@media (orientation: landscape) {
+    #left-sidebar { padding: 6px; gap: 5px; border-radius: 10px; }
+    #left-sidebar .display-options { display: none; }
+    #player-banner { padding: 4px 6px; }
+    #player-banner.is-tucked { padding-bottom: 4px; }
+    .player-banner-top { min-height: 32px; padding: 0 0 0 30px; gap: 4px; flex-wrap: nowrap; }
+    .player-banner-top .player-role-badge { padding: 2px; font-size: 10px; line-height: 1.2; }
+    #bidding-turn-panel { padding: 6px; }
+    .turn-zone { gap: 5px; }
+    .master-tactician-banner { padding: 5px; gap: 5px; }
+    .turn-status-card { display: grid; grid-template-columns: minmax(0, 1fr) 72px; align-items: center; padding: 5px; gap: 2px; }
+    #turn-phase-label { grid-column: 1 / -1; }
+    .turn-phase-kicker { font-size: 11px; }
+    #mt-player-label { letter-spacing: 0; }
+    #current-turn-title { font-size: 16px; margin: 3px 0; }
+    #turn-help { display: none; }
+    #pass-turn-btn { grid-column: 2; grid-row: 2; margin-top: 0; min-height: 38px; padding: 5px !important; }
+    #command-staging-panel { gap: 4px; }
+    #command-staging-panel > .sidebar-kicker { display: none; }
+    .staging-hint { display: none; }
+    .command-group { gap: 2px; margin-top: 0; }
+    .command-group-header { margin: 0; }
+    .command-tray { padding: 4px; gap: 3px; min-height: 38px; }
+    .command-tray .command-token { width: 30px; height: 30px; font-size: 14px; }
+    .battle-tools-section { padding-top: 4px; gap: 4px; border-top: 1px solid var(--panel-border); }
+    .battle-tools-section > .sidebar-kicker { display: none; }
+    .dice-controls { flex-direction: row; gap: 5px; align-items: end; }
+    .dice-count-field { gap: 2px; }
+    .dice-count-adjuster { grid-template-columns: 32px minmax(0, 1fr) 32px; }
+    .sidebar .dice-step-button { width: 32px; min-height: 36px; padding: 2px; }
+    #dice-count { min-width: 0; height: 36px; }
+    #dice-btn { width: auto; flex: 1; min-height: 36px; padding: 4px 10px; }
+    .dice-roll-card { padding: 4px; }
+    .dice-values { gap: 3px; min-height: 24px; }
+    .die-face { width: 24px; height: 24px; font-size: 14px; }
+    .battle-extras { padding-top: 4px; }
+    .battle-extras summary { padding: 4px 0; }
+    .game-menu-footer { padding-top: 4px; margin-top: auto; gap: 0; }
+    .game-menu-footer button { min-height: 32px; padding: 4px; font-size: 12px; }
+    .game-menu-footer > span { display: none; }
+}
+
+.unit { -webkit-touch-callout: none; }

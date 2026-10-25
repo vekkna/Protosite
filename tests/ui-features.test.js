@@ -213,7 +213,7 @@ test('E2E UI Simulation: hover popup disabled, wound controls active, commands s
     assert.equal(tableEl.classList.contains('is-flipped'), true, 'Challenger table must have is-flipped class');
     assert.match(tableEl.style.transform, /rotate\(180deg\)/, 'Challenger table transform must have rotate(180deg)');
 
-    // 6. Test dynamic left sidebar sizing to fill space left of the battlefield
+    // 6. The play panel stays compact so spare width goes to the battlefield.
     const containerEl = elements['container'];
     const leftSidebarEl = elements['left-sidebar'];
     const rightSidebarEl = elements['right-sidebar'];
@@ -225,13 +225,13 @@ test('E2E UI Simulation: hover popup disabled, wound controls active, commands s
     global.window.fitTableToScreen();
     const widthWithRightSidebar = parseInt(leftSidebarEl.style.width, 10);
     assert.ok(widthWithRightSidebar >= 260, `Left sidebar width should be at least 260px (got ${widthWithRightSidebar}px)`);
-    assert.ok(parseInt(rightSidebarEl.style.width, 10) > 210, 'Right sidebar also uses spare width');
+    assert.ok(widthWithRightSidebar <= 280, 'The play panel has a bounded width');
 
-    // When right sidebar is hidden, left sidebar expands to claim the freed battlefield space
+    // A saved legacy sidebar preference must not affect the two-column layout.
     rightSidebarEl.classList.add('sidebar-hidden');
     global.window.fitTableToScreen();
     const widthWithoutRightSidebar = parseInt(leftSidebarEl.style.width, 10);
-    assert.ok(widthWithoutRightSidebar > widthWithRightSidebar, 'Left sidebar should expand when right sidebar is hidden');
+    assert.equal(widthWithoutRightSidebar, widthWithRightSidebar, 'Play panel stays compact regardless of legacy sidebar preference');
     const boardWidth = (960 - 4) * 4 / 3;
     assert.ok(widthWithoutRightSidebar + boardWidth + 8 <= 1920, 'Panel growth reserves the full height-limited board width');
 

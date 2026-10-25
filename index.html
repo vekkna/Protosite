@@ -53,8 +53,9 @@
             <!-- Player Identity & Room Card -->
             <div id="player-banner" class="player-banner">
                 <div class="player-banner-top" id="player-banner-top">
-                    <button id="toggle-room-code-btn" type="button" class="hosting-toggle" onclick="toggleRoomCodeArea()" aria-controls="room-code-area" aria-expanded="true" aria-label="Hide hosting info" title="Hide hosting info"><span class="tuck-chevron" aria-hidden="true">▾</span></button>
+                    <button id="toggle-room-code-btn" type="button" class="hosting-toggle" onclick="toggleRoomCodeArea()" aria-controls="room-code-area" aria-expanded="false" aria-label="Show hosting info" title="Show hosting info"><span class="tuck-chevron" aria-hidden="true">▾</span></button>
                     <div class="player-role-badge badge-p1" id="player-role-badge">Player 1</div>
+                    <button id="fullscreen-btn" type="button" class="btn-grey" onclick="toggleFullscreen()">Full Screen</button>
                 </div>
                 <div id="room-code-area" class="room-code-area">
                     <div class="room-code-badge" id="room-code-badge">
@@ -65,6 +66,27 @@
                 </div>
 
             </div>
+
+            <section class="display-options" aria-label="Battlefield display">
+                <div id="landscape-notice">
+                    <strong>Best played in landscape</strong>
+                    <p id="landscape-help" role="status">Rotate your device sideways. If it stays upright, enable auto-rotate or turn off orientation lock.</p>
+                    <button id="landscape-btn" type="button" class="btn-grey" onclick="requestLandscape()" hidden>Landscape + Full Screen</button>
+                </div>
+                <p id="display-help" role="status">Full screen gives the battlefield more room.</p>
+            </section>
+
+            <section id="terrain-section" aria-label="Terrain deployment">
+                <h3>Terrain</h3>
+                <p class="sidebar-description">Drag the revealed card onto the field.</p>
+                <div id="terrain-card" class="palette-item terrain-deck-card is-empty"
+                    onpointerdown="playTerrainCard(event)" role="button" aria-disabled="true"
+                    aria-label="Terrain deck empty. Start a new battle to create a terrain deck.">
+                    <span class="terrain-card-kicker">Revealed Card</span>
+                    <span id="terrain-card-title" class="palette-title">Deck Empty</span>
+                    <span id="terrain-card-note" class="palette-note">All terrain drawn</span>
+                </div>
+            </section>
 
             <!-- Draft Pick Notice -->
             <div id="draft-notice-banner" class="draft-notice-banner">
@@ -146,7 +168,48 @@
 
                 <div id="command-tray" style="display: none;"></div>
             </section>
-            <footer class="game-menu-footer"><button id="exit-game-btn" type="button" class="btn-grey" onclick="exitToLanding()">← Back to Main Menu</button><span>Your battle is saved for resuming.</span></footer>
+            <!-- Battle Tools: Dice Roller -->
+            <section class="battle-tools-section">
+                <span class="sidebar-kicker">Dice Roller</span>
+                <div class="dice-controls">
+                    <div class="dice-count-field">
+                        <label for="dice-count">Number of d6</label>
+                        <div class="dice-count-adjuster">
+                            <button type="button" class="btn-grey dice-step-button" onclick="adjustDiceCount(-1)"
+                                aria-label="Decrease number of dice">−</button>
+                            <input type="number" id="dice-count" value="2" min="1" max="20" onchange="normalizeDiceCount()">
+                            <button type="button" class="btn-grey dice-step-button" onclick="adjustDiceCount(1)"
+                                aria-label="Increase number of dice">+</button>
+                        </div>
+                    </div>
+                    <button id="dice-btn" class="btn-blue" onclick="rollDice()">Roll</button>
+                </div>
+                <div id="dice-roll-card" class="dice-roll-card" role="status" aria-label="Dice roll result" aria-live="polite" aria-atomic="true">
+                    <div id="dice-values" class="dice-values">
+                        <span class="die-face empty">-</span>
+                    </div>
+                </div>
+            </section>
+
+            <details class="battle-extras">
+                <summary>Profiles &amp; help</summary>
+                <div id="stats-panel">
+                    <h3>Unit profile</h3>
+                    <div id="stats-content">
+                        <span class="stats-empty">Select a unit to inspect its profile.</span>
+                    </div>
+                </div>
+                <details class="help-section">
+                    <summary>Help &amp; display</summary>
+                    <div class="sidebar-btn-row">
+                        <button id="controls-help-btn" type="button" class="btn-grey" onclick="openControlsHelp()"
+                            aria-haspopup="dialog" aria-controls="controls-modal">Controls</button>
+                        <button class="btn-grey" onclick="openRulebook()">Rulebook</button>
+                    </div>
+                </details>
+                <footer class="game-menu-footer"><button id="exit-game-btn" type="button" class="btn-grey" onclick="exitToLanding()">← Back to Main Menu</button><span>Your battle is saved for resuming.</span></footer>
+            </details>
+
 
 
         </div>
@@ -172,68 +235,6 @@
                 </svg>
             </div>
         </div>
-        <div id="right-sidebar" class="sidebar" role="complementary" aria-label="Battle tools">
-            <section id="terrain-section" aria-label="Terrain deployment">
-                <h3>Terrain</h3>
-            <p class="sidebar-description">Drag the revealed card onto the field.</p>
-            <div id="terrain-card" class="palette-item terrain-deck-card is-empty"
-                onpointerdown="playTerrainCard(event)" role="button" aria-disabled="true"
-                aria-label="Terrain deck empty. Start a new battle to create a terrain deck.">
-                <span class="terrain-card-kicker">Revealed Card</span>
-                <span id="terrain-card-title" class="palette-title">Deck Empty</span>
-                <span id="terrain-card-note" class="palette-note">All terrain drawn</span>
-            </div>
-            </section>
-            <!-- Battle Tools: Dice Roller -->
-            <section class="battle-tools-section">
-                <span class="sidebar-kicker">Dice Roller</span>
-                <div class="dice-controls">
-                    <div class="dice-count-field">
-                        <label for="dice-count">Number of d6</label>
-                        <div class="dice-count-adjuster">
-                            <button type="button" class="btn-grey dice-step-button" onclick="adjustDiceCount(-1)"
-                                aria-label="Decrease number of dice">−</button>
-                            <input type="number" id="dice-count" value="2" min="1" max="20" onchange="normalizeDiceCount()">
-                            <button type="button" class="btn-grey dice-step-button" onclick="adjustDiceCount(1)"
-                                aria-label="Increase number of dice">+</button>
-                        </div>
-                    </div>
-                    <button id="dice-btn" class="btn-blue" onclick="rollDice()">Roll</button>
-                </div>
-                <div id="dice-roll-card" class="dice-roll-card" role="status" aria-label="Dice roll result" aria-live="polite" aria-atomic="true">
-                    <div id="dice-values" class="dice-values">
-                        <span class="die-face empty">-</span>
-                    </div>
-                </div>
-            </section>
-
-            <div id="stats-panel">
-                <h3>Unit profile</h3>
-                <div id="stats-content">
-                    <span class="stats-empty">Select a unit to inspect its profile.</span>
-                </div>
-            </div>
-            <details class="help-section">
-                <summary>Help &amp; display</summary>
-                <div class="sidebar-btn-row">
-                    <button id="controls-help-btn" type="button" class="btn-grey" onclick="openControlsHelp()"
-                        aria-haspopup="dialog" aria-controls="controls-modal">Controls</button>
-                    <button class="btn-grey" onclick="openRulebook()">Rulebook</button>
-                    <button id="fullscreen-btn" type="button" class="btn-grey" onclick="toggleFullscreen()">Full Screen</button>
-                </div>
-            </details>
-
-
-        </div>
-        <button id="right-sidebar-toggle" type="button" class="btn-grey" onclick="toggleRightSidebar()"
-            aria-controls="right-sidebar" aria-expanded="true" aria-label="Hide right sidebar"
-            title="Hide right sidebar">
-            <span>&gt;</span>
-        </button>
-    </div>
-    <div id="landscape-notice" role="status">
-        <h2>Landscape Mode</h2>
-        <p>Rotate your tablet to play on the battlefield.</p>
     </div>
     <div id="controls-modal" class="modal-overlay" onclick="closeControlsHelp()" aria-hidden="true">
         <div class="modal-content controls-modal-content" role="dialog" aria-modal="true"
@@ -253,6 +254,7 @@
                             <li>Drag a unit or terrain to move it.</li>
                             <li>Drag on the battlefield to measure distance.</li>
                             <li>Drag the circle around a selected piece to rotate it.</li>
+                            <li>Shift-click units to compare their ranges. Click empty battlefield space or press Escape to clear.</li>
                             <li>+/- over a unit changes strain.</li>
                             <li>Z or Ctrl+Z undoes the last change.</li>
                             <li>F toggles full screen.</li>
@@ -262,6 +264,7 @@
                         <span class="controls-group-label">Touch</span>
                         <ul class="controls-help-list">
                             <li>Drag units or terrain with one finger.</li>
+                            <li>Long-press a unit to select multiple ranges, then tap units to add or remove them. Tap empty battlefield space to clear.</li>
                             <li>Drag command circles onto units.</li>
                             <li>Select a piece to show movement controls.</li>
                             <li>Use Pass to advance the round’s turns.</li>

@@ -20,7 +20,7 @@ function element(classes = []) {
 }
 
 function unit(x, y, angle = 0, width = 40, height = 20) {
-    const result = element(['unit']);
+    const result = element(['piece', 'unit']);
     Object.assign(result.style, { left: `${x - width / 2}px`, top: `${y - height / 2}px`, width: `${width}px`, height: `${height}px` });
     result.dataset.angle = angle;
     result._unitStats = { Speed: '6', Ranged: '-' };
@@ -30,9 +30,34 @@ function unit(x, y, angle = 0, width = 40, height = 20) {
 function harness(units, selected = units[0]) {
     const overlays = [];
     const table = { querySelectorAll: () => units, appendChild: el => overlays.push(el) };
-    const document = { createElement: () => element() };
+    const document = { createElement: () => element(), getElementById: () => element() };
+    const selectSource = source.slice(source.indexOf('function selectPiece('), source.indexOf('function setPieceAngle('));
+    const tapSource = source.slice(source.indexOf('function handlePieceTap('), source.indexOf('const pieceControls ='));
+    const holdSource = source.slice(source.indexOf('function cancelUnitLongPress('), source.indexOf('function onPiecePointerDown('));
+    const queueSource = source.slice(source.indexOf('function queuePointerMove('), source.indexOf('function handlePointerMove('));
     const factory = new Function('table', 'document', 'selectedPiece', 'getUnitStats', 'getStatValue', 'inchesToPx', `${geometrySource}
-        return { getUnitGeometry, getForwardMovement, updateSelectionRanges, clearSelectionRanges };`);
+        const updateStatsPanel = () => {};
+        const isTouchPointer = e => e.pointerType === 'touch' || e.pointerType === 'pen';
+        let unitLongPressTimer = null, pendingDragPiece = null, activePointerId = null;
+        let isDraggingPiece = false, didLongPressSelect = false, timerCallback = null;
+        let pendingPointerMove = null, pointerMoveFrame = null;
+        const pointerStartX = 0, pointerStartY = 0, DRAG_THRESHOLD_PX = 8, UNIT_LONG_PRESS_MS = 500;
+        const setTimeout = callback => { timerCallback = callback; return 1; };
+        const clearTimeout = () => { timerCallback = null; };
+        const requestAnimationFrame = () => 1;
+        ${holdSource}
+        ${queueSource}
+        const positionPieceControls = () => updateSelectionRanges();
+        const clearPieceSelection = () => { clearRangeInspections(); selectedPiece = null; updateSelectionRanges(); };
+        ${selectSource}
+        ${tapSource}
+        return { getUnitGeometry, getForwardMovement, updateSelectionRanges, clearSelectionRanges,
+            inspectUnitRange, clearRangeInspections, selectPiece, handlePieceTap, clearPieceSelection,
+            queuePointerMove, cancelUnitLongPress,
+            hold(unit) { pendingDragPiece = unit; activePointerId = 1; beginUnitLongPress(unit, 1); },
+            fireHold() { const callback = timerCallback; timerCallback = null; if (callback) callback(); },
+            didHoldSelect() { return didLongPressSelect; }
+        };`);
     return {
         ...factory(table, document, selected, u => ({ stats: u._unitStats }), (stats, ...keys) => keys.map(k => stats[k]).find(v => v !== undefined) || '-', n => n * 20),
         overlays
@@ -47,6 +72,68 @@ test('movement preview stops at nearest footprint and ignores ghosts, rear and o
     const h = harness([moving, unit(100, 80), unit(100, 250), unit(180, 160), nearest, ghost]);
     assert.deepEqual(h.getForwardMovement(moving, 120), { distance: 50, blocker: nearest });
     assert.deepEqual(h.getForwardMovement(moving, 40), { distance: 40, blocker: null });
+});
+
+test('comparison keeps multiple ranges during movement, toggles individual units, and clears on deselection', () => {
+    const moving = unit(100, 300);
+    moving.dataset.unitId = 'moving';
+    const enemy = unit(300, 100, 180);
+    enemy.dataset.unitId = 'enemy';
+    enemy._unitStats.Ranged = '4/24';
+    const h = harness([moving, enemy]);
+    h.handlePieceTap(moving, {});
+    h.handlePieceTap(enemy, { shiftKey: true });
+    assert.equal(h.overlays.filter(el => !el.removed).length, 3);
+    assert.ok(moving.classList.contains('is-range-inspected'));
+    assert.ok(enemy.classList.contains('is-range-inspected'));
+    moving.style.top = '240px';
+    h.selectPiece(moving, true);
+    const visible = h.overlays.filter(el => !el.removed);
+    assert.equal(visible.length, 3);
+    assert.equal(visible.find(el => el.dataset.rangeUnitId === 'moving').style.top, '240px');
+    assert.equal(visible.find(el => el.dataset.rangeUnitId === 'enemy').style.top, '110px');
+    h.handlePieceTap(enemy, { shiftKey: true });
+    assert.equal(h.overlays.filter(el => !el.removed).length, 1);
+    assert.equal(enemy.classList.contains('is-range-inspected'), false);
+    h.clearPieceSelection();
+    assert.equal(h.overlays.filter(el => !el.removed).length, 0);
+});
+
+test('long-press enters touch multi-selection and repeated holds keep selected units', () => {
+    const first = unit(100, 200);
+    const second = unit(300, 200);
+    const h = harness([first, second]);
+    h.hold(first);
+    assert.equal(first.classList.contains('is-range-inspected'), false, 'A short touch does not enter selection mode');
+    h.fireHold();
+    assert.equal(h.didHoldSelect(), true, 'Pointer release must not also toggle the long-pressed unit');
+    h.handlePieceTap(second, { pointerType: 'touch' });
+    assert.ok(first.classList.contains('is-range-inspected'));
+    assert.ok(second.classList.contains('is-range-inspected'));
+    h.hold(second);
+    h.fireHold();
+    assert.ok(second.classList.contains('is-range-inspected'), 'Holding an already selected unit keeps it selected');
+    assert.equal(h.overlays.filter(el => !el.removed).length, 2);
+    h.handlePieceTap(second, { pointerType: 'touch' });
+    assert.equal(second.classList.contains('is-range-inspected'), false);
+    h.clearPieceSelection();
+    h.handlePieceTap(second, { pointerType: 'touch' });
+    h.handlePieceTap(first, { pointerType: 'touch' });
+    assert.equal(second.classList.contains('is-range-inspected'), false, 'Clearing exits touch multi-selection');
+});
+
+test('moving past the drag threshold or cancelling the hold prevents long-press selection', () => {
+    const first = unit(100, 200);
+    const h = harness([first]);
+    h.hold(first);
+    h.queuePointerMove({ pointerId: 1, clientX: 9, clientY: 0 });
+    h.fireHold();
+    assert.equal(first.classList.contains('is-range-inspected'), false);
+    assert.equal(h.didHoldSelect(), false);
+    h.hold(first);
+    h.cancelUnitLongPress();
+    h.fireHold();
+    assert.equal(first.classList.contains('is-range-inspected'), false);
 });
 
 test('rotated footprints block the full swept base, including targets off the centre line', () => {
