@@ -8,6 +8,7 @@
     <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
     <script src="https://unpkg.com/papaparse@5.4.1/papaparse.min.js"></script>
     <link rel="stylesheet" href="styles.css">
+    <link rel="stylesheet" href="battle-console.css">
 </head>
 
 <body>
@@ -50,6 +51,7 @@
 
     <div id="container" style="display: none;">
         <div class="sidebar" id="left-sidebar" role="complementary" aria-label="Battle controls">
+            <div class="battle-console-title">Seize the Day<span>Field headquarters</span></div>
             <!-- Player Identity & Room Card -->
             <div id="player-banner" class="player-banner">
                 <div class="player-banner-top" id="player-banner-top">
@@ -68,6 +70,8 @@
 
             </div>
 
+            <div class="battle-console-grid">
+            <div class="battle-command-column">
             <section class="display-options" aria-label="Battlefield display">
                 <div id="landscape-notice">
                     <strong>Best played in landscape</strong>
@@ -177,6 +181,31 @@
 
                 <div id="command-tray" style="display: none;"></div>
             </section>
+
+
+            </div>
+            <div class="battle-reference-column">
+            <details class="battle-extras" id="unit-profile-details" open>
+                <summary>Profiles &amp; help</summary>
+                <div id="stats-panel">
+                    <h3>Unit profile</h3>
+                    <div id="stats-content">
+                        <span class="stats-empty">Hover over or select a unit to inspect its profile.</span>
+                    </div>
+                </div>
+                <details class="help-section">
+                    <summary>Help &amp; display</summary>
+                    <div class="sidebar-btn-row">
+                        <button id="controls-help-btn" type="button" class="btn-grey" onclick="openControlsHelp()"
+                            aria-haspopup="dialog" aria-controls="controls-modal">Controls</button>
+                        <button class="btn-grey" onclick="openRulebook()">Rulebook</button>
+                    </div>
+                </details>
+
+            </details>
+
+
+
             <!-- Battle Tools: Dice Roller -->
             <section class="battle-tools-section">
                 <span class="sidebar-kicker">Dice Roller</span>
@@ -199,28 +228,8 @@
                     </div>
                 </div>
             </section>
-
-            <details class="battle-extras" id="unit-profile-details" open>
-                <summary>Profiles &amp; help</summary>
-                <div id="stats-panel">
-                    <h3>Unit profile</h3>
-                    <div id="stats-content">
-                        <span class="stats-empty">Hover over or select a unit to inspect its profile.</span>
-                    </div>
-                </div>
-                <details class="help-section">
-                    <summary>Help &amp; display</summary>
-                    <div class="sidebar-btn-row">
-                        <button id="controls-help-btn" type="button" class="btn-grey" onclick="openControlsHelp()"
-                            aria-haspopup="dialog" aria-controls="controls-modal">Controls</button>
-                        <button class="btn-grey" onclick="openRulebook()">Rulebook</button>
-                    </div>
-                </details>
-
-            </details>
-
-
-
+            </div>
+            </div>
         </div>
         <div id="table-container">
             <div id="game-table">

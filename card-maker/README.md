@@ -27,3 +27,5 @@ To update Protosite's card images after exporting, run `python card-maker/publis
 The unit profile has Full card and Artwork + stats buttons for comparison. Artwork mode shows the sheet-assigned unit image beside the live numerical stats. The chosen view persists across unit selections and browser reloads.
 
 Profiles & help starts expanded. Hovering over or selecting a unit reopens it, including during drafting before the first bid reveal. Inspecting a profile does not reveal bids or start the battle.
+
+Protosite's field headquarters uses two control columns on desktop screens, reclaiming unused width beside the battlefield. Deployment, initiative and commands occupy the first column; unit profiles, help and dice occupy the second. Narrower screens retain the compact controls. Full card view shows the card without repeating its numbers below; Artwork + stats shows the live numerical values. The parchment and brass interface is styled in `battle-console.css`.

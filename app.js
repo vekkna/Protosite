@@ -4134,15 +4134,17 @@ window.addEventListener('pointercancel', onPointerUp);
 
 // --- RESPONSIVE TABLE SCALE & BOOTSTRAP ---
 let currentScale = 1;
-// Reclaim panel width when needed to bring the board closer to full height.
+// Use spare horizontal space for two control columns while retaining the largest board.
 function calculatePanelLayout(width, height) {
     const fullHeightBoardWidth = tableWidthPx * Math.max(1, height - 4) / tableHeightPx;
-    const left = Math.min(280, Math.max(208, Math.floor(width - fullHeightBoardWidth - 12)));
+    const spareWidth = Math.floor(width - fullHeightBoardWidth - 12);
+    const twoColumns = spareWidth >= 420 || (width >= 1400 && height >= 760);
+    const left = twoColumns ? Math.min(720, Math.max(420, spareWidth)) : Math.min(280, Math.max(208, spareWidth));
     const boardScale = Math.max(0.01, Math.min(
         Math.max(1, height - 4) / tableHeightPx,
         Math.max(1, width - left - 8 - 4) / tableWidthPx
     ));
-    return { left, boardScale };
+    return { left, boardScale, twoColumns };
 }
 
 function fitTableToScreen() {
@@ -4156,11 +4158,15 @@ function fitTableToScreen() {
     const stackedPanels = !fullscreen && window.matchMedia && window.matchMedia('(max-width: 1100px) and (orientation: portrait)').matches;
     if (stackedPanels) {
         container.style.minWidth = "";
-        if (leftSidebar) leftSidebar.style.width = '100%';
+        if (leftSidebar) {
+            leftSidebar.style.width = '100%';
+            leftSidebar.classList.toggle('is-two-column', false);
+        }
     } else if (appContainer && leftSidebar && appContainer.clientWidth > 400 && appContainer.clientHeight > 300) {
         const layout = calculatePanelLayout(appContainer.clientWidth, appContainer.clientHeight);
         container.style.minWidth = '';
         leftSidebar.style.width = layout.left + 'px';
+        leftSidebar.classList.toggle('is-two-column', layout.twoColumns);
     }
 
     const availableWidth = Math.max(container.clientWidth - 4, 1);

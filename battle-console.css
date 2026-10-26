@@ -1,0 +1,166 @@
+/* Field headquarters: parchment sheets, ink, brass fittings and a timber table. */
+:root {
+    --bg-deep:#28251d;
+    --bg-mid:#383328;
+    --panel-top:#eee2c6;
+    --panel-bottom:#d8c7a1;
+    --panel-border:#8c7549;
+    --panel-border-soft:#b9a477;
+    --ink-main:#30291e;
+    --ink-soft:#514431;
+    --ink-muted:#65573f;
+    --gold:#825c23;
+    --ui-surface:#f4e9d0;
+    --ui-border:#b59d6e;
+    --ui-focus:#8e3928;
+    --font-display:Georgia,'Palatino Linotype',serif;
+    --font-body:'Segoe UI',Arial,sans-serif;
+}
+body {
+    background:radial-gradient(ellipse at 50% 0,#51473555,transparent 65%),repeating-linear-gradient(3deg,#ffffff02 0 1px,transparent 1px 5px),#25241d;
+    padding:8px;
+}
+#left-sidebar {
+    padding:12px;
+    gap:10px;
+    border:1px solid #bba16b;
+    border-radius:3px;
+    background:radial-gradient(ellipse at 15% 0,#fff7df70,transparent 65%),repeating-linear-gradient(0deg,#70512906 0 1px,transparent 1px 4px),linear-gradient(100deg,#e8dbbb,#dfcda6);
+    box-shadow:inset 0 0 0 3px #f3e8cc80,inset 0 0 35px #7c5d2622,3px 0 16px #0005;
+    scrollbar-color:#927849 #d6c5a2;
+}
+.battle-console-title {
+    font:700 23px/1.1 var(--font-display);
+    text-align:center;
+    text-transform:uppercase;
+    letter-spacing:.07em;
+    padding:4px 0 10px;
+    color:#45341c;
+    border-bottom:3px double #9e814b;
+}
+.battle-console-title span { display:block; margin-top:5px; font:10px/1.3 var(--font-body); letter-spacing:.25em; color:#76603c; }
+#left-sidebar:not(.is-two-column) .battle-console-title { font-size:17px; letter-spacing:.02em; white-space:nowrap; padding:2px 0 7px; }
+#left-sidebar:not(.is-two-column) .battle-console-title span { font-size:8px; letter-spacing:.15em; }
+#left-sidebar:not(.is-two-column) .room-code-badge { padding:4px; gap:4px; }
+#left-sidebar:not(.is-two-column) #room-code-text { font-size:12px; }
+#left-sidebar:not(.is-two-column) #copy-room-link-btn { font-size:10px; padding:3px 5px; }
+#left-sidebar:not(.is-two-column) .terrain-deck-card { width:128px; }
+.battle-console-grid { display:grid; grid-template-columns:minmax(0,1fr); gap:10px; min-width:0; }
+.battle-command-column,.battle-reference-column { display:flex; flex-direction:column; gap:10px; min-width:0; }
+#left-sidebar.is-two-column .battle-console-grid { grid-template-columns:minmax(0,1fr) minmax(0,1fr); align-items:start; gap:14px; }
+#left-sidebar.is-two-column .battle-reference-column { border-left:1px solid #a88d5780; padding-left:13px; }
+#left-sidebar.is-two-column .battle-console-title { font-size:27px; }
+#left-sidebar.is-two-column #player-banner { padding:7px 10px; }
+#left-sidebar.is-two-column .room-code-area { display:grid; grid-template-columns:1fr 1fr; align-items:center; gap:6px 14px; }
+#left-sidebar.is-two-column .room-code-area .room-code-badge { grid-column:1; grid-row:1/3; }
+#left-sidebar.is-two-column .room-code-area .network-status { grid-column:2; grid-row:1; }
+#left-sidebar.is-two-column .room-code-area .game-menu-footer { grid-column:2; grid-row:2; margin:0; padding:0; border:0; }
+#left-sidebar.is-two-column #terrain-section { margin:0; }
+#left-sidebar.is-two-column .terrain-deck-card { min-height:112px; }
+#left-sidebar.is-two-column #command-staging-panel { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; }
+#left-sidebar.is-two-column #command-staging-panel>.sidebar-kicker { grid-column:1/-1; }
+#left-sidebar.is-two-column #command-staging-panel .command-group { min-width:0; }
+.sidebar h3,.sidebar-kicker,.round-status,.battle-extras>summary {
+    font-family:var(--font-display);
+    text-transform:uppercase;
+    letter-spacing:.065em;
+    font-size:13px;
+    color:#59401e;
+}
+#player-banner,#bidding-turn-panel,.turn-status-card,#stats-panel,.master-tactician-banner {
+    border-radius:2px;
+    border-color:#a58a56;
+    background:linear-gradient(135deg,#fff7e44d,#be995318),#eddfbf;
+    box-shadow:inset 0 0 0 2px #fff7e440;
+}
+.player-banner-top { padding-left:32px; }
+.player-role-badge { font-family:var(--font-display); font-size:14px; }
+.badge-p1 { background:#d9e1df!important; color:#173e52!important; border-color:#6c8590!important; }
+.badge-p2 { background:#efd8bc!important; color:#853b1f!important; border-color:#b47950!important; }
+.room-code-badge { background:#cbb68b66; border:1px solid #b19a6e; border-radius:2px; }
+.network-status { color:#6c593b; font-size:11px; }
+.network-status.is-connected,.locked-val { color:#3b592e; }
+.sidebar button,.landing-screen button,.modal-overlay button {
+    border-radius:2px;
+    border-color:#a88c55;
+    box-shadow:inset 0 1px 0 #fff5,0 1px 1px #45311b33;
+    font-size:12px;
+    font-weight:650;
+}
+.btn-blue { background:linear-gradient(#344f59,#223b45); color:#fff2d4; border-color:#203541!important; }
+.btn-gold { background:linear-gradient(#b58c46,#8b652b); color:#fff6de; border-color:#78531e!important; }
+.btn-red { background:linear-gradient(#9b5141,#71362d); color:#fff1d6; }
+.btn-grey { background:linear-gradient(#f7ebd0,#d9c69c); color:#49391f; }
+.sidebar button:hover:not(:disabled) { filter:brightness(1.08); box-shadow:inset 0 1px 0 #fff7,0 2px 3px #45311b33; }
+button:disabled { background:#d3c5a6; color:#7b6e52; border-color:#b3a17a; opacity:.85; }
+.sidebar input { background:#fbf1dc; color:#30291e; border-color:#b59d6e; border-radius:2px; }
+.sidebar #lock-bid-btn { white-space:nowrap; padding:0 4px!important; }
+#toggle-room-code-btn { color:#785d32; }
+#toggle-room-code-btn:hover { background:#c8b18555; }
+.bid-card,.stat-chip,.command-tray { background:#f5e9ce; border-color:#c1aa7b; border-radius:2px; }
+.bid-card { padding:8px; }
+.bid-card-label,.command-group-title,.turn-phase-kicker,.dice-count-field label { color:#645035; }
+.draft-notice-banner { background:#bd944c1a; border:1px solid #b39862; border-left:3px solid #957039; border-radius:1px; box-shadow:none; padding:9px; }
+.draft-notice-kicker { color:#765425; font-family:var(--font-display); }
+#draft-notice-text { color:#514028; }
+.draft-sub { color:#746348; }
+.command-staging-panel { border-top:1px solid #b39a68; padding-top:9px; }
+.command-staging-panel>.sidebar-kicker,.battle-tools-section>.sidebar-kicker { display:block; }
+.command-tray { padding:6px; gap:5px; min-height:40px; }
+.tray-placeholder { color:#786749; font-size:11px; }
+.battle-tools-section { padding:10px 0 0; border-top:3px double #a78d59; }
+.die-face { background:#fff0ce; color:#46301e; border-color:#a1844b; border-radius:4px; box-shadow:1px 2px 0 #8b6c3840; }
+.die-face.empty { color:#8c7957; }
+.dice-roll-card { border-radius:2px; background:#cab48733; border-color:#bba16d; }
+.terrain-deck-card { border-radius:3px; border:2px solid #a88649; box-shadow:inset 0 0 0 2px #f5e7bf66,0 3px 5px #533d2422; }
+.battle-extras { padding-top:0; border-top:0; }
+.battle-extras>summary { padding:0 0 6px; }
+#stats-panel { padding:9px; }
+.stats-unit-name { font-family:var(--font-display); font-size:17px; color:#422f17; border-bottom-color:#b8a176; }
+.stats-view-switch button[aria-pressed=true] { background:#8a6733; color:#fff1d0; border-color:#705120; }
+.stats-unit-card-link { border-radius:3px; border:1px solid #bfa779; background:#f8eed7; }
+.stats-unit-card-image { max-height:360px; object-fit:contain; }
+.stats-card[data-profile-view=card] .stats-live-profile { display:none; }
+.stat-icon { filter:brightness(0) saturate(100%) invert(31%) sepia(21%) saturate(1100%) hue-rotate(355deg); }
+.stat-label { color:#77613d; }
+.stat-value { font-family:var(--font-display); color:#473116; }
+.rules-block { background:#d4bf9244; border-color:#b39a68; border-radius:2px; }
+.help-section { border-color:#b6a075; padding-top:8px; }
+.game-menu-footer { border-color:#b49c6e; }
+#table-container { background:#322e22; border:1px solid #8e7645; border-radius:3px; box-shadow:inset 0 0 30px #0008; }
+#table-container::before { border-color:#8d774633; border-radius:0; }
+#game-table { border-radius:2px; box-shadow:0 0 0 2px #b29a61,0 0 0 4px #40351e,0 12px 26px #0007; }
+.landing-screen { background:radial-gradient(ellipse at 50% 10%,#8d713a44,transparent 65%),repeating-linear-gradient(6deg,#fff1 0 1px,transparent 1px 8px),#25241d; }
+.landing-card { border:1px solid #b89a59; border-radius:3px; background:radial-gradient(ellipse at 20% 0,#fff7df88,transparent 80%),#e4d3ac; box-shadow:0 25px 80px #0008,inset 0 0 50px #8c69232b; }
+.landing-card::before { border:3px double #b49a64; border-radius:0; }
+.landing-title { font-family:var(--font-display); font-size:clamp(32px,4vw,54px); letter-spacing:.1em; color:#4b3518; }
+.landing-kicker { color:#8b672f; }
+.landing-option { border-radius:2px; border-color:#bba06b; background:#f6e9ca80; }
+.landing-option h3 { font-family:var(--font-display); letter-spacing:.06em; }
+.modal-content,.modal-header { border-radius:3px; background:#eadbbb; border-color:#ac915b; }
+@media (max-height:950px) and (orientation:landscape) {
+    #left-sidebar.is-two-column { padding:9px; gap:8px; }
+    #left-sidebar.is-two-column .battle-console-title { font-size:23px; padding:2px 0 7px; }
+    #left-sidebar.is-two-column .battle-command-column,#left-sidebar.is-two-column .battle-reference-column { gap:8px; }
+    #left-sidebar.is-two-column .terrain-deck-card { width:120px; min-height:120px; margin:5px auto; padding:8px; gap:4px; }
+    #left-sidebar.is-two-column .terrain-deck-card .terrain-card-kicker { font-size:9px; letter-spacing:.06em; }
+    #left-sidebar.is-two-column .terrain-deck-card .palette-title { font-size:20px; }
+    #left-sidebar.is-two-column .terrain-deck-card .palette-note { font-size:10px; line-height:1.2; }
+    #left-sidebar.is-two-column .terrain-card-x .palette-title { font-size:32px; }
+    #left-sidebar.is-two-column #bidding-header-kicker { display:none; }
+    #left-sidebar.is-two-column .bidding-zone { gap:6px; }
+    #left-sidebar.is-two-column #bidding-help { min-height:0; }
+    #left-sidebar.is-two-column .bid-card { padding:6px; gap:6px; }
+    #left-sidebar.is-two-column #my-bid-input { height:34px; }
+    #left-sidebar.is-two-column #lock-bid-btn { height:32px; min-height:32px; }
+    #left-sidebar.is-two-column .stats-unit-card-image { max-height:300px; }
+}
+@media (max-width:1100px) and (orientation:portrait) {
+    .battle-console-grid { grid-template-columns:repeat(2,minmax(0,1fr)); align-items:start; }
+    #left-sidebar { height:auto; }
+    .battle-console-title { font-size:20px; }
+}
+@media (max-width:600px) and (orientation:portrait) {
+    .battle-console-grid { grid-template-columns:minmax(0,1fr); }
+    .battle-console-title { font-size:20px; }
+}

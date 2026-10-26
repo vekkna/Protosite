@@ -28,7 +28,7 @@ test('fullscreen fits the whole board beside the play panel at tablet and deskto
         assert.ok(context.currentScale * 720 <= height - 4, 'Board fits vertically');
         assert.ok(context.currentScale * 960 + panelWidth + 12 <= width + 0.01, 'Board fits horizontally beside controls');
         assert.equal(context.currentScale, Math.min((height - 4) / 720, (width - panelWidth - 12) / 960), 'Board uses the maximum undistorted scale');
-        assert.ok(panelWidth >= 208 && panelWidth <= 280);
+        assert.ok(panelWidth >= 208 && panelWidth <= 720);
         assert.equal(field.style.minWidth, '', 'No width reservation can push the board offscreen');
     }
     document.fullscreenElement = null;
@@ -51,5 +51,8 @@ test('tablet panels surrender width to enlarge the board without distorting its 
     }
     const tablet = context.calculatePanelLayout(1280, 800);
     assert.ok(800 - tablet.boardScale * 720 <= 6, 'The 1280×800 tablet leaves only a few pixels above and below');
-    assert.equal(context.calculatePanelLayout(1920, 1080).left, 280, 'Roomy screens retain wider controls');
+    const desktop = context.calculatePanelLayout(1920, 1080);
+    assert.ok(desktop.left >= 420 && desktop.twoColumns, 'Spare desktop width opens a second control column');
+    assert.ok(1920 - desktop.left - desktop.boardScale * 960 - 12 < 1, 'Desktop controls reclaim the gap beside the board');
+    assert.equal(context.calculatePanelLayout(1280, 800).twoColumns, false, 'Tablets preserve the larger board with compact controls');
 });
