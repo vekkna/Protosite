@@ -56,3 +56,17 @@ test('tablet panels surrender width to enlarge the board without distorting its 
     assert.ok(1920 - desktop.left - desktop.boardScale * 960 - 12 < 1, 'Desktop controls reclaim the gap beside the board');
     assert.equal(context.calculatePanelLayout(1280, 800).twoColumns, false, 'Tablets preserve the larger board with compact controls');
 });
+
+test('manual sidebar widths reflow at the column boundary and leave a usable battlefield', () => {
+    const source = fs.readFileSync(require.resolve('../app.js'), 'utf8');
+    const context = vm.createContext({ tableWidthPx: 960, tableHeightPx: 720 });
+    vm.runInContext(source.slice(source.indexOf('function calculatePanelLayout('), source.indexOf('function fitTableToScreen(')), context);
+    for (const preferred of [208, 300, 419, 420, 560, 720]) {
+        const layout = context.calculatePanelLayout(1920, 1080, preferred);
+        assert.equal(layout.left, preferred);
+        assert.equal(layout.twoColumns, preferred >= 420);
+        assert.ok(layout.boardScale * 960 + layout.left + 12 <= 1920);
+    }
+    assert.equal(context.calculatePanelLayout(1920, 1080, 0).left, 208);
+    assert.equal(context.calculatePanelLayout(800, 600, 720).left, 480);
+});

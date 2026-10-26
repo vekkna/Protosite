@@ -23,7 +23,7 @@ const CommandTracker = {
             bids: { ...bids }, remaining: { ...bids } };
     },
     pass(state, player) {
-        if (player && this.activePlayer(state) !== player) throw new Error('Only the active player can pass.');
+        if (state.phase !== 'commands') throw new Error('Turns can only be passed during the command phase.');
         if (state.window === 2) return { ...state, phase: 'complete', remaining: { p1: 0, p2: 0 } };
         return { ...state, window: state.window + 1 };
     },

@@ -47,7 +47,11 @@ body {
 #left-sidebar:not(.is-two-column) .terrain-deck-card { width:128px; }
 .battle-console-grid { display:grid; grid-template-columns:minmax(0,1fr); gap:10px; min-width:0; }
 .battle-command-column,.battle-reference-column { display:flex; flex-direction:column; gap:10px; min-width:0; }
-#left-sidebar.is-two-column .battle-console-grid { grid-template-columns:minmax(0,1fr) minmax(0,1fr); align-items:start; gap:14px; }
+#left-sidebar.is-two-column .battle-console-grid { grid-template-columns:minmax(0,1fr) minmax(0,1fr); align-items:stretch; gap:14px; flex:1 0 auto; }
+#left-sidebar.is-two-column .battle-command-column>.battle-tools-section { margin-top:auto; }
+#left-sidebar:not(.is-two-column) .battle-console-grid { display:flex; flex-direction:column; }
+#left-sidebar:not(.is-two-column) .battle-command-column,#left-sidebar:not(.is-two-column) .battle-reference-column { display:contents; }
+#left-sidebar:not(.is-two-column) .battle-console-grid>.battle-command-column>.battle-tools-section { order:10; margin-top:8px; }
 #left-sidebar.is-two-column .battle-reference-column { border-left:1px solid #a88d5780; padding-left:13px; }
 #left-sidebar.is-two-column .battle-console-title { font-size:27px; }
 #left-sidebar.is-two-column #player-banner { padding:7px 10px; }
@@ -56,7 +60,11 @@ body {
 #left-sidebar.is-two-column .room-code-area .network-status { grid-column:2; grid-row:1; }
 #left-sidebar.is-two-column .room-code-area .game-menu-footer { grid-column:2; grid-row:2; margin:0; padding:0; border:0; }
 #left-sidebar.is-two-column #terrain-section { margin:0; }
-#left-sidebar.is-two-column .terrain-deck-card { min-height:112px; }
+#left-sidebar.is-two-column .terrain-deck-card { width:120px; min-height:120px; margin:5px auto; padding:8px; gap:4px; }
+#left-sidebar.is-two-column .terrain-deck-card .terrain-card-kicker { font-size:9px; letter-spacing:.06em; }
+#left-sidebar.is-two-column .terrain-deck-card .palette-title { font-size:20px; }
+#left-sidebar.is-two-column .terrain-deck-card .palette-note { font-size:10px; line-height:1.2; }
+#left-sidebar.is-two-column .terrain-card-x .palette-title { font-size:32px; }
 #left-sidebar.is-two-column #command-staging-panel { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; }
 #left-sidebar.is-two-column #command-staging-panel>.sidebar-kicker { grid-column:1/-1; }
 #left-sidebar.is-two-column #command-staging-panel .command-group { min-width:0; }
@@ -138,9 +146,24 @@ button:disabled { background:#d3c5a6; color:#7b6e52; border-color:#b3a17a; opaci
 .landing-option { border-radius:2px; border-color:#bba06b; background:#f6e9ca80; }
 .landing-option h3 { font-family:var(--font-display); letter-spacing:.06em; }
 .modal-content,.modal-header { border-radius:3px; background:#eadbbb; border-color:#ac915b; }
+#sidebar-resize-handle { position:absolute; top:0; bottom:0; width:12px; z-index:45; cursor:col-resize; touch-action:none; display:flex; justify-content:center; align-items:center; }
+#sidebar-resize-handle[hidden] { display:none; }
+#sidebar-resize-handle span { width:5px; height:52px; border:1px solid #d8bd7d; border-radius:3px; background:repeating-linear-gradient(0deg,#68502b 0 3px,#ad8c50 3px 5px); box-shadow:0 1px 5px #0009; }
+#sidebar-resize-handle:hover span,#sidebar-resize-handle:focus-visible span { background:#c9a45f; }
+.is-resizing-sidebar,.is-resizing-sidebar * { cursor:col-resize!important; user-select:none!important; }
+.command-token.token-p1 { background:radial-gradient(circle at 32% 27%,#718588,#324b55 72%); border:2px solid #bea56e; color:#f1e0ba; box-shadow:inset 0 0 0 2px #233942,1px 2px 3px #32271366; }
+.command-token.token-p2 { background:radial-gradient(circle at 32% 27%,#c58e57,#86502b 72%); border:2px solid #d2b678; color:#fff0c9; box-shadow:inset 0 0 0 2px #71411f,1px 2px 3px #32271366; }
+.command-token::after { content:'◆'; font-size:11px; line-height:1; opacity:.85; }
+.command-tray { display:flex; flex-wrap:wrap; align-content:flex-start; }
+.command-tray .command-token { width:26px; min-width:26px; max-width:26px; height:26px; }
+.command-tray .tray-placeholder { width:100%; }
+.unit-command-dock .command-token::after { font-size:7px; }
+.unit.has-unit-artwork .unit-label { position:absolute; left:4px; right:4px; bottom:4px; width:auto; height:40%; max-height:40%; display:flex; align-items:center; justify-content:center; text-align:center; line-height:1.05; }
+.unit-artwork-badge { position:absolute; top:4px; right:4px; width:35%; height:43%; max-width:26px; max-height:28px; object-fit:contain; pointer-events:none; filter:drop-shadow(0 1px 1px #0008); }
 @media (max-height:950px) and (orientation:landscape) {
     #left-sidebar.is-two-column { padding:9px; gap:8px; }
-    #left-sidebar.is-two-column .battle-console-title { font-size:23px; padding:2px 0 7px; }
+    #left-sidebar.is-two-column .battle-console-title { font-size:23px; padding:2px 0 4px; }
+    #left-sidebar.is-two-column .battle-console-title span { margin-top:3px; }
     #left-sidebar.is-two-column .battle-command-column,#left-sidebar.is-two-column .battle-reference-column { gap:8px; }
     #left-sidebar.is-two-column .terrain-deck-card { width:120px; min-height:120px; margin:5px auto; padding:8px; gap:4px; }
     #left-sidebar.is-two-column .terrain-deck-card .terrain-card-kicker { font-size:9px; letter-spacing:.06em; }

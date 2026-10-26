@@ -156,6 +156,51 @@
                 </div>
             </section>
 
+
+
+
+            <!-- Battle Tools: Dice Roller -->
+            <section class="battle-tools-section">
+                <span class="sidebar-kicker">Dice Roller</span>
+                <div class="dice-controls">
+                    <div class="dice-count-field">
+                        <label for="dice-count">Number of d6</label>
+                        <div class="dice-count-adjuster">
+                            <button type="button" class="btn-grey dice-step-button" onclick="adjustDiceCount(-1)"
+                                aria-label="Decrease number of dice">−</button>
+                            <input type="number" id="dice-count" value="2" min="1" max="20" onchange="normalizeDiceCount()">
+                            <button type="button" class="btn-grey dice-step-button" onclick="adjustDiceCount(1)"
+                                aria-label="Increase number of dice">+</button>
+                        </div>
+                    </div>
+                    <button id="dice-btn" class="btn-blue" onclick="rollDice()">Roll</button>
+                </div>
+                <div id="dice-roll-card" class="dice-roll-card" role="status" aria-label="Dice roll result" aria-live="polite" aria-atomic="true">
+                    <div id="dice-values" class="dice-values">
+                        <span class="die-face empty">-</span>
+                    </div>
+                </div>
+            </section>
+            </div>
+            <div class="battle-reference-column">
+            <details class="battle-extras" id="unit-profile-details" open>
+                <summary>Profiles &amp; help</summary>
+                <div id="stats-panel">
+                    <h3>Unit profile</h3>
+                    <div id="stats-content">
+                        <span class="stats-empty">Hover over or select a unit to inspect its profile.</span>
+                    </div>
+                </div>
+                <details class="help-section">
+                    <summary>Help &amp; display</summary>
+                    <div class="sidebar-btn-row">
+                        <button id="controls-help-btn" type="button" class="btn-grey" onclick="openControlsHelp()"
+                            aria-haspopup="dialog" aria-controls="controls-modal">Controls</button>
+                        <button class="btn-grey" onclick="openRulebook()">Rulebook</button>
+                    </div>
+                </details>
+
+            </details>
             <!-- Command Staging Zone (to the left of the battlefield) -->
             <section id="command-staging-panel" class="command-staging-panel">
                 <span class="sidebar-kicker">Command Markers</span>
@@ -183,54 +228,12 @@
             </section>
 
 
-            </div>
-            <div class="battle-reference-column">
-            <details class="battle-extras" id="unit-profile-details" open>
-                <summary>Profiles &amp; help</summary>
-                <div id="stats-panel">
-                    <h3>Unit profile</h3>
-                    <div id="stats-content">
-                        <span class="stats-empty">Hover over or select a unit to inspect its profile.</span>
-                    </div>
-                </div>
-                <details class="help-section">
-                    <summary>Help &amp; display</summary>
-                    <div class="sidebar-btn-row">
-                        <button id="controls-help-btn" type="button" class="btn-grey" onclick="openControlsHelp()"
-                            aria-haspopup="dialog" aria-controls="controls-modal">Controls</button>
-                        <button class="btn-grey" onclick="openRulebook()">Rulebook</button>
-                    </div>
-                </details>
-
-            </details>
 
 
-
-            <!-- Battle Tools: Dice Roller -->
-            <section class="battle-tools-section">
-                <span class="sidebar-kicker">Dice Roller</span>
-                <div class="dice-controls">
-                    <div class="dice-count-field">
-                        <label for="dice-count">Number of d6</label>
-                        <div class="dice-count-adjuster">
-                            <button type="button" class="btn-grey dice-step-button" onclick="adjustDiceCount(-1)"
-                                aria-label="Decrease number of dice">−</button>
-                            <input type="number" id="dice-count" value="2" min="1" max="20" onchange="normalizeDiceCount()">
-                            <button type="button" class="btn-grey dice-step-button" onclick="adjustDiceCount(1)"
-                                aria-label="Increase number of dice">+</button>
-                        </div>
-                    </div>
-                    <button id="dice-btn" class="btn-blue" onclick="rollDice()">Roll</button>
-                </div>
-                <div id="dice-roll-card" class="dice-roll-card" role="status" aria-label="Dice roll result" aria-live="polite" aria-atomic="true">
-                    <div id="dice-values" class="dice-values">
-                        <span class="die-face empty">-</span>
-                    </div>
-                </div>
-            </section>
             </div>
             </div>
         </div>
+        <div id="sidebar-resize-handle" role="separator" aria-orientation="vertical" aria-label="Resize battle controls" aria-valuemin="208" aria-valuemax="720" aria-valuenow="420" tabindex="0" title="Drag to resize. Use arrow keys to adjust. Double-click to restore automatic width."><span></span></div>
         <div id="table-container">
             <div id="game-table">
                 <div id="deployment-zone-top" class="deployment-zone deployment-zone-top" aria-hidden="true"></div>

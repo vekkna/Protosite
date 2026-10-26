@@ -27,7 +27,7 @@ test('commands carry into final window, and can be spent or returned', () => {
     state = tracker.activate(state, 'p1', true);
     state = tracker.pass(state, 'p1');
     assert.throws(() => tracker.activate(state, 'p1', true));
-    assert.throws(() => tracker.pass(state, 'p1'));
+    assert.equal(tracker.pass(state, 'p1').window, 2, 'Either player may pass the active command window');
     state = tracker.pass(state, 'p2');
     state = tracker.activate(state, 'p1', true);
     assert.equal(state.remaining.p1, 0);

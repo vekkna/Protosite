@@ -7,7 +7,7 @@ test('command-tracker: lower bidder becomes Master Tactician in round 1', () => 
     state = CommandTracker.start(state, { p1: 2, p2: 4 }, { p1: 12, p2: 12 });
     assert.equal(state.master, 'p1');
     assert.equal(state.round, 1);
-    assert.equal(state.window, 0); // Window 0: MT's 1st turn
+    assert.equal(state.window, 0); // Window 0: Master Tactician's 1st turn
 });
 
 test('command-tracker: first round tie goes to player drafting second (P2)', () => {
@@ -17,13 +17,13 @@ test('command-tracker: first round tie goes to player drafting second (P2)', () 
     assert.equal(state.master, 'p2');
 });
 
-test('command-tracker: turn sequence MT 1st -> Player X -> MT 2nd -> round ends', () => {
+test('command-tracker: turn sequence Master Tactician 1st -> Player X -> Master Tactician 2nd -> round ends', () => {
     let state = CommandTracker.create();
     state = CommandTracker.start(state, { p1: 2, p2: 4 }, { p1: 12, p2: 12 });
     assert.equal(state.master, 'p1');
     assert.equal(CommandTracker.activePlayer(state), 'p1');
 
-    // MT passes 1st turn
+    // Master Tactician passes 1st turn
     state = CommandTracker.pass(state);
     assert.equal(state.window, 1);
     assert.equal(CommandTracker.activePlayer(state), 'p2'); // Player 2's turn
@@ -31,9 +31,9 @@ test('command-tracker: turn sequence MT 1st -> Player X -> MT 2nd -> round ends'
     // Player 2 passes
     state = CommandTracker.pass(state);
     assert.equal(state.window, 2);
-    assert.equal(CommandTracker.activePlayer(state), 'p1'); // MT's 2nd turn
+    assert.equal(CommandTracker.activePlayer(state), 'p1'); // Master Tactician's 2nd turn
 
-    // MT passes 2nd turn -> round complete!
+    // Master Tactician passes 2nd turn -> round complete!
     state = CommandTracker.pass(state);
     assert.equal(state.phase, 'complete');
 
@@ -67,21 +67,20 @@ test('command-tracker: custom firstDraftPick P2 means P1 drafts second and wins 
     assert.equal(state.master, 'p1');
 });
 
-test('command-tracker: only the active player can pass', () => {
+test('command-tracker: either player can pass the active command window', () => {
     let state = CommandTracker.create();
     state = CommandTracker.start(state, { p1: 2, p2: 5 }, { p1: 12, p2: 12 });
     assert.equal(state.master, 'p1');
     assert.equal(CommandTracker.activePlayer(state), 'p1');
 
-    // Passing as inactive player 'p2' throws
-    assert.throws(() => CommandTracker.pass(state, 'p2'), /Only the active player can pass/);
+    assert.equal(CommandTracker.pass(state, 'p2').window, 1);
 
     // Passing as active player 'p1' succeeds
     state = CommandTracker.pass(state, 'p1');
     assert.equal(CommandTracker.activePlayer(state), 'p2');
 
-    // Now 'p1' cannot pass
-    assert.throws(() => CommandTracker.pass(state, 'p1'), /Only the active player can pass/);
+    // Player 1 can also pass while Player 2 is active.
+    assert.equal(CommandTracker.pass(state, 'p1').window, 2);
     state = CommandTracker.pass(state, 'p2');
     assert.equal(CommandTracker.activePlayer(state), 'p1');
 });
@@ -268,5 +267,3 @@ test('remote-sandbox: challenger board perspective flips 180 degrees and transfo
     assert.deepEqual(getPointer(550, 350, true), { x: 900, y: 600 });
     assert.deepEqual(getPointer(550, 350, false), { x: 900, y: 600 });
 });
-
-

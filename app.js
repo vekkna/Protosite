@@ -49,7 +49,7 @@ let biddingState = {
     revealed: false,
     master: null,
     round: 1,
-    turnStep: 0, // 0: MT 1st Turn, 1: Player X Turn, 2: MT 2nd Turn
+    turnStep: 0, // 0: Master Tactician first turn, 1: Player X turn, 2: Master Tactician final turn
     firstDraftPick: 'p1',
     firstRoundTieWinner: 'p2'
 };
@@ -57,6 +57,7 @@ let commandTokens = [];
 let statsTooltipTimer = null;
 let isRightSidebarHidden = false;
 let isMultiplayerPanelCollapsed = false;
+let preferredSidebarWidth = null;
 
 function loadActiveGamesList() {
     try {
@@ -274,6 +275,7 @@ function loadUIState() {
         const savedState = JSON.parse(localStorage.getItem(UI_STATE_KEY) || '{}');
         isMultiplayerPanelCollapsed = Boolean(savedState.isMultiplayerPanelCollapsed);
         isRoomCodeHidden = savedState.isRoomCodeHidden !== false;
+        preferredSidebarWidth = Number.isFinite(savedState.sidebarWidth) ? savedState.sidebarWidth : null;
     } catch (err) {
         console.warn("Unable to load UI state:", err);
     }
@@ -283,7 +285,8 @@ function saveUIState() {
     try {
         localStorage.setItem(UI_STATE_KEY, JSON.stringify({
             isMultiplayerPanelCollapsed,
-            isRoomCodeHidden
+            isRoomCodeHidden,
+            sidebarWidth: preferredSidebarWidth
         }));
     } catch (err) {
         console.warn("Unable to save UI state:", err);
@@ -504,7 +507,7 @@ function updateTurnZoneUI() {
 
     const localKey = getLocalBidPlayerKey();
     const isMaster = (biddingState.master === localKey);
-    masterLabel.textContent = isMaster ? 'MT: You' : 'MT: Opponent';
+    masterLabel.textContent = isMaster ? 'Master Tactician: You' : 'Master Tactician: Opponent';
     masterLabel.setAttribute('aria-label', isMaster ? 'You are Master Tactician' : 'Your opponent is Master Tactician');
     bidsSummary.textContent = `You: ${biddingState[localKey].value} · Opponent: ${biddingState[getOpponentPlayerKey()].value}`;
 
@@ -516,46 +519,46 @@ function updateTurnZoneUI() {
     if (phaseLabel) phaseLabel.textContent = `Round ${biddingState.round} · ${['First', 'Second', 'Final'][biddingState.turnStep]} commands`;
     passBtn.textContent = biddingState.turnStep === 2 ? 'End round' : 'Pass turn';
     const turnHelp = document.getElementById('turn-help');
-    if (turnHelp) turnHelp.textContent = isLocalActive ? 'Place your commands. Pass when you are finished.' : 'Your opponent is placing commands.';
+    if (turnHelp) turnHelp.textContent = isLocalActive ? 'Place your commands. Either player can pass when finished.' : 'Your opponent is placing commands. Either player can pass when finished.';
 
-    passBtn.disabled = !isLocalActive;
+    passBtn.disabled = !biddingState.revealed;
 }
 
 function handlePassTurn() {
-    if (getActivePlayerKey() !== getLocalBidPlayerKey()) {
-        return;
-    }
+    if (!biddingState.revealed) return;
+    const fromStep = biddingState.turnStep;
 
     if (biddingState.turnStep === 0) {
         biddingState.turnStep = 1;
-        try { roundState = CommandTracker.pass(roundState, biddingState.master); } catch(e) {}
-        sendData({ type: 'PASS_TURN', turnStep: 1 });
+        try { roundState = CommandTracker.pass(roundState, getLocalBidPlayerKey()); } catch(e) {}
+        sendData({ type: 'PASS_TURN', round: biddingState.round, fromStep, turnStep: 1 });
         updateTurnZoneUI();
         saveGame();
     } else if (biddingState.turnStep === 1) {
         biddingState.turnStep = 2;
-        const otherPlayer = biddingState.master === 'p1' ? 'p2' : 'p1';
-        try { roundState = CommandTracker.pass(roundState, otherPlayer); } catch(e) {}
-        sendData({ type: 'PASS_TURN', turnStep: 2 });
+        try { roundState = CommandTracker.pass(roundState, getLocalBidPlayerKey()); } catch(e) {}
+        sendData({ type: 'PASS_TURN', round: biddingState.round, fromStep, turnStep: 2 });
         updateTurnZoneUI();
         saveGame();
     } else if (biddingState.turnStep === 2) {
-        // MT passes after their second turn -> Round ends!
+        // The final command window ends the round, regardless of who presses Pass.
         endRoundAndResetBidding(true);
     }
 }
 
 function endRoundAndResetBidding(shouldBroadcast = true) {
+    if (!biddingState.revealed) return;
+    const completedRound = biddingState.round;
     try {
-        roundState = CommandTracker.pass(roundState);
+        for (let i = 0; i < 3 && roundState.phase === 'commands'; i++) roundState = CommandTracker.pass(roundState);
         roundState = CommandTracker.next(roundState);
     } catch(e) {}
 
-    // When the MT passes after his second turn, the round ends, all command markers go away, and the bidding zone is reset.
+    // Reset commands and bids after the Master Tactician's final command window.
     commandTokens = [];
     renderAllCommandTokens();
 
-    biddingState.round = roundState.round || (biddingState.round + 1);
+    biddingState.round = Math.max(roundState.round || 0, completedRound + 1);
     biddingState.revealed = false;
     biddingState.turnStep = 0;
     biddingState.p1.ready = false;
@@ -566,7 +569,7 @@ function endRoundAndResetBidding(shouldBroadcast = true) {
     updateBiddingUI();
 
     if (shouldBroadcast) {
-        sendData({ type: 'ROUND_RESET' });
+        sendData({ type: 'ROUND_RESET', round: completedRound });
     }
     saveGame();
 }
@@ -2082,11 +2085,15 @@ function handleIncomingData(data) {
             executeRevealBids();
         }
     } else if (data.type === 'PASS_TURN') {
+        if (!biddingState.revealed || (data.round !== undefined && data.round !== biddingState.round)) return;
+        if (data.fromStep !== undefined && data.fromStep !== biddingState.turnStep) return;
+        if (data.turnStep !== biddingState.turnStep + 1 || data.turnStep > 2) return;
         biddingState.turnStep = data.turnStep;
         try { roundState = CommandTracker.pass(roundState); } catch(e) {}
         updateTurnZoneUI();
         saveGame(true);
     } else if (data.type === 'ROUND_RESET') {
+        if (data.round !== undefined && data.round !== biddingState.round) return;
         endRoundAndResetBidding(false);
     }
     if (data.type.startsWith('PIECE_')) updateSelectionRanges();
@@ -2577,6 +2584,17 @@ function createUnitDOM(name, color, x, y, angle, wounds, stats = null, activated
     div.dataset.unitId = div.dataset.unitId || ('u_' + Math.random().toString(36).slice(2, 9));
     div._unitStats = unitStats;
     applyUnitTheme(div, name);
+    const artworkFile = typeof UnitArtwork !== 'undefined' ? UnitArtwork.fileFor({ ...(unitStats || {}), Unit: name }) : '';
+    if (artworkFile) {
+        const icon = document.createElement('img');
+        icon.classList.add('unit-artwork-badge');
+        icon.src = 'images/' + encodeURIComponent(artworkFile);
+        icon.alt = '';
+        icon.draggable = false;
+        icon.addEventListener('error', () => icon.remove());
+        div.classList.add('has-unit-artwork');
+        div.appendChild(icon);
+    }
 
     const appendCommandDock = () => {
         let dock = div.querySelector('.unit-command-dock');
@@ -4135,11 +4153,14 @@ window.addEventListener('pointercancel', onPointerUp);
 // --- RESPONSIVE TABLE SCALE & BOOTSTRAP ---
 let currentScale = 1;
 // Use spare horizontal space for two control columns while retaining the largest board.
-function calculatePanelLayout(width, height) {
+function calculatePanelLayout(width, height, preferredWidth = null) {
     const fullHeightBoardWidth = tableWidthPx * Math.max(1, height - 4) / tableHeightPx;
     const spareWidth = Math.floor(width - fullHeightBoardWidth - 12);
-    const twoColumns = spareWidth >= 420 || (width >= 1400 && height >= 760);
-    const left = twoColumns ? Math.min(720, Math.max(420, spareWidth)) : Math.min(280, Math.max(208, spareWidth));
+    const automaticTwoColumns = spareWidth >= 420 || (width >= 1400 && height >= 760);
+    const automaticWidth = automaticTwoColumns ? Math.min(720, Math.max(420, spareWidth)) : Math.min(280, Math.max(208, spareWidth));
+    const maxWidth = Math.max(208, Math.min(720, width - 320));
+    const left = Number.isFinite(preferredWidth) ? Math.round(Math.max(208, Math.min(maxWidth, preferredWidth))) : automaticWidth;
+    const twoColumns = left >= 420;
     const boardScale = Math.max(0.01, Math.min(
         Math.max(1, height - 4) / tableHeightPx,
         Math.max(1, width - left - 8 - 4) / tableWidthPx
@@ -4163,10 +4184,20 @@ function fitTableToScreen() {
             leftSidebar.classList.toggle('is-two-column', false);
         }
     } else if (appContainer && leftSidebar && appContainer.clientWidth > 400 && appContainer.clientHeight > 300) {
-        const layout = calculatePanelLayout(appContainer.clientWidth, appContainer.clientHeight);
+        const layout = calculatePanelLayout(appContainer.clientWidth, appContainer.clientHeight, typeof preferredSidebarWidth === 'number' ? preferredSidebarWidth : null);
         container.style.minWidth = '';
         leftSidebar.style.width = layout.left + 'px';
         leftSidebar.classList.toggle('is-two-column', layout.twoColumns);
+    }
+    const resizeHandle = document.getElementById('sidebar-resize-handle');
+    if (resizeHandle && leftSidebar) {
+        resizeHandle.hidden = stackedPanels;
+        if (!stackedPanels) {
+            const sidebarWidth = parseFloat(leftSidebar.style.width) || 208;
+            resizeHandle.style.left = `${sidebarWidth - 2}px`;
+            resizeHandle.setAttribute('aria-valuenow', String(Math.round(sidebarWidth)));
+            resizeHandle.setAttribute('aria-valuemax', String(Math.max(208, Math.min(720, appContainer.clientWidth - 320))));
+        }
     }
 
     const availableWidth = Math.max(container.clientWidth - 4, 1);
@@ -4184,6 +4215,42 @@ function fitTableToScreen() {
     table.classList.toggle('is-flipped', !isHost);
     const rotateTransform = !isHost ? ' rotate(180deg)' : '';
     table.style.transform = `scale(${currentScale})${rotateTransform}`;
+}
+
+function setupSidebarResize() {
+    const handle = document.getElementById('sidebar-resize-handle');
+    if (!handle) return;
+    let drag = null;
+    handle.addEventListener('pointerdown', event => {
+        if (event.button !== 0) return;
+        event.preventDefault();event.stopPropagation();
+        drag = { pointerId: event.pointerId, x: event.clientX, width: document.getElementById('left-sidebar').getBoundingClientRect().width };
+        handle.setPointerCapture(event.pointerId);
+        document.body.classList.add('is-resizing-sidebar');
+    });
+    handle.addEventListener('pointermove', event => {
+        if (!drag || event.pointerId !== drag.pointerId) return;
+        const app = document.getElementById('container');
+        preferredSidebarWidth = calculatePanelLayout(app.clientWidth, app.clientHeight, drag.width + event.clientX - drag.x).left;
+        fitTableToScreen();
+    });
+    const finish = event => {
+        if (!drag || event.pointerId !== drag.pointerId) return;
+        if (handle.hasPointerCapture(event.pointerId)) handle.releasePointerCapture(event.pointerId);
+        drag = null;document.body.classList.remove('is-resizing-sidebar');saveUIState();
+    };
+    handle.addEventListener('pointerup', finish);
+    handle.addEventListener('pointercancel', finish);
+    handle.addEventListener('dblclick', () => { preferredSidebarWidth = null;saveUIState();fitTableToScreen(); });
+    handle.addEventListener('keydown', event => {
+        if (!['ArrowLeft','ArrowRight','Home','End','Enter'].includes(event.key)) return;
+        event.preventDefault();
+        const app = document.getElementById('container');
+        const current = document.getElementById('left-sidebar').getBoundingClientRect().width;
+        const next = event.key === 'Home' ? 208 : event.key === 'End' ? 720 : current + (event.key === 'ArrowLeft' ? -1 : 1) * (event.shiftKey ? 40 : 16);
+        preferredSidebarWidth = event.key === 'Enter' ? null : calculatePanelLayout(app.clientWidth, app.clientHeight, next).left;
+        saveUIState();fitTableToScreen();
+    });
 }
 
 window.addEventListener('resize', fitTableToScreen);
@@ -4223,6 +4290,7 @@ restoreBoardState = function (jsonString, suppressBroadcast = false) {
 };
 
 loadUIState();
+setupSidebarResize();
 checkUrlAutoJoin();
 renderActiveGamesUI();
 updatePlayerBanner();
