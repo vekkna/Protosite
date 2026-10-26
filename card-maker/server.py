@@ -6,6 +6,7 @@ from pathlib import Path
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from urllib.request import urlopen
 from urllib.parse import urlparse
+import time
 import webbrowser
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -21,8 +22,8 @@ class Handler(SimpleHTTPRequestHandler):
         cached = False
         warning = ''
         try:
-            with urlopen(SOURCE, timeout=15) as response:
-                content = response.read().decode('utf-8-sig')
+            with urlopen(SOURCE + '&refresh=' + str(time.time_ns()), timeout=15) as response:
+                content = response.read().decode('utf-8-sig').replace('\r\n', '\n')
             rows = list(csv.DictReader(io.StringIO(content)))
             if not rows or not {'Unit', 'Speed', 'Drill', 'Melee', 'Ranged', 'Def', 'Footprint'}.issubset(rows[0]):
                 raise ValueError('The sheet did not return the expected unit columns.')

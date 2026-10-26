@@ -9,14 +9,20 @@ process.on('exit',()=>server.kill());
  await new Promise((resolve,reject)=>{server.stdout.once('data',resolve);server.once('error',reject);});
  const browser = await chromium.launch({executablePath:'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe',headless:true});
  const page = await browser.newPage({viewport:{width:1500,height:1100}});
+ await page.addInitScript(()=>{
+  window.cardTestPNG=async canvas=>{
+   const blob=await blobFrom(canvas);
+   return new Promise((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve(reader.result.split(',')[1]);reader.onerror=reject;reader.readAsDataURL(blob);});
+  };
+ });
  const errors=[];page.on('pageerror',e=>errors.push(e.message));
  await page.goto('http://127.0.0.1:8766/card-maker/');
  await page.waitForFunction(()=>document.querySelectorAll('.unit').length===13);
- await page.waitForFunction(()=>document.getElementById('blue').width===1482);
+ await page.waitForFunction(()=>document.getElementById('blue').width===1760);
  await fs.mkdir(path.join(__dirname,'test-output'),{recursive:true});
  await page.screenshot({path:path.join(__dirname,'test-output','studio.png'),fullPage:true});
  await page.getByRole('button',{name:'Heavy Cavalry SN'}).click();
- await page.waitForFunction(()=>document.getElementById('blue').width===1061);
+ await page.waitForFunction(()=>document.getElementById('blue').width===1260);
  if(await page.locator('#blue').getAttribute('class')!=='portrait')throw Error('SN must be portrait');
  await page.getByLabel('Speed · wing').fill('17');
  await page.reload();await page.waitForFunction(()=>document.querySelectorAll('.unit').length===13);
@@ -36,7 +42,7 @@ process.on('exit',()=>server.kill());
   if(!variantDownload.suggestedFilename().includes(variant))throw Error('Export filename is missing variant');
   await variantDownload.saveAs(path.join(__dirname,'test-output',variantDownload.suggestedFilename()));
   for(const [i,name] of [[0,'heavy-infantry'],[2,'heavy-cavalry']])for(const colour of ['blue','orange']){
-   const png=await page.evaluate(async({i,colour})=>(await renderCard(unitAt(i),colour)).toDataURL().split(',')[1],{i,colour});
+   const png=await page.evaluate(async({i,colour})=>cardTestPNG(await renderCard(unitAt(i),colour)),{i,colour});
    await fs.writeFile(path.join(__dirname,'test-output',`${name}-${colour}-${variant}.png`),Buffer.from(png,'base64'));
   }
  }
@@ -45,13 +51,13 @@ process.on('exit',()=>server.kill());
  const [download] = await Promise.all([page.waitForEvent('download'),page.getByRole('button',{name:'Export all · ZIP'}).click()]);
  await download.saveAs(path.join(__dirname,'test-output','all-unit-cards.zip'));
  for(const colour of ['blue','orange']) {
-  const png=await page.locator('#'+colour).evaluate(c=>c.toDataURL().split(',')[1]);
+  const png=await page.locator('#'+colour).evaluate(c=>cardTestPNG(c));
   await fs.writeFile(path.join(__dirname,'test-output','heavy-cavalry-'+colour+'.png'),Buffer.from(png,'base64'));
  }
  await page.getByRole('button',{name:'Heavy Infantry SW'}).click();
- await page.waitForFunction(()=>document.getElementById('blue').width===1482);
+ await page.waitForFunction(()=>document.getElementById('blue').width===1760);
  for(const colour of ['blue','orange']) {
-  const png=await page.locator('#'+colour).evaluate(c=>c.toDataURL().split(',')[1]);
+  const png=await page.locator('#'+colour).evaluate(c=>cardTestPNG(c));
   await fs.writeFile(path.join(__dirname,'test-output','heavy-infantry-'+colour+'.png'),Buffer.from(png,'base64'));
  }
  await page.setViewportSize({width:390,height:844});
@@ -61,3 +67,4 @@ process.on('exit',()=>server.kill());
  await browser.close();
  server.kill();
 })().catch(e=>{console.error(e);process.exit(1);});
+

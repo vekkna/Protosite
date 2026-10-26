@@ -1,15 +1,15 @@
-Unit,Speed,Drill,Melee,Ranged,Def,Icon,Footprint,Quantity
-Heavy Infantry,5,0,6,-,5,,SW,2
-Fanatics,6,1,10,-,3,,SW,2
-Heavy Cavalry,10,0,4,-,5,,SN,2
-Infantry,6,2,3,-,5,,SW,2
-Halberds,6,0,3*,-,4,,SW,2
-Spears,6,1,2,-,6,,SW,2
-Cavalry,12,1,4,-,4,,SN,2
-Lancers,11,2,2*,-,4,,SN,2
-Light Infantry,7,4,3,1*/4,4,,SW,2
-Light Cavalry,14,3,4,-,3,,SN,2
-Archers,6,1,1,4/24,3,,SW,2
-Crossbows,6,0,1,3*/18,3,,SW,2
-Mounted Archers,12,3,1,3/12,3,,SN,2
+Unit,Speed,Drill,Melee,Ranged,Def,Icon,Footprint,Quantity
+Heavy Infantry,5,0,6,-,5,,SW,2
+Fanatics,6,1,10,-,3,,SW,2
+Heavy Cavalry,10,0,4,-,5,,SN,2
+Infantry,6,2,3,-,5,,SW,2
+Halberds,6,0,3*,-,4,,SW,2
+Spears,6,1,2,-,6,,SW,2
+Cavalry,12,1,4,-,4,,SN,2
+Lancers,11,2,2*,-,4,,SN,2
+Light Infantry,7,4,3,1*/4,4,,SW,2
+Light Cavalry,14,3,4,-,3,,SN,2
+Archers,6,1,1,4/24,3,,SW,2
+Crossbows,6,0,1,3*/18,3,,SW,2
+Mounted Archers,12,3,1,3/12,3,,SN,2
 ,,,,,,,,24

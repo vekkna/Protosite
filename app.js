@@ -1085,6 +1085,11 @@ function getStatValue(stats, ...keys) {
     return '-';
 }
 
+function getUnitStatsView() {
+    try { return localStorage.getItem('unit-profile-view') === 'artwork' ? 'artwork' : 'card'; }
+    catch { return 'card'; }
+}
+
 function buildStatsMarkup(unitSource) {
     if (!unitSource) {
         return '<span class="stats-empty">Select a unit to inspect its profile.</span>';
@@ -1116,6 +1121,14 @@ function buildStatsMarkup(unitSource) {
     }
 
     if (stats) {
+        const colour = unitSource.dataset && unitSource.dataset.owner === 'p2' ? 'orange' : 'blue';
+        const cardPath = typeof UnitArtwork !== 'undefined' ? UnitArtwork.cardFor({ ...stats, Unit: cleanName }, colour) : '';
+        const safeCardName = cleanName.replace(/[&<>"']/g, character => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[character]));
+        const cardHtml = cardPath ? `<a class="stats-unit-card-link" href="${cardPath}" target="_blank" rel="noopener" aria-label="Open ${safeCardName} card at full size"><img class="stats-unit-card-image" src="${cardPath}" alt="${safeCardName} unit card" onerror="this.parentElement.hidden=true"></a>` : '';
+        const artworkFile = typeof UnitArtwork !== 'undefined' ? UnitArtwork.fileFor({ ...stats, Unit: cleanName }) : '';
+        const artworkHtml = artworkFile ? `<div class="stats-artwork-emblem army-${colour}"><img class="stats-unit-artwork" src="images/${encodeURIComponent(artworkFile)}" alt="${safeCardName} artwork" onerror="this.parentElement.hidden=true"></div>` : '';
+        const view = cardPath ? getUnitStatsView() : 'artwork';
+        const viewButtons = cardPath && artworkFile ? `<div class="stats-view-switch" role="group" aria-label="Profile display"><button type="button" data-stats-view="card" aria-pressed="${view === 'card'}" onclick="setUnitStatsView('card')">Full card</button><button type="button" data-stats-view="artwork" aria-pressed="${view === 'artwork'}" onclick="setUnitStatsView('artwork')">Artwork + stats</button></div>` : '';
         const filteredRules = [...new Set(activeRules.filter(r => r && r.trim() !== ""))];
         const rulesHtml = filteredRules.length > 0
             ? `<div class="rules-block">
@@ -1125,8 +1138,12 @@ function buildStatsMarkup(unitSource) {
             : "";
 
         return `
-                <div class="stats-card">
-                    <div class="stats-unit-name">${stats.Unit || unitName}</div>
+                <div class="stats-card" data-profile-view="${view}">
+                    <div class="stats-unit-name">${safeCardName}</div>
+                    ${viewButtons}
+                    ${cardHtml}
+                    <div class="stats-live-profile">
+                    ${artworkHtml}
                     <div class="stats-grid">
                         <div class="stat-chip">
                             <img class="stat-icon" src="icons/move.svg" alt="Move">
@@ -1149,6 +1166,7 @@ function buildStatsMarkup(unitSource) {
                             <span class="stat-value">${getStatValue(stats, 'Def', 'Defence')}</span>
                         </div>
                     </div>
+                    </div>
                     ${rulesHtml}
                 </div>
             `;
@@ -1160,6 +1178,21 @@ function buildStatsMarkup(unitSource) {
 function updateStatsPanel(unitSource) {
     const panel = document.getElementById('stats-content');
     panel.innerHTML = buildStatsMarkup(unitSource);
+    if (unitSource) {
+        const profileDetails = document.getElementById('unit-profile-details');
+        if (profileDetails) profileDetails.open = true;
+    }
+}
+
+function setUnitStatsView(view) {
+    if (view !== 'card' && view !== 'artwork') return;
+    try { localStorage.setItem('unit-profile-view', view); } catch {}
+    document.querySelectorAll('#stats-content .stats-card').forEach(card => {
+        card.dataset.profileView = view;
+        card.querySelectorAll('[data-stats-view]').forEach(button => {
+            button.setAttribute('aria-pressed', String(button.dataset.statsView === view));
+        });
+    });
 }
 
 function buildUnitControlsMarkup() {
