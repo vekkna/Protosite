@@ -3387,19 +3387,8 @@ html:fullscreen #table-container, html:-webkit-full-screen #table-container { mi
     .bid-step-buttons { display: flex; flex-direction: column; position: absolute; top: 2px; right: 2px; bottom: 2px; width: 30px; }
     .sidebar .bid-step-buttons button { min-height: 22px; height: 22px; width: 30px; padding: 0; margin: 0; font-size: 11px; line-height: 1; border-radius: 3px; }
 }
-
-/* Full card preview in the unit profile; live stat values stay available below. */
-.stats-unit-card-link { display:block; width:100%; border-radius:8px; overflow:hidden; }
-.stats-unit-card-link[hidden] { display:none; }
-.stats-unit-card-image { display:block; width:100%; height:auto; object-fit:contain; }
-.stats-unit-card-link:focus-visible { outline:2px solid var(--gold); outline-offset:3px; }
-
-.stats-view-switch { display:flex; gap:4px; }
-.stats-view-switch button { flex:1; min-width:0; padding:7px 4px; font-size:11px; line-height:1.25; border:1px solid rgba(23,108,113,.22); border-radius:5px; background:transparent; color:var(--ink-main); cursor:pointer; }
-.stats-view-switch button[aria-pressed=true] { background:rgba(23,108,113,.15); border-color:var(--ink-main); font-weight:700; }
 .stats-live-profile { display:block; }
 .stats-artwork-emblem { display:none; }
-.stats-card[data-profile-view=artwork] .stats-unit-card-link { display:none; }
 .stats-card[data-profile-view=artwork] .stats-live-profile { display:grid; grid-template-columns:52px minmax(0,1fr); gap:8px; align-items:start; }
 .stats-card[data-profile-view=artwork] .stats-grid { grid-template-columns:minmax(0,1fr); }
 .stats-card[data-profile-view=artwork] .stats-artwork-emblem { display:flex; align-items:center; justify-content:center; width:52px; height:68px; padding:7px; background:#073e79; clip-path:polygon(50% 0,100% 12%,100% 60%,85% 82%,50% 100%,15% 82%,0 60%,0 12%); }

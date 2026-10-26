@@ -75,7 +75,7 @@ async function renderCard(unit,colour) {
   ctx.drawImage(art,x,y,w,h);
  }
  ctx.fillStyle=ink;ctx.textAlign='center';ctx.textBaseline='middle';
- fitText(ctx,unit.Unit,portrait?530:741,portrait?(colour==='blue'?950:990):778,portrait?850:1240,portrait?98:108,24);
+ fitText(ctx,unit.Unit,portrait?530:741,portrait?(colour==='blue'?950:990):778,portrait?850:1240,portrait?112:128,24);
  const ranged=String(unit.Ranged||'—').split('/');const values=[unit.Speed,unit.Drill,unit.Melee,ranged[0],ranged[1]||'—',unit.Def];
  // Equal cells and a fixed gap from the visible icon edge to left-aligned text.
  const bounds=portrait?(colour==='blue'?{left:92,right:968,top:1032,bottom:1327}:{left:96,right:964,top:1077,bottom:1372}):{left:78,right:1404,top:880,bottom:989};

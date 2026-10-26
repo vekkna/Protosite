@@ -57,11 +57,14 @@ test('Unit artwork reads sheet filenames and safely falls back to the local mapp
     assert.equal(artwork.offsetY({ Unit: 'Cavalry' }), 0);
 });
 
-test('Unit profiles include the matching army card and retain the live stats', () => {
+test('Unit profiles show army artwork and live stats without the removed full-card view', () => {
     const context = loadStatsContext(() => {});
     const markup = vm.runInContext("buildStatsMarkup({ dataset: { name: 'Light Cavalry', owner: 'p2' }, _unitStats: { Unit: 'Light Cavalry', Speed: '16', Drill: '3', Melee: '4', Def: '3' } })", context);
-    assert.ok(markup.includes('images/unit-cards/light-cavalry-orange.png'));
+    assert.ok(markup.includes('army-orange'));
+    assert.ok(markup.includes('stats-unit-artwork'));
+    assert.ok(!markup.includes('stats-unit-card-image'));
+    assert.ok(!markup.includes('stats-view-switch'));
     assert.ok(markup.includes('>16/3</span>'), 'live stats remain available in Artwork + stats view');
-    assert.ok(vm.runInContext("buildStatsMarkup('Light Cavalry')", context).includes('images/unit-cards/light-cavalry-blue.png'));
+    assert.ok(vm.runInContext("buildStatsMarkup('Light Cavalry')", context).includes('army-blue'));
     assert.ok(!vm.runInContext("buildStatsMarkup({ Unit: 'Custom unit', Speed: '4' })", context).includes('stats-unit-card-image'));
 });
