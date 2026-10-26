@@ -17,7 +17,7 @@ process.on('exit',()=>server.kill());
   const unit=createUnitDOM('Light Cavalry','#666',120,120,0,0,null,false,'p1');selectPiece(unit);
  });
  await page.waitForFunction(()=>{const i=document.querySelector('.stats-unit-card-image');return i&&i.complete&&i.naturalWidth>0;});
- for(const [width,height] of [[1920,1080],[1920,900],[2560,1440],[1440,900],[1280,800],[1024,768]]){
+ for(const [width,height] of [[1920,1080],[1920,900],[2560,1440],[1440,900],[1366,768],[1280,800],[1180,820],[1024,768]]){
   await page.setViewportSize({width,height});await page.evaluate(()=>fitTableToScreen());
   await page.waitForTimeout(100);
   const info=await page.evaluate(()=>{
@@ -28,7 +28,11 @@ process.on('exit',()=>server.kill());
   console.log(width+'x'+height,JSON.stringify(info));
   if(!info.boardFits||info.overflow)throw Error('Board does not fit at '+width+'x'+height);
   await page.screenshot({path:path.join(__dirname,'test-output',`headquarters-${width}x${height}.png`)});
-  if(width>=1400&&(!info.two||info.scroll>2))throw Error('Desktop controls should fit in two columns without scrolling');
+  if(info.two||info.scroll>2)throw Error('Desktop and tablet controls should fit in one column without scrolling');
+  await page.getByRole('button',{name:'Artwork + stats',exact:true}).click();
+  const artworkScroll=await page.locator('#left-sidebar').evaluate(el=>el.scrollHeight-el.clientHeight);
+  if(artworkScroll>2)throw Error('Artwork + stats should also fit without scrolling at '+width+'x'+height);
+  await page.getByRole('button',{name:'Full card',exact:true}).click();
  }
  await page.setViewportSize({width:1920,height:1080});
  await page.evaluate(()=>{biddingState.p1={value:2,ready:true};biddingState.p2={value:3,ready:true};triggerRevealBids();});
@@ -88,6 +92,27 @@ process.on('exit',()=>server.kill());
  if(!await page.evaluate(()=>JSON.parse(localStorage.getItem('wargameUiState_v1')).sidebarWidth===null))throw Error('Reset should restore automatic width');
  const dicePlacement=await page.locator('.battle-tools-section').evaluate(el=>el.parentElement.classList.contains('battle-command-column')&&el===el.parentElement.lastElementChild);
  if(!dicePlacement)throw Error('Dice roller should be last in the left column');
+ const touchPage=await browser.newPage({viewport:{width:1024,height:768},hasTouch:true});
+ await touchPage.route('https://unpkg.com/**',route=>route.fulfill({contentType:'text/javascript',body:route.request().url().includes('papaparse')?'window.Papa={parse(url,options){options.complete({data:[]})}};':'window.Peer=class {on(){return this;}destroy(){}};'}));
+ await touchPage.route('https://docs.google.com/**',route=>route.abort());
+ await touchPage.goto('http://127.0.0.1:8768/');
+ await touchPage.getByRole('button',{name:'Host New Game',exact:true}).click();
+ await touchPage.evaluate(()=>selectPiece(createUnitDOM('Light Cavalry','#666',120,120,0,0,null,false,'p1')));
+ await touchPage.waitForFunction(()=>{const img=document.querySelector('.stats-unit-card-image');return img&&img.complete&&img.naturalWidth>0;});
+ await touchPage.screenshot({path:path.join(__dirname,'test-output','headquarters-tablet-touch.png')});
+ const touchInfo=await touchPage.evaluate(()=>{
+  const panel=document.getElementById('left-sidebar'),field=document.querySelector('.bid-number-field'),buttons=document.querySelector('.bid-step-buttons');
+  const f=field.getBoundingClientRect(),last=buttons.lastElementChild.getBoundingClientRect();
+  return {coarse:matchMedia('(any-pointer:coarse)').matches,scroll:panel.scrollHeight-panel.clientHeight,bidButtonsFit:last.bottom<=f.bottom+1};
+ });
+ console.log('Touch tablet',JSON.stringify(touchInfo));
+ if(touchInfo.scroll>2||!touchInfo.bidButtonsFit)throw Error('Touch tablet controls should fit without scrolling or overlapping');
+ const bidBefore=await touchPage.locator('#my-bid-input').inputValue();
+ await touchPage.getByRole('button',{name:'Increase initiative bid',exact:true}).click();
+ if(Number(await touchPage.locator('#my-bid-input').inputValue())!==Number(bidBefore)+1)throw Error('Touch bid stepper stopped working');
+ await touchPage.getByRole('button',{name:'Artwork + stats',exact:true}).click();
+ if(await touchPage.locator('#left-sidebar').evaluate(el=>el.scrollHeight-el.clientHeight)>2)throw Error('Touch artwork profile should fit without scrolling');
+ await touchPage.close();
  if(errors.length)throw Error(errors.join('\n'));
  await browser.close();server.kill();console.log('PASS: desktop/tablet/phone/fullscreen fit; resize drag, keyboard and persistence; dice placement; unit icons; either player can pass; duplicate peer passes ignored.');
 })().catch(e=>{console.error(e);process.exit(1);});

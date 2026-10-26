@@ -4152,12 +4152,10 @@ window.addEventListener('pointercancel', onPointerUp);
 
 // --- RESPONSIVE TABLE SCALE & BOOTSTRAP ---
 let currentScale = 1;
-// Use spare horizontal space for two control columns while retaining the largest board.
+// Prefer a compact single column; manual widening still opens a second column.
 function calculatePanelLayout(width, height, preferredWidth = null) {
-    const fullHeightBoardWidth = tableWidthPx * Math.max(1, height - 4) / tableHeightPx;
-    const spareWidth = Math.floor(width - fullHeightBoardWidth - 12);
-    const automaticTwoColumns = spareWidth >= 420 || (width >= 1400 && height >= 760);
-    const automaticWidth = automaticTwoColumns ? Math.min(720, Math.max(420, spareWidth)) : Math.min(280, Math.max(208, spareWidth));
+    const phoneLandscape = width < 1000 && height < 600;
+    const automaticWidth = phoneLandscape ? 420 : Math.min(320, Math.max(280, Math.floor(width * 0.25)));
     const maxWidth = Math.max(208, Math.min(720, width - 320));
     const left = Number.isFinite(preferredWidth) ? Math.round(Math.max(208, Math.min(maxWidth, preferredWidth))) : automaticWidth;
     const twoColumns = left >= 420;

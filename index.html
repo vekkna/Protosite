@@ -65,7 +65,7 @@
                         <button id="copy-room-link-btn" class="btn-copy-sm" onclick="event.stopPropagation(); copyRoomLink()" title="Copy invite link">Copy Link</button>
                     </div>
                     <div id="network-status" class="network-status">Waiting for opponent...</div>
-                <footer class="game-menu-footer"><button id="exit-game-btn" type="button" class="btn-grey" onclick="exitToLanding()">← Back to Main Menu</button><span>Your battle is saved for resuming.</span></footer>
+                <footer class="game-menu-footer"><button id="exit-game-btn" type="button" class="btn-grey" onclick="exitToLanding()">Main menu</button><span>Your battle is saved for resuming.</span></footer>
                 </div>
 
             </div>
@@ -133,8 +133,10 @@
                             </div>
                         </div>
                     </div>
+                    <div class="bid-action-row">
                     <p id="bidding-help" class="field-help" aria-live="polite">Set your bid, then reveal when both players are ready.</p>
                     <button id="reveal-bids-btn" class="btn-gold" onclick="triggerRevealBids()" disabled>Reveal Bids</button>
+                    </div>
                 </div>
 
                 <!-- Turn Sequence Zone (shown once revealed) -->

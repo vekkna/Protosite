@@ -37,24 +37,18 @@ test('fullscreen fits the whole board beside the play panel at tablet and deskto
     assert.equal(context.currentScale, Math.min((app.clientHeight - 4) / 720, (field.clientWidth - 4) / 960), 'Normal mode also fits the available rectangle');
 });
 
-test('tablet panels surrender width to enlarge the board without distorting its proportions', () => {
+test('tablets and desktops use compact single-column controls beside an undistorted board', () => {
     const source = fs.readFileSync(require.resolve('../app.js'), 'utf8');
     const context = vm.createContext({ tableWidthPx: 960, tableHeightPx: 720 });
     vm.runInContext(source.slice(source.indexOf('function calculatePanelLayout('), source.indexOf('function fitTableToScreen(')), context);
-    for (const [width, height] of [[960, 600], [1024, 768], [1180, 820], [1280, 800], [1366, 1024]]) {
+    for (const [width, height] of [[1024, 768], [1180, 820], [1280, 800], [1366, 1024], [1920, 1080]]) {
         const layout = context.calculatePanelLayout(width, height);
-        const oldPanelWidth = Math.min(280, Math.max(228, Math.floor(width * 0.24)));
-        const oldScale = Math.min((height - 4) / 720, (width - oldPanelWidth - 12) / 960);
-        assert.ok(layout.boardScale > oldScale, `${width}×${height}: board grows beyond the previous fit`);
+        assert.equal(layout.twoColumns, false);
+        assert.ok(layout.left >= 280 && layout.left <= 320);
         assert.ok(layout.left + layout.boardScale * 960 + 12 <= width + 0.01);
         assert.ok(layout.boardScale * 720 <= height - 4 + 0.01);
     }
-    const tablet = context.calculatePanelLayout(1280, 800);
-    assert.ok(800 - tablet.boardScale * 720 <= 6, 'The 1280×800 tablet leaves only a few pixels above and below');
-    const desktop = context.calculatePanelLayout(1920, 1080);
-    assert.ok(desktop.left >= 420 && desktop.twoColumns, 'Spare desktop width opens a second control column');
-    assert.ok(1920 - desktop.left - desktop.boardScale * 960 - 12 < 1, 'Desktop controls reclaim the gap beside the board');
-    assert.equal(context.calculatePanelLayout(1280, 800).twoColumns, false, 'Tablets preserve the larger board with compact controls');
+    assert.equal(context.calculatePanelLayout(844, 390).twoColumns, true, 'Short landscape phones retain two columns');
 });
 
 test('manual sidebar widths reflow at the column boundary and leave a usable battlefield', () => {

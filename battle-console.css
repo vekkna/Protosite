@@ -187,3 +187,94 @@ button:disabled { background:#d3c5a6; color:#7b6e52; border-color:#b3a17a; opaci
     .battle-console-grid { grid-template-columns:minmax(0,1fr); }
     .battle-console-title { font-size:20px; }
 }
+
+/* A compact command sheet keeps the single-column desktop/tablet layout in view. */
+.bid-action-row { display:flex; flex-direction:column; gap:6px; }
+@media (orientation:landscape), (min-width:1101px) {
+    #left-sidebar:not(.is-two-column) { padding:5px; gap:3px; }
+    #left-sidebar:not(.is-two-column) .battle-console-title { font-size:15px; padding:0 0 3px; }
+    #left-sidebar:not(.is-two-column) .battle-console-title span { display:none; }
+    #left-sidebar:not(.is-two-column) .battle-console-grid { gap:3px; flex:1 0 auto; }
+    #left-sidebar:not(.is-two-column) #player-banner { padding:4px; gap:3px; }
+    #left-sidebar:not(.is-two-column) .player-banner-top { min-height:26px; }
+    #left-sidebar:not(.is-two-column) .player-banner-top .player-role-badge { font-size:11px; }
+    #left-sidebar:not(.is-two-column) #fullscreen-btn { min-height:26px; font-size:11px; padding:3px 7px; }
+    #left-sidebar:not(.is-two-column) .room-code-area { display:grid; grid-template-columns:minmax(0,1fr) auto; gap:2px 5px; }
+    #left-sidebar:not(.is-two-column) .room-code-badge { grid-column:1; grid-row:1; padding:2px 4px; flex-wrap:nowrap; }
+    #left-sidebar:not(.is-two-column) .network-status { grid-column:1; grid-row:2; font-size:10px; line-height:1.2; }
+    #left-sidebar:not(.is-two-column) .game-menu-footer { grid-column:2; grid-row:1/3; margin:0; padding:0; border:0; }
+    #left-sidebar:not(.is-two-column) .game-menu-footer button { min-height:28px; font-size:10px; padding:3px 6px; }
+    #left-sidebar:not(.is-two-column) #copy-room-link-btn { min-height:24px; padding:2px 4px; }
+    #left-sidebar:not(.is-two-column) #terrain-section { display:grid; grid-template-columns:68px minmax(0,1fr); column-gap:7px; align-items:center; }
+    #left-sidebar:not(.is-two-column) #terrain-section>h3 { grid-column:2; grid-row:1; font-size:11px; }
+    #left-sidebar:not(.is-two-column) #terrain-section>.sidebar-description { grid-column:2; grid-row:2; font-size:10px; line-height:1.2; }
+    #left-sidebar:not(.is-two-column) #terrain-deck-count { grid-column:2; grid-row:3; margin:0; font-size:10px; }
+    #left-sidebar:not(.is-two-column) #terrain-draw-status { grid-column:2; grid-row:4; margin:0; font-size:10px; }
+    #left-sidebar:not(.is-two-column) #terrain-card { grid-column:1; grid-row:1/5; width:68px; height:58px; min-height:58px; aspect-ratio:auto; margin:0; padding:4px; gap:0; }
+    #left-sidebar:not(.is-two-column) #terrain-card .terrain-card-kicker,
+    #left-sidebar:not(.is-two-column) #terrain-card .palette-note { display:none; }
+    #left-sidebar:not(.is-two-column) #terrain-card .palette-title { font-size:13px; }
+    #left-sidebar:not(.is-two-column) #terrain-card.terrain-card-x .palette-title { font-size:28px; }
+    #left-sidebar:not(.is-two-column) .draft-notice-banner { padding:3px 6px; }
+    #left-sidebar:not(.is-two-column) .draft-notice-kicker { display:none; }
+    #left-sidebar:not(.is-two-column) #draft-notice-text { font-size:11px; line-height:1.2; }
+    #left-sidebar:not(.is-two-column) .draft-sub { font-size:10px; }
+    #left-sidebar:not(.is-two-column) #bidding-turn-panel { padding:5px; }
+    #left-sidebar:not(.is-two-column) #bidding-header-kicker { display:none; }
+    #left-sidebar:not(.is-two-column) .bidding-zone { gap:4px; }
+    #left-sidebar:not(.is-two-column) .round-status { font-size:11px; line-height:1.2; }
+    #left-sidebar:not(.is-two-column) .bid-cards-row { gap:5px; }
+    #left-sidebar:not(.is-two-column) .bid-card { padding:3px 4px; gap:3px; min-height:0; }
+    #left-sidebar:not(.is-two-column) .bid-card-label { font-size:10px; line-height:1.2; }
+    #left-sidebar:not(.is-two-column) #bid-input-wrap { flex-direction:row; gap:4px; }
+    #left-sidebar:not(.is-two-column) .bid-number-field { flex:1; min-width:0; }
+    #left-sidebar:not(.is-two-column) #my-bid-input { height:30px; min-width:0; padding:2px; font-size:17px; }
+    #left-sidebar:not(.is-two-column) #lock-bid-btn { width:auto; min-width:50px!important; height:30px; min-height:30px; font-size:11px!important; }
+    #left-sidebar:not(.is-two-column) #opponent-bid-status { font-size:10px; line-height:1.2; }
+    #left-sidebar:not(.is-two-column) .bid-action-row { flex-direction:row; align-items:center; gap:5px; }
+    #left-sidebar:not(.is-two-column) #bidding-help { flex:1; min-height:0; font-size:10px; line-height:1.15; }
+    #left-sidebar:not(.is-two-column) #reveal-bids-btn { width:90px; min-height:30px; font-size:11px; padding:3px 5px; }
+    #left-sidebar:not(.is-two-column) .battle-extras>summary { padding:0; font-size:11px; line-height:1.25; }
+    #left-sidebar:not(.is-two-column) .battle-extras>div { margin-top:3px; }
+    #left-sidebar:not(.is-two-column) #stats-panel { padding:4px 5px; gap:3px; }
+    #left-sidebar:not(.is-two-column) #stats-panel>h3 { display:none; }
+    #left-sidebar:not(.is-two-column) .stats-card { gap:3px; }
+    #left-sidebar:not(.is-two-column) .stats-unit-name { font-size:14px; padding-bottom:3px; }
+    #left-sidebar:not(.is-two-column) .stats-view-switch button { min-height:26px; padding:3px 4px; font-size:10px; }
+    #left-sidebar:not(.is-two-column) .stats-unit-card-image { max-height:clamp(96px,calc(100dvh - 650px),320px); }
+    #left-sidebar:not(.is-two-column) .stats-card[data-profile-view=artwork] .stats-grid { grid-template-columns:repeat(2,minmax(0,1fr)); gap:4px; }
+    #left-sidebar:not(.is-two-column) .help-section { margin-top:3px; padding-top:3px; font-size:11px; }
+    #left-sidebar:not(.is-two-column) #command-staging-panel { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:5px; padding-top:4px; }
+    #left-sidebar:not(.is-two-column) .command-group { min-width:0; gap:2px; }
+    #left-sidebar:not(.is-two-column) .command-group-title { font-size:10px; }
+    #left-sidebar:not(.is-two-column) .command-tray { padding:3px; min-height:32px; gap:3px; }
+    #left-sidebar:not(.is-two-column) .tray-placeholder { font-size:10px; line-height:1.2; }
+    #left-sidebar:not(.is-two-column) .battle-tools-section { padding-top:4px; gap:3px; margin-top:auto; }
+    #left-sidebar:not(.is-two-column) .battle-tools-section>.sidebar-kicker { font-size:11px; line-height:1.2; }
+    #left-sidebar:not(.is-two-column) .dice-count-field label { font-size:10px; line-height:1.1; }
+    #left-sidebar:not(.is-two-column) #dice-count { height:30px; font-size:16px; }
+    #left-sidebar:not(.is-two-column) .sidebar-kicker { margin:0; }
+    #left-sidebar:not(.is-two-column) .dice-step-button { height:30px; min-height:30px; }
+    #left-sidebar:not(.is-two-column) #dice-btn { min-height:30px; }
+    #left-sidebar:not(.is-two-column) .die-face { width:20px; height:20px; font-size:12px; }
+    #left-sidebar:not(.is-two-column) .dice-values { min-height:20px; }
+    #left-sidebar:not(.is-two-column) .dice-roll-card { padding:3px; }
+}
+@media (max-height:850px) and (orientation:landscape) {
+    #left-sidebar:not(.is-two-column) .stats-card[data-profile-view=card] { display:grid; grid-template-columns:86px minmax(0,1fr); gap:3px 6px; align-items:center; }
+    #left-sidebar:not(.is-two-column) .stats-card[data-profile-view=card] .stats-unit-name,
+    #left-sidebar:not(.is-two-column) .stats-card[data-profile-view=card] .stats-view-switch,
+    #left-sidebar:not(.is-two-column) .stats-card[data-profile-view=card] .rules-block { grid-column:1/-1; }
+    #left-sidebar:not(.is-two-column) .stats-card[data-profile-view=card] .stats-live-profile { display:block; }
+    #left-sidebar:not(.is-two-column) .stats-card[data-profile-view=card] .stats-grid { grid-template-columns:repeat(2,minmax(0,1fr)); gap:4px; }
+    #left-sidebar:not(.is-two-column) .stats-card[data-profile-view=card] .stat-chip { padding:5px 3px; gap:2px; }
+    #left-sidebar:not(.is-two-column) .stats-card[data-profile-view=card] .stat-label { font-size:9px; }
+    #left-sidebar:not(.is-two-column) .stats-card[data-profile-view=card] .stat-value { font-size:15px; }
+    #left-sidebar:not(.is-two-column) .stats-card[data-profile-view=card] .stat-icon { width:12px; height:12px; }
+}
+@media (any-pointer:coarse) and (orientation:landscape) {
+    #left-sidebar:not(.is-two-column) #my-bid-input { height:44px; }
+    #left-sidebar:not(.is-two-column) #lock-bid-btn { height:44px; min-height:44px; }
+    #left-sidebar:not(.is-two-column) .bid-step-buttons button { height:20px; min-height:20px; flex:1; }
+    #left-sidebar:not(.is-two-column) .stats-unit-card-image { max-height:clamp(90px,calc(100dvh - 664px),306px); }
+}
