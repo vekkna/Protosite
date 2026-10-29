@@ -1,7 +1,10 @@
-"""Local card maker. Run with Python 3; no third-party packages required."""
+"""Local card maker. PDF export uses ReportLab from Python or the bundled runtime."""
 import csv
 import io
 import json
+import importlib.util
+import subprocess
+import sys
 from pathlib import Path
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from urllib.request import urlopen
@@ -39,6 +42,39 @@ class Handler(SimpleHTTPRequestHandler):
         self.send_header('Cache-Control', 'no-store')
         self.end_headers()
         self.wfile.write(data)
+
+    def do_POST(self):
+        if urlparse(self.path).path != '/api/export-pdf':
+            self.send_error(404)
+            return
+        try:
+            length = int(self.headers.get('Content-Length', '0'))
+            if length <= 0:
+                raise ValueError('No cards were supplied for the PDF.')
+            payload = self.rfile.read(length)
+            interpreter = Path(sys.executable)
+            if importlib.util.find_spec('reportlab') is None:
+                bundled = Path.home() / '.cache/codex-runtimes/codex-primary-runtime/dependencies/python/python.exe'
+                if not bundled.exists():
+                    raise ValueError('PDF export needs ReportLab. Install card-maker/requirements.txt with Python pip.')
+                interpreter = bundled
+            result = subprocess.run([str(interpreter), str(ROOT / 'card-maker' / 'pdf_export.py')], input=payload, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=180)
+            if result.returncode or not result.stdout.startswith(b'%PDF-'):
+                print(result.stderr.decode('utf-8', errors='replace'), file=sys.stderr)
+                raise ValueError('The PDF could not be created. Check that every card image loaded correctly.')
+            self.send_response(200)
+            self.send_header('Content-Type', 'application/pdf')
+            self.send_header('Content-Disposition', 'attachment; filename="unit-cards-3x3-actual-size.pdf"')
+            self.send_header('Content-Length', str(len(result.stdout)))
+            self.send_header('Cache-Control', 'no-store')
+            self.end_headers()
+            self.wfile.write(result.stdout)
+        except (ValueError, OSError, subprocess.TimeoutExpired) as exc:
+            data = json.dumps({'error': str(exc)}).encode()
+            self.send_response(400)
+            self.send_header('Content-Type', 'application/json; charset=utf-8')
+            self.end_headers()
+            self.wfile.write(data)
 
 if __name__ == '__main__':
     import sys

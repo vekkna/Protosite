@@ -9,13 +9,14 @@
     <script src="https://unpkg.com/papaparse@5.4.1/papaparse.min.js"></script>
     <link rel="stylesheet" href="styles.css">
     <link rel="stylesheet" href="battle-console.css">
+    <link rel="stylesheet" href="guided-play.css">
 </head>
 
 <body>
     <!-- Landing Screen -->
     <div id="landing-screen" class="landing-screen">
         <div class="landing-card">
-            <span class="landing-kicker">Tabletop Sandbox</span>
+            <span class="landing-kicker">Guided Battles</span>
             <h1 class="landing-title">SEIZE THE DAY</h1>
             <p class="landing-subtitle">A two-player tactical wargame of positioning, timing, and initiative.</p>
 
@@ -100,6 +101,8 @@
                 <span class="draft-notice-kicker">Deployment Draft</span>
                 <p id="draft-notice-text">Preparing draft...</p>
             </div>
+
+            <section id="guided-play" aria-label="Guided game actions" aria-live="polite"></section>
 
             <!-- Top Left Bids & Turn Section -->
             <section id="bidding-turn-panel" class="bidding-turn-panel" aria-label="Bidding and Turn Management">
@@ -278,9 +281,9 @@
                             <li>Pass to advance the turn between Master Tactician and Player X.</li>
                             <li>Drag a unit or terrain to move it.</li>
                             <li>Drag on the battlefield to measure distance.</li>
-                            <li>Drag the circle around a selected piece to rotate it.</li>
+                            <li>Rotate the chosen unit freely during deployment; use Pivot during battle.</li>
                             <li>Shift-click units to compare their ranges. Click empty battlefield space or press Escape to clear.</li>
-                            <li>+/- over a unit changes strain.</li>
+                            <li>Attacks and Rally update strain automatically.</li>
                             <li>Z or Ctrl+Z undoes the last change.</li>
                             <li>F toggles full screen.</li>
                         </ul>
@@ -288,12 +291,12 @@
                     <div class="controls-group touch-only">
                         <span class="controls-group-label">Touch</span>
                         <ul class="controls-help-list">
-                            <li>Drag units or terrain with one finger.</li>
+                            <li>Follow the next-step panel. Drag only the chosen unit during deployment.</li>
                             <li>Long-press a unit to select multiple ranges, then tap units to add or remove them. Tap empty battlefield space to clear.</li>
-                            <li>Drag command circles onto units.</li>
+                            <li>Select a unit, then use Activate selected unit.</li>
                             <li>Select a piece to show movement controls.</li>
-                            <li>Use Pass to advance the round’s turns.</li>
-                            <li>Drag the circle around a selected piece to rotate; use +/- to adjust strain.</li>
+                            <li>Finish the current activation before passing your turn.</li>
+                            <li>Use the guided Move and Pivot controls during battle.</li>
                             <li>Drag empty battlefield space to measure distance.</li>
                         </ul>
                     </div>
@@ -311,7 +314,7 @@
             </div>
             <div class="modal-body">
                 <iframe id="rulebook-frame"
-                    src="https://docs.google.com/document/d/e/2PACX-1vT27U3ta_RW1zr49tuN6ZYf7C0zcRTjWr7VAr7s3VFPS_riND2yITD7B_va60_DHeo9k4cdu-Va8wPV/pub?embedded=true"
+                    src="game-rules.html"
                     style="width:100%; height:100%; border:none;">
                 </iframe>
             </div>
@@ -319,6 +322,8 @@
     </div>
     <script src="command-tracker.js"></script>
     <script src="unit-artwork.js"></script>
+    <script src="rules-engine.js"></script>
+    <script src="guided-play.js"></script>
     <script src="app.js"></script>
 </body>
 

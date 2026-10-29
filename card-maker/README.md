@@ -6,7 +6,11 @@ The public sheet is downloaded when the app opens or Refresh sheet is clicked. I
 
 Select a unit to preview both colours. SN uses the vertical templates; SW uses horizontal. Edit stats, choose or upload artwork, and adjust its size. Changes are kept in this browser; Reset unit restores the source values and initial artwork. Refresh updates source stats but keeps your edits.
 
-Export all creates a ZIP with one full-resolution PNG per unit per colour. Download this pair exports the selected two cards. Print / PDF prints the selected pair at 63 × 88 mm (SN) or 88 × 63 mm (SW); set print scaling to 100% and disable browser headers and footers.
+Export all creates a ZIP with one full-resolution PNG per unit per colour. Download this pair exports the selected two cards. Print selected pair prints the selected two cards; set print scaling to 100% and disable browser headers and footers.
+
+**Export PDF · 3 × 3** downloads every unit in both colours, including your current edits and artwork, in a three-by-three grid with no gaps between cards and cut guides outside the grid, so each shared edge needs one straight cut. Cards measure exactly 63 × 88 mm (SN) or 88 × 63 mm (SW). All pages use A4 portrait with up to nine cards per page. SW cards are rotated 90 degrees to share the same grid as SN cards. Colours and footprints share pages to minimize paper use: the current 26-card roster takes three pages (9, 9, 8), the minimum possible with a 3 by 3 grid. Choose **Actual size / 100%** and automatic page orientation in your PDF reader when printing.
+
+PDF export uses ReportLab, already available in this computer's bundled runtime. On another computer, install it with `python -m pip install -r card-maker/requirements.txt`. Restart the card maker server after updating its Python files.
 
 Working templates are in `assets/templates/`: portrait 1260 × 1760 pixels and landscape 1760 × 1260 pixels, both at 508 dpi (20 pixels/mm). PNG exports carry this same physical resolution. The originals in `images/` are preserved. The portrait sources were proportionally too narrow and the prepared versions expand their width to fit the requested footprint. To prepare templates again after replacing originals, run `python card-maker/prepare-assets.py` (development utility requiring Pillow).
 

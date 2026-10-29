@@ -15,7 +15,7 @@ const TERRAIN_NO_FEATURE_CARD = 'x';
 const TERRAIN_CARD_ANIMATION_MS = 180;
 const DEPLOY_INCHES = 6;
 const THREAT_RANGE_INCHES = 12;
-const UNIT_HIT_POINTS = 5;
+const UNIT_HIT_POINTS = 7;
 const ARCHER_SHOOTING_VALUES = [2, 3, 4];
 const SAVE_KEY = 'wargameSave_v6';
 const UI_STATE_KEY = 'wargameUiState_v1';
@@ -24,8 +24,8 @@ const TOOLTIP_SUPPRESS_AFTER_MANIPULATION_MS = 300;
 const DRAG_THRESHOLD_PX = 8;
 const UNIT_LONG_PRESS_MS = 500;
 const TOUCH_ROTATION_STEP_DEG = 5;
-const UNIT_LABEL_MAX_FONT_PX = 13.5;
-const UNIT_LABEL_MIN_FONT_PX = 6;
+const UNIT_LABEL_MAX_FONT_PX = 17;
+const UNIT_LABEL_MIN_FONT_PX = 7.5;
 const UNIT_LABEL_FONT_STEP_PX = 0.25;
 
 // --- CONVERSIONS ---
@@ -233,6 +233,7 @@ function updateRoomCodeVisibility() {
 
 function updateDraftNoticeUI() {
     const banner = document.getElementById('draft-notice-banner');
+    if (typeof GuidedPlay !== 'undefined' && banner) { banner.style.display = 'none'; return; }
     const text = document.getElementById('draft-notice-text');
     if (!banner || !text) return;
 
@@ -265,7 +266,7 @@ function updateTerrainVisibility() {
     });
     const section = document.getElementById('terrain-section');
     if (section) {
-        section.hidden = hasBattleStarted();
+        section.hidden = typeof GuidedPlay !== 'undefined' ? GuidedPlay.snapshot().stage !== 'terrain' : hasBattleStarted();
         section.style.display = section.hidden ? 'none' : '';
     }
 }
@@ -399,6 +400,7 @@ function adjustLocalBid(step) {
 }
 
 function lockLocalBid() {
+    if (typeof GuidedPlay !== 'undefined') return GuidedPlay.bid(getLocalBidPlayerKey(), document.getElementById('my-bid-input').value);
     const localKey = getLocalBidPlayerKey();
     const input = document.getElementById('my-bid-input');
     const val = normalizeCommandBid(input.value);
@@ -420,6 +422,7 @@ function unlockLocalBid() {
 }
 
 function triggerRevealBids() {
+    if (typeof GuidedPlay !== 'undefined') return GuidedPlay.reveal();
     checkRevealReadiness();
     const revealButton = document.getElementById('reveal-bids-btn');
     if (revealButton && revealButton.disabled) return;
@@ -429,6 +432,7 @@ function triggerRevealBids() {
 }
 
 function executeRevealBids() {
+    if (typeof GuidedPlay !== 'undefined') return;
     biddingState.battleStarted = true;
     biddingState.revealed = true;
     const localKey = getLocalBidPlayerKey();
@@ -525,6 +529,7 @@ function updateTurnZoneUI() {
 }
 
 function handlePassTurn() {
+    if (typeof GuidedPlay !== 'undefined') return GuidedPlay.pass();
     if (!biddingState.revealed) return;
     const fromStep = biddingState.turnStep;
 
@@ -1329,6 +1334,7 @@ function selectPiece(piece, preserveRanges = false) {
         updateStatsPanel(null);
     }
     positionPieceControls();
+    if (typeof GuidedPlay !== 'undefined') GuidedPlay.render();
 }
 
 function setPieceAngle(piece, nextAngle, angleDelta = null) {
@@ -1341,6 +1347,7 @@ function setPieceAngle(piece, nextAngle, angleDelta = null) {
 }
 
 function rotatePiece(piece, delta) {
+    if (typeof GuidedPlay !== 'undefined') return GuidedPlay.rotate(piece, delta);
     if (!piece) return;
     suppressUnitTooltip();
     pushUndo();
@@ -1360,6 +1367,7 @@ function rotatePiece(piece, delta) {
 }
 
 function adjustUnitWounds(unit, delta) {
+    if (typeof GuidedPlay !== 'undefined') return GuidedPlay.note('Strain is resolved by attacks and Rally. Use those actions in the next-step panel.');
     if (!unit || !unit.classList.contains('unit')) return;
     const wounds = parseInt(unit.dataset.wounds, 10) || 0;
     const nextWounds = Math.max(0, wounds + delta);
@@ -1427,6 +1435,7 @@ function generateShortId() {
 }
 
 function hostGameFromLanding() {
+    if (typeof GuidedPlay !== 'undefined') GuidedPlay.reset();
     const activeList = loadActiveGamesList();
     let shortId = generateShortId();
     let tries = 0;
@@ -1491,6 +1500,7 @@ function hostGameFromLanding() {
         firstRoundTieWinner: firstTie
     };
     roundState = CommandTracker.create({ firstDraftPick: firstPick, firstTie });
+    if (typeof GuidedPlay !== 'undefined') GuidedPlay.reset();
     commandTokens = [];
     renderAllCommandTokens();
 
@@ -1980,6 +1990,7 @@ function broadcastPieceRotateThrottled(piece, angle, delta = 0) {
 }
 
 function handleIncomingData(data) {
+    if (typeof GuidedPlay !== 'undefined' && data && GuidedPlay.incoming(data)) return;
     if (!data) return;
     if (data.type === 'SYNC_BOARD') {
         restoreBoardState(data.payload, true);
@@ -2094,6 +2105,7 @@ let floatingTokenEl = null;
 let hoveredUnitTarget = null;
 
 function onCommandTokenPointerDown(e, token) {
+    if (typeof GuidedPlay !== 'undefined') { e.preventDefault(); return GuidedPlay.note('Select a unit and use Activate selected unit. Its command marker stays until clean up.'); }
     if (e.button !== 0) return;
     e.preventDefault();
     e.stopPropagation();
@@ -2279,6 +2291,7 @@ function getBoardState(options = {}) {
     const diceInput = document.getElementById('dice-count');
 
     const state = {
+        guided: typeof GuidedPlay !== 'undefined' ? GuidedPlay.snapshot() : null,
         pieces: [],
         diceCount: diceInput ? diceInput.value : 2,
         terrainDeck: [...terrainDeck],
@@ -2297,10 +2310,10 @@ function getBoardState(options = {}) {
         commandTokens: commandTokens.map(t => ({ ...t }))
     };
 
-    // If unrevealed network payload, conceal opponent's secret bid value
+    // Neither secret bid is included in board snapshots before the reveal handshake.
     if (isNetworkPayload && !biddingState.revealed) {
-        const oppKey = localPlayerKey === 'p1' ? 'p2' : 'p1';
-        delete state.biddingState[oppKey].value;
+        delete state.biddingState.p1.value;
+        delete state.biddingState.p2.value;
     }
 
     document.querySelectorAll('.unit').forEach(el => {
@@ -2341,6 +2354,7 @@ function restoreBoardState(jsonString, suppressBroadcast = false) {
     table.querySelectorAll('.unit, .terrain, .ghost, .range-ring, .command-token-table').forEach(p => p.remove());
 
     const state = JSON.parse(jsonString);
+    if (typeof GuidedPlay !== 'undefined') GuidedPlay.restore(state.guided);
     const data = Array.isArray(state) ? state : state.pieces;
     roundState = state.roundState || CommandTracker.create();
 
@@ -2384,8 +2398,8 @@ function restoreBoardState(jsonString, suppressBroadcast = false) {
             }
 
             if (!biddingState.revealed) {
-                biddingState[localKey].value = myPrevVal;
-                biddingState[localKey].ready = myPrevReady;
+                biddingState[localKey].value = state.biddingState[localKey]?.value ?? myPrevVal;
+                biddingState[localKey].ready = state.biddingState[localKey]?.value !== undefined ? Boolean(state.biddingState[localKey].ready) : myPrevReady;
             } else {
                 if (state.biddingState[localKey]) {
                     biddingState[localKey].value = normalizeCommandBid(state.biddingState[localKey].value);
@@ -2419,6 +2433,7 @@ function restoreBoardState(jsonString, suppressBroadcast = false) {
 }
 
 function saveGame(suppressBroadcast = false) {
+    if (typeof GuidedPlay !== 'undefined') GuidedPlay.render();
     const state = getBoardState();
     if (currentRoomCode) {
         localStorage.setItem(getGameSaveKey(currentRoomCode), state);
@@ -2640,12 +2655,14 @@ function pushUndo() {
 }
 
 window.undo = function () {
+    if (typeof GuidedPlay !== 'undefined' && conn && conn.open) return GuidedPlay.note('Undo is disabled in connected games to protect hidden bids and your opponent’s actions.');
     if (undoStack.length === 0) return;
     const previousState = undoStack.pop();
     restoreBoardState(previousState);
 };
 
 async function resetBoard(createUnits, shouldCreateTerrain = true) {
+    if (typeof GuidedPlay !== 'undefined') GuidedPlay.reset();
     localStorage.removeItem(SAVE_KEY);
 
     table.querySelectorAll('.unit, .terrain, .ghost, .range-ring, .command-token-table').forEach(p => p.remove());
@@ -2804,6 +2821,8 @@ async function initGame() {
         console.error("Unable to load unit stats:", err);
     }
 
+    // Hosting/resuming while profiles load already initialized the requested battle.
+    if (currentRoomCode) return;
     const saved = localStorage.getItem(SAVE_KEY);
     if (saved) {
         restoreBoardState(saved, true);
@@ -3125,7 +3144,7 @@ function createRandomUnitPool(count) {
 }
 
 function createDefaultUnits() {
-    const draftPool = createRandomUnitPool(normalizeStartingPoolCount(false));
+    const draftPool = createRandomUnitPool(typeof GuidedPlay !== 'undefined' ? 12 : normalizeStartingPoolCount(false));
     if (draftPool.length === 0) {
         console.warn("No units were available in the spreadsheet, so no draft pool was created.");
         return;
@@ -3140,8 +3159,8 @@ function createDefaultUnits() {
         const rowStart = row * cols;
         return Math.max(...unitSizes.slice(rowStart, rowStart + cols).map(size => size.height));
     });
-    const firstRowCenterY = longEdgeClearance + (rowHeights[0] / 2);
-    const lastRowCenterY = tableHeightPx - longEdgeClearance - (rowHeights[rows - 1] / 2);
+    const firstRowCenterY = longEdgeClearance + 1 + (rowHeights[0] / 2);
+    const lastRowCenterY = tableHeightPx - longEdgeClearance - 1 - (rowHeights[rows - 1] / 2);
 
     draftPool.forEach((unitStats, i) => {
         const name = unitStats.Unit;
@@ -3261,7 +3280,7 @@ function createShuffledTerrainDeck() {
         [deck[i], deck[swapIndex]] = [deck[swapIndex], deck[i]];
     }
 
-    return deck;
+    return typeof GuidedPlay !== 'undefined' ? deck.slice(0, 12) : deck;
 }
 
 function getTerrainCardLabel(cardType) {
@@ -3374,6 +3393,7 @@ function createDefaultTerrain() {
 }
 
 function beginTerrainDrag(type, event, shouldPushUndo = true) {
+    if (typeof GuidedPlay !== 'undefined') return GuidedPlay.note('Use the top terrain card during the terrain step.');
     if (hasBattleStarted()) return;
     if (event && event.button !== 0) return;
     if (event) {
@@ -3414,6 +3434,7 @@ window.spawnTerrain = function (type, event) {
 };
 
 window.playTerrainCard = function (event) {
+    if (typeof GuidedPlay !== 'undefined' && !GuidedPlay.terrainAllowed()) return;
     if (hasBattleStarted()) return;
     if (!event || activePointerId !== null || isTerrainCardAnimating || !terrainDeck.length) return;
     if (event.button !== 0 || event.isPrimary === false) return;
@@ -3455,6 +3476,7 @@ function finishTerrainCardDrag(event) {
     activePointerId = null;
     activeTableRect = null;
     if (!validDrop || terrainDeck[0] !== drag.type) return;
+    if (typeof GuidedPlay !== 'undefined') { GuidedPlay.terrainDrop(pointer, drag.type); return; }
     pushUndo();
     terrainDeck.shift();
     if (drag.type !== TERRAIN_NO_FEATURE_CARD) {
@@ -3751,6 +3773,7 @@ function getPointerAngleFromPieceCenter(piece, event) {
 }
 
 function onRotationHandlePointerDown(e) {
+    if (typeof GuidedPlay !== 'undefined' && !GuidedPlay.canDrag(e.currentTarget.closest('.piece'))) return;
     if (!e.isPrimary || e.button !== 0 || activePointerId !== null) return;
     e.preventDefault();
     e.stopPropagation();
@@ -3890,6 +3913,7 @@ function onPiecePointerDown(e) {
 }
 
 function startPieceDrag() {
+    if (typeof GuidedPlay !== 'undefined' && !GuidedPlay.canDrag(pendingDragPiece)) { pendingDragPiece = null; return; }
     if (!pendingDragPiece) return;
     cancelUnitLongPress();
 

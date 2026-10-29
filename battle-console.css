@@ -154,8 +154,8 @@ button:disabled { background:#d3c5a6; color:#7b6e52; border-color:#b3a17a; opaci
 .command-tray .command-token { width:26px; min-width:26px; max-width:26px; height:26px; }
 .command-tray .tray-placeholder { width:100%; }
 .unit-command-dock .command-token::after { font-size:7px; }
-.unit.has-unit-artwork .unit-label { position:absolute; left:2px; right:2px; bottom:3px; width:auto; height:46%; max-height:46%; display:flex; align-items:center; justify-content:center; text-align:center; line-height:1.05; }
-.unit-artwork-badge { position:absolute; top:4px; right:4px; width:35%; height:36%; max-width:26px; max-height:26px; object-fit:contain; pointer-events:none; filter:drop-shadow(0 1px 1px #0008); }
+.unit.has-unit-artwork .unit-label { position:absolute; left:2px; right:2px; bottom:2px; width:auto; height:60%; max-height:60%; display:flex; align-items:center; justify-content:center; text-align:center; line-height:1; text-transform:none; font-weight:800; color:#fff8e4; text-shadow:0 1px 2px #000b; }
+.unit-artwork-badge { position:absolute; top:3px; right:3px; width:30%; height:26%; max-width:22px; max-height:20px; object-fit:contain; pointer-events:none; filter:drop-shadow(0 1px 1px #0008); }
 @media (max-height:950px) and (orientation:landscape) {
     #left-sidebar.is-two-column { padding:9px; gap:8px; }
     #left-sidebar.is-two-column .battle-console-title { font-size:23px; padding:2px 0 4px; }

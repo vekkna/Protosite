@@ -135,11 +135,20 @@ function zip(files){
  }
  const length=directory.reduce((n,b)=>n+b.length,0),end=header(22);end.view.setUint32(0,0x06054b50,true);end.view.setUint16(8,files.length,true);end.view.setUint16(10,files.length,true);end.view.setUint32(12,length,true);end.view.setUint32(16,offset,true);return new Blob([...parts,...directory,end.bytes],{type:'application/zip'});
 }
-async function exportCards(all){
+async function exportCards(all,format='zip'){
  const variant='zero';
- const buttons=[$('export-all'),$('export-pair')];buttons.forEach(b=>b.disabled=true);
+ const buttons=[$('export-all'),$('export-pair'),$('export-pdf')];buttons.forEach(b=>b.disabled=true);
  try{const files=[],indices=all?originals.map((_,i)=>i):[selected];for(const i of indices)for(const colour of ['blue','orange']){const unit=unitAt(i);$('status').textContent=`Rendering ${unit.Unit} · ${colour}…`;const card=await renderCard(unit,colour),blob=await blobFrom(card);files.push({name:`${String(i+1).padStart(2,'0')}-${slug(unit.Unit)}-${colour}.png`,bytes:new Uint8Array(await blob.arrayBuffer())});}
-  download(zip(files),(all?'all-unit-cards':slug(unitAt(selected).Unit)+'-cards')+'-'+variant+'.zip');$('status').textContent=`Exported ${files.length} cards at full template resolution.`;
+  const archive=zip(files);
+  if(format==='pdf'){
+   $('status').textContent='Laying out actual-size cards in a 3 × 3 grid…';
+   const response=await fetch('/api/export-pdf',{method:'POST',headers:{'Content-Type':'application/zip'},body:archive});
+   if(!response.ok){const error=await response.json();throw new Error(error.error||'PDF export failed');}
+   download(await response.blob(),'unit-cards-3x3-actual-size.pdf');
+   $('status').textContent=`Exported ${files.length} cards to A4 PDF. Print at Actual size / 100%, with automatic page orientation.`;
+  }else{
+   download(archive,(all?'all-unit-cards':slug(unitAt(selected).Unit)+'-cards')+'-'+variant+'.zip');$('status').textContent=`Exported ${files.length} cards at full template resolution.`;
+  }
  }catch(err){$('status').textContent=err.message;}finally{buttons.forEach(b=>b.disabled=false);}
 }
 async function load(){
@@ -154,4 +163,5 @@ $('scale').oninput=()=>{$('scale-value').textContent=$('scale').value+'%';saveFi
 $('upload').onchange=async()=>{const file=$('upload').files[0];if(!file)return;try{const value=await new Promise((resolve,reject)=>{const r=new FileReader();r.onload=()=>resolve(r.result);r.onerror=reject;r.readAsDataURL(file);});await getImage(value);saveField('artwork',value);$('artwork').value='uploaded';}catch{$('status').textContent='This file could not be read as an image.';}};
 $('reset').onclick=()=>{delete edits[originals[selected].Unit];persist();select(selected);};
 $('print').onclick=()=>window.print();
+$('export-pdf').onclick=()=>exportCards(true,'pdf');
 load();

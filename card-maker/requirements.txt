@@ -1,0 +1,2 @@
+# Only needed for PDF export outside a computer with the bundled Codex runtime.
+reportlab>=4.4,<5
