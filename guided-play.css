@@ -1,18 +1,70 @@
+/* Game panel */
 #guided-play { padding: 12px; border: 1px solid #a69160; border-radius: 8px; background: #f7f2e6; color: #292c29; display: flex; flex-direction: column; gap: 8px; }
+#guided-play:empty { display: none; }
 #guided-play h3, #guided-play p { margin: 0; }
+#guided-play h3 { font-size: 16px; }
 #guided-play p { font-size: 13px; line-height: 1.45; }
-#guided-play button { white-space: normal; min-height: 36px; height: auto; padding: 8px; }
-#guided-play button:disabled { opacity: .5; cursor: not-allowed; }
-#guided-play label { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 13px; }
-#guided-play input { width: 80px; padding: 6px; background: white; color: #292c29; border: 1px solid #9c9d91; }
-#guided-play small { font-size: 11px; line-height: 1.4; }
-#guided-play details p { padding-top: 8px; }
+#guided-play .gp-sub { font-size: 12px; color: #5b5a4f; }
+#guided-play button { white-space: normal; min-height: 34px; height: auto; padding: 7px 8px; }
+#guided-play button:disabled { opacity: .4; cursor: not-allowed; }
+#guided-play .gp-row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+#guided-play .gp-row > button { flex: 1 1 0; width: auto; min-width: 0; }
+#guided-play .gp-row-label { font-size: 12px; font-weight: 700; min-width: 44px; }
+#guided-play .gp-pivot { flex: 1 1 40px; padding: 6px 2px; font-size: 12px; min-width: 0; }
+#guided-play .gp-row > .gp-bid { flex: 0 0 38px; font-size: 16px; font-weight: 700; }
+#guided-play .gp-chip { font-size: 12px; padding: 3px 8px; border-radius: 999px; background: #e4dcc6; }
+#guided-play .gp-chip-on { background: #2f4a3a; color: #fff; }
+#guided-play .gp-attack { text-align: left; }
+#guided-play .gp-attack.gp-chosen { outline: 3px solid #a63c26; }
+#guided-play .gp-callout { padding: 8px; border-left: 3px solid #a63c26; background: #fff3d6; font-weight: 700; }
+#guided-play .gp-turn { margin-top: 4px; padding-top: 8px; border-top: 1px solid #d5cab0; }
+#guided-play details p { padding-top: 6px; font-size: 12px; }
+#guided-play .gp-log { max-height: 260px; overflow-y: auto; }
+#guided-play summary { cursor: pointer; font-size: 13px; font-weight: 700; }
 #guided-play .guided-error { border-left: 3px solid #a63c26; padding: 8px; background: #ffeadf; color: #7a2818; }
 #bidding-turn-panel[hidden] { display: none !important; }
+
+/* Board */
 .guided-board .terrain { outline: 2px dashed #e6cf8a; border-radius: 50%; }
 .guided-board .guided-active, .guided-board .guided-picked { outline: 3px solid #f5d354; }
-.guided-board .guided-used:not(.guided-active) { filter: saturate(.55); }
+.guided-board .guided-ready { box-shadow: 0 0 0 2px rgba(120, 220, 140, .9), 0 0 12px rgba(120, 220, 140, .7); cursor: grab; }
+.guided-board .guided-used { filter: saturate(.5) brightness(.85); }
 .guided-board .unit[data-army-skin="dark"] { background: #304448 !important; border-color: #8ebdc7; }
 .guided-board .unit[data-army-skin="light"] { background: #d7c5a4 !important; border-color: #fff0ca; }
 .guided-board .unit[data-army-skin="light"] .unit-label { color: #292c29; text-shadow: none; }
 .guided-board [data-wound-step] { display: none; }
+.guided-board .unit.gp-target { outline: 3px dashed #ff6a4d; outline-offset: 3px; cursor: crosshair; }
+.guided-board .unit.gp-target-chosen { outline-style: solid; outline-width: 4px; }
+.guided-board .selection-range.movement-range { display: none; }
+
+#gp-overlay { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 4; overflow: visible; }
+#gp-overlay .gp-lane { stroke: none; }
+#gp-overlay .gp-lane.gp-fwd { fill: rgba(110, 220, 130, .22); }
+#gp-overlay .gp-lane.gp-back { fill: rgba(240, 190, 80, .2); }
+#gp-overlay .gp-lane.gp-charge { fill: rgba(255, 106, 77, .25); }
+#gp-overlay .gp-ghost { fill: none; stroke-width: 2; stroke-dasharray: 6 4; }
+#gp-overlay .gp-ghost.gp-fwd { stroke: #8df0a0; }
+#gp-overlay .gp-ghost.gp-back { stroke: #f0c860; }
+#gp-overlay .gp-ghost.gp-charge { stroke: #ff6a4d; }
+.gp-label { position: absolute; transform: translate(-50%, -50%); z-index: 30; pointer-events: none; white-space: nowrap;
+    padding: 2px 7px; border-radius: 4px; background: rgba(20, 24, 20, .88); color: #fff; font: 700 12px/1.4 system-ui, sans-serif; }
+.gp-label.gp-hot { background: #a63c26; }
+.gp-float { position: absolute; transform: translate(-50%, -50%); z-index: 40; pointer-events: none; white-space: nowrap;
+    font: 800 18px/1 system-ui, sans-serif; text-shadow: 0 1px 3px #000, 0 0 6px #000; animation: gp-float 2.6s ease-out forwards; }
+.gp-float-hit { color: #ff8a70; } .gp-float-miss { color: #e8e8e8; } .gp-float-rout { color: #ffd84d; font-size: 22px; }
+@keyframes gp-float { 0% { opacity: 0; margin-top: 0; } 12% { opacity: 1; } 75% { opacity: 1; } 100% { opacity: 0; margin-top: -46px; } }
+#game-table.is-flipped .gp-label, #game-table.is-flipped .gp-float { transform: translate(-50%, -50%) rotate(180deg); }
+@media (prefers-reduced-motion: reduce) { .gp-float { animation: none; } }
+.guided-board .unit.gp-no-ring .rotation-handle, .guided-board .terrain .rotation-handle { display: none !important; }
+
+/* Landing: single-player */
+.landing-solo { display: flex; gap: 16px; align-items: center; justify-content: space-between; flex-wrap: wrap; margin: 0 0 18px; padding: 14px 16px;
+    border: 1px solid rgba(216, 179, 109, .55); border-radius: 10px; background: rgba(216, 179, 109, .1); text-align: left; }
+.landing-solo h3 { margin: 0 0 4px; }
+.landing-solo p { margin: 0; font-size: 14px; opacity: .85; }
+.landing-solo-buttons { display: flex; gap: 8px; }
+.landing-solo-buttons button { min-width: 84px; min-height: 40px; }
+
+/* Terrain card: scale the tile name to the card so it is never clipped, whatever the sidebar layout. */
+#terrain-card { container-type: inline-size; overflow: hidden; }
+#terrain-card .palette-title { font-size: min(28px, 15cqw) !important; white-space: nowrap; }

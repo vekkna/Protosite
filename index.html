@@ -20,12 +20,24 @@
             <h1 class="landing-title">SEIZE THE DAY</h1>
             <p class="landing-subtitle">A two-player tactical wargame of positioning, timing, and initiative.</p>
 
+            <div class="landing-solo">
+                <div>
+                    <h3>Play the AI</h3>
+                    <p>A single-player battle against the computer. You draft and deploy at the bottom of the table.</p>
+                </div>
+                <div class="landing-solo-buttons">
+                    <button type="button" class="btn-grey" onclick="playVsAI('easy')">Easy</button>
+                    <button type="button" class="btn-blue" onclick="playVsAI('normal')">Normal</button>
+                    <button type="button" class="btn-gold" onclick="playVsAI('hard')">Hard</button>
+                </div>
+            </div>
+
             <div class="landing-grid">
                 <div class="landing-option host-option">
                     <span class="option-badge badge-p1">Player 1</span>
                     <h3>Host Battle</h3>
                     <p>Create a game room and get a 4-letter code to share with your opponent.</p>
-                    <button id="landing-host-btn" class="btn-blue landing-action-btn" onclick="hostGameFromLanding()">Host New Game</button>
+                    <button id="landing-host-btn" class="btn-blue landing-action-btn" onclick="GuidedPlay.setAI(null); hostGameFromLanding()">Host New Game</button>
                 </div>
 
                 <div class="landing-option join-option">
@@ -273,31 +285,18 @@
             </div>
             <div class="modal-body controls-modal-body">
                 <div id="controls-hint">
-                    <div class="controls-group mouse-only">
-                        <span class="controls-group-label">Mouse and Keyboard</span>
+                    <div class="controls-group">
+                        <span class="controls-group-label">Playing a battle</span>
                         <ul class="controls-help-list">
-                            <li>Lock your bid, and reveal when both players are ready.</li>
-                            <li>Drag command circles onto units to activate them.</li>
-                            <li>Pass to advance the turn between Master Tactician and Player X.</li>
-                            <li>Drag a unit or terrain to move it.</li>
-                            <li>Drag on the battlefield to measure distance.</li>
-                            <li>Rotate the chosen unit freely during deployment; use Pivot during battle.</li>
-                            <li>Shift-click units to compare their ranges. Click empty battlefield space or press Escape to clear.</li>
-                            <li>Attacks and Rally update strain automatically.</li>
-                            <li>Z or Ctrl+Z undoes the last change.</li>
-                            <li>F toggles full screen.</li>
-                        </ul>
-                    </div>
-                    <div class="controls-group touch-only">
-                        <span class="controls-group-label">Touch</span>
-                        <ul class="controls-help-list">
-                            <li>Follow the next-step panel. Drag only the chosen unit during deployment.</li>
-                            <li>Long-press a unit to select multiple ranges, then tap units to add or remove them. Tap empty battlefield space to clear.</li>
-                            <li>Select a unit, then use Activate selected unit.</li>
-                            <li>Select a piece to show movement controls.</li>
-                            <li>Finish the current activation before passing your turn.</li>
-                            <li>Use the guided Move and Pivot controls during battle.</li>
-                            <li>Drag empty battlefield space to measure distance.</li>
+                            <li>Draft: click a unit, draft it, place the terrain tile on it, then drag the unit into your deployment zone and confirm.</li>
+                            <li>Bid: pick a number. Bids are revealed together; the lower bid is Master Tactician.</li>
+                            <li>Your highlighted units can be commanded. A unit's first order spends a command.</li>
+                            <li>Drag a unit along its lane to move. Dragging to the red end of the lane charges.</li>
+                            <li>Drag the ring around a unit to pivot, or use the pivot buttons.</li>
+                            <li>Click an outlined enemy to see the odds; click it again to shoot or strike.</li>
+                            <li>Enter ends the activation. Escape cancels a chosen target.</li>
+                            <li>Drag on empty battlefield to measure. Shift-click units to compare ranges.</li>
+                            <li>Z undoes the last step in a shared-screen game. F toggles full screen.</li>
                         </ul>
                     </div>
                 </div>
@@ -322,7 +321,8 @@
     </div>
     <script src="command-tracker.js"></script>
     <script src="unit-artwork.js"></script>
-    <script src="rules-engine.js"></script>
+    <script src="engine.js"></script>
+    <script src="ai.js"></script>
     <script src="guided-play.js"></script>
     <script src="app.js"></script>
 </body>

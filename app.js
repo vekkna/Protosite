@@ -266,7 +266,7 @@ function updateTerrainVisibility() {
     });
     const section = document.getElementById('terrain-section');
     if (section) {
-        section.hidden = typeof GuidedPlay !== 'undefined' ? GuidedPlay.snapshot().stage !== 'terrain' : hasBattleStarted();
+        section.hidden = typeof GuidedPlay !== 'undefined' ? !GuidedPlay.snapshot().drafting : hasBattleStarted();
         section.style.display = section.hidden ? 'none' : '';
     }
 }
@@ -1367,7 +1367,7 @@ function rotatePiece(piece, delta) {
 }
 
 function adjustUnitWounds(unit, delta) {
-    if (typeof GuidedPlay !== 'undefined') return GuidedPlay.note('Strain is resolved by attacks and Rally. Use those actions in the next-step panel.');
+    if (typeof GuidedPlay !== 'undefined') return GuidedPlay.note('Strain changes only through attacks and Rally.');
     if (!unit || !unit.classList.contains('unit')) return;
     const wounds = parseInt(unit.dataset.wounds, 10) || 0;
     const nextWounds = Math.max(0, wounds + delta);
@@ -1383,6 +1383,7 @@ function adjustUnitWounds(unit, delta) {
 }
 
 function handlePieceTap(piece, event) {
+    if (typeof GuidedPlay !== 'undefined' && GuidedPlay.tap(piece, event)) return;
     const additive = Boolean(event && event.shiftKey) || (isTouchPointer(event || {}) && isTouchMultiSelectActive);
     if (additive && inspectedUnits.has(piece)) {
         inspectedUnits.delete(piece);
@@ -2105,7 +2106,7 @@ let floatingTokenEl = null;
 let hoveredUnitTarget = null;
 
 function onCommandTokenPointerDown(e, token) {
-    if (typeof GuidedPlay !== 'undefined') { e.preventDefault(); return GuidedPlay.note('Select a unit and use Activate selected unit. Its command marker stays until clean up.'); }
+    if (typeof GuidedPlay !== 'undefined') { e.preventDefault(); return GuidedPlay.note('Command markers are placed automatically when a unit takes its first order.'); }
     if (e.button !== 0) return;
     e.preventDefault();
     e.stopPropagation();
@@ -3393,7 +3394,7 @@ function createDefaultTerrain() {
 }
 
 function beginTerrainDrag(type, event, shouldPushUndo = true) {
-    if (typeof GuidedPlay !== 'undefined') return GuidedPlay.note('Use the top terrain card during the terrain step.');
+    if (typeof GuidedPlay !== 'undefined') return GuidedPlay.note('Terrain is placed during the draft only.');
     if (hasBattleStarted()) return;
     if (event && event.button !== 0) return;
     if (event) {
@@ -3773,7 +3774,7 @@ function getPointerAngleFromPieceCenter(piece, event) {
 }
 
 function onRotationHandlePointerDown(e) {
-    if (typeof GuidedPlay !== 'undefined' && !GuidedPlay.canDrag(e.currentTarget.closest('.piece'))) return;
+    if (typeof GuidedPlay !== 'undefined' && !GuidedPlay.canDrag(e.currentTarget.closest('.piece'), 'rotate')) return;
     if (!e.isPrimary || e.button !== 0 || activePointerId !== null) return;
     e.preventDefault();
     e.stopPropagation();
@@ -3821,7 +3822,8 @@ function updateRotationFromPointer(e) {
     rotationDragLastPointerAngle = pointerAngle;
 
     const currentAngle = parseFloat(rotatingPiece.dataset.angle) || 0;
-    const nextAngle = rotationDragStartAngle + rotationDragPointerDelta;
+    let nextAngle = rotationDragStartAngle + rotationDragPointerDelta;
+    if (typeof GuidedPlay !== 'undefined') nextAngle = GuidedPlay.constrainRotation(rotatingPiece, rotationDragStartAngle, nextAngle);
     if (Math.abs(normalizeAngle(nextAngle - currentAngle)) < 0.15) return;
 
     if (!rotationDragUndoPushed) {
@@ -3847,7 +3849,8 @@ function finishRotationDrag() {
             angle: finalAngle
         });
     }
-    if (rotationDragUndoPushed) {
+    const guidedPivot = typeof GuidedPlay !== 'undefined' && GuidedPlay.dropRotation(rotatingPiece, rotationDragStartAngle, rotationDragUndoPushed);
+    if (rotationDragUndoPushed && !guidedPivot) {
         saveGame();
     }
 
@@ -4048,6 +4051,7 @@ function handlePointerMove(e) {
             newLeft = anchorX + forward.x * displacement - activePieceHalfWidth;
             newTop = anchorY + forward.y * displacement - activePieceHalfHeight;
         }
+        if (typeof GuidedPlay !== 'undefined') ({ left: newLeft, top: newTop } = GuidedPlay.constrainDrag(activePiece, newLeft, newTop));
         activePiece.style.left = `${newLeft}px`;
         activePiece.style.top = `${newTop}px`;
         targetX = newLeft + activePieceHalfWidth;
@@ -4106,6 +4110,8 @@ function onPointerUp(e) {
                 y: Math.round(finalTop)
             });
         }
+        activePiece.classList.remove('is-dragging');
+        if (typeof GuidedPlay !== 'undefined') GuidedPlay.dropPiece(activePiece);
         saveGame();
     }
     activePiece = null;
