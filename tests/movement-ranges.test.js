@@ -30,12 +30,13 @@ function unit(x, y, angle = 0, width = 40, height = 20) {
 function harness(units, selected = units[0]) {
     const phase = { battleStarted: true, revealed: true, round: 1 };
     const overlays = [];
-    const table = { querySelectorAll: () => units, appendChild: el => overlays.push(el) };
+    const table = { querySelectorAll: () => units, appendChild: el => overlays.push(el), getBoundingClientRect: () => ({}) };
     const document = { createElement: () => element(), getElementById: () => element() };
     const selectSource = source.slice(source.indexOf('function selectPiece('), source.indexOf('function setPieceAngle('));
     const tapSource = source.slice(source.indexOf('function handlePieceTap('), source.indexOf('const pieceControls ='));
     const holdSource = source.slice(source.indexOf('function cancelUnitLongPress('), source.indexOf('function onPiecePointerDown('));
     const queueSource = source.slice(source.indexOf('function queuePointerMove('), source.indexOf('function handlePointerMove('));
+    const rotationStartSource = source.slice(source.indexOf('function beginRotationDrag('), source.indexOf('function captureGestureUndo('));
     const battleStartSource = source.slice(source.indexOf('function hasBattleStarted('), source.indexOf('function updateTerrainVisibility('));
     const factory = new Function('table', 'document', 'selectedPiece', 'getUnitStats', 'getStatValue', 'inchesToPx', 'biddingState', `${battleStartSource}
         ${geometrySource}
@@ -48,15 +49,19 @@ function harness(units, selected = units[0]) {
         const setTimeout = callback => { timerCallback = callback; return 1; };
         const clearTimeout = () => { timerCallback = null; };
         const requestAnimationFrame = () => 1;
+        let activeTableRect, rotatingPiece, rotationDragStartAngle, rotationDragCenterX, rotationDragCenterY,
+            rotationDragLastPointerAngle, rotationDragPointerDelta;
+        const captureGestureUndo = () => {}, getPointerAngleFromPieceCenter = () => 0, hideTerrainTooltip = () => {}, getPieceId = () => null;
         ${holdSource}
         ${queueSource}
+        ${rotationStartSource}
         const positionPieceControls = () => updateSelectionRanges();
         const clearPieceSelection = () => { clearRangeInspections(); selectedPiece = null; updateSelectionRanges(); };
         ${selectSource}
         ${tapSource}
         return { getUnitGeometry, getForwardMovement, updateSelectionRanges, clearSelectionRanges,
             inspectUnitRange, clearRangeInspections, selectPiece, handlePieceTap, clearPieceSelection,
-            queuePointerMove, cancelUnitLongPress,
+            queuePointerMove, cancelUnitLongPress, beginRotationDrag,
             hold(unit) { pendingDragPiece = unit; activePointerId = 1; beginUnitLongPress(unit, 1); },
             fireHold() { const callback = timerCallback; timerCallback = null; if (callback) callback(); },
             didHoldSelect() { return didLongPressSelect; }
@@ -95,7 +100,7 @@ test('deployment hides selection ranges until first reveal, then keeps them thro
     assert.equal(h.overlays.filter(el => !el.removed).length, 2);
 });
 
-test('comparison keeps multiple ranges during movement, toggles individual units, and clears on deselection', () => {
+test('comparison keeps multiple ranges during movement and rotation, and clears on deselection', () => {
     const moving = unit(100, 300);
     moving.dataset.unitId = 'moving';
     const enemy = unit(300, 100, 180);
@@ -113,6 +118,8 @@ test('comparison keeps multiple ranges during movement, toggles individual units
     assert.equal(visible.length, 3);
     assert.equal(visible.find(el => el.dataset.rangeUnitId === 'moving').style.top, '240px');
     assert.equal(visible.find(el => el.dataset.rangeUnitId === 'enemy').style.top, '110px');
+    assert.equal(h.beginRotationDrag(moving, 1, {}), true);
+    assert.equal(h.overlays.filter(el => !el.removed && el.dataset.rangeUnitId === 'enemy').length, 2);
     h.handlePieceTap(enemy, { shiftKey: true });
     assert.equal(h.overlays.filter(el => !el.removed).length, 1);
     assert.equal(enemy.classList.contains('is-range-inspected'), false);
@@ -186,7 +193,7 @@ test('selection uses profile speed and shooting range and removes obsolete overl
     h.clearSelectionRanges();
     assert.ok(h.overlays.every(el => el.removed));
     assert.equal(blocker.classList.contains('is-movement-blocker'), false);
-    moving._unitStats.Ranged = '-';
+    moving._unitStats.Ranged = '0/18';
     moving.dataset.angle = 180;
     h.updateSelectionRanges();
     const latest = h.overlays.filter(el => !el.removed);
@@ -209,14 +216,14 @@ test('unit dragging is free during deployment, then follows facing in battle; te
             let battleStarted = false;
             const run = new Function('activePiece', 'getUnitGeometry', 'hasBattleStarted', `
                 const activePointerId = 1, rotatingPiece = null, pendingDragPiece = null, activeTerrainCardDrag = null;
-                const isMeasuring = false, ghostPiece = null;
+                const rulerDrag = null, ghostPiece = null;
                 const activePieceHalfWidth = 20, activePieceHalfHeight = 10;
                 const anchorX = 100, anchorY = 200, isHost = true;
                 const getTablePointerPosition = e => ({ x: e.clientX, y: e.clientY });
                 const broadcastPieceMoveThrottled = () => {}, updateSelectionRanges = () => {};
                 const lineElement = { setAttribute() {} };
                 const measureTextElement = { setAttribute() {}, removeAttribute() {} };
-                const pxToInches = n => (n / 20).toFixed(1);
+                const SCALE = 20;
                 ${handlerSource}
                 return handlePointerMove;
             `)(moving, h.getUnitGeometry, () => battleStarted);

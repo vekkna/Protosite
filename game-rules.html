@@ -1,4 +1,12 @@
-<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Seize the Day — Rules</title><style>
+<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Seize the Day — Rules</title><script>
+const rulesParam = new URLSearchParams(location.search).get('rules');
+if (rulesParam === 'reform-variant' || rulesParam === 'v3') {
+    // V3 is written as changes to the Reform Variant text.
+    document.documentElement.classList.add('reform-variant');
+    if (rulesParam === 'v3') document.documentElement.classList.add('v3');
+    document.title = rulesParam === 'v3' ? 'Seize the Day — V3' : 'Seize the Day — Reform Variant';
+}
+</script><style>
 body{max-width:760px;margin:24px auto;padding:0 20px;font:16px/1.6 system-ui;background:#faf5e8;color:#252923}
 h1{font-size:26px}
 h2{font-size:21px;margin:36px 0 8px;padding-bottom:4px;border-bottom:1px solid rgba(37,41,35,.2)}
@@ -10,8 +18,10 @@ li{margin:4px 0}
 table{border-collapse:collapse;width:100%;margin:12px 0;font-size:15px}
 th,td{text-align:left;padding:6px 10px;border:1px solid rgba(37,41,35,.2)}
 th{background:rgba(37,41,35,.07)}
+html:not(.reform-variant) .variant-only,.reform-variant .classic-only{display:none}
+html:not(.v3) .v3-only,.v3 .not-v3{display:none}
 </style>
-<h1>Seize the Day</h1>
+<h1>Seize the Day<span class="variant-only not-v3"> — Reform Variant</span><span class="v3-only"> — V3</span></h1>
 <p>Rules as enforced by this app. The outlined circular terrain tile is the terrain feature.</p>
 <h2>Overview</h2>
 <p>Seize the Day is a game of battles for two players. Each player commands an army, moving units across a tabletop battlefield and using dice to resolve shooting and close combat.</p>
@@ -32,19 +42,22 @@ th{background:rgba(37,41,35,.07)}
 <h2>Unit basics</h2>
 <h3>Fronts and flanks</h3>
 <p>A unit’s front is its front edge, including both front corners. Everything else (both side edges, both rear corners and the rear edge) is its flank.</p>
-<p>If a unit touches any part of an enemy’s flank, it counts as touching that enemy’s flank, even if it also touches the enemy’s front.</p>
+<p class="not-v3">If a unit touches any part of an enemy’s flank, it counts as touching that enemy’s flank, even if it also touches the enemy’s front.</p>
+<p class="v3-only">A unit can only strike enemies touching its front. An enemy that touches only its flank can’t be struck back by it.</p>
 <p>Unit-facing diagram: the front edge and two front corners are the front; both side edges, rear corners and rear edge are the flank.</p>
 <p>Figure 1. A unit's front and flank</p>
 <h3>Stats</h3>
 <ul>
 <li>Pace: how far the unit can move forwards, in inches.</li>
-<li>Mobility: how many pivots the unit can make in each activation, as well as its action. Units with Mobility 3 or more are hard to shoot (see Evasion).</li>
+<li class="classic-only">Mobility: how many pivots the unit can make in each activation, as well as its action. Units with Mobility 3 or more are hard to shoot (see Evasion).</li>
+<li class="variant-only">Mobility: how many pivots the unit can make as part of a Move.</li>
 <li>Melee: how many dice the unit starts with when it strikes.</li>
 <li>Shoot: how many dice the unit starts with when it shoots. A unit with no Shoot value can’t shoot.</li>
 <li>Range: how far the unit can shoot, in inches.</li>
-<li>Defence: the score each attack die needs to give the unit strain. Units with Defence 4 or less are not slowed by slowing terrain.</li>
+<li>Defence: the score each attack die needs to give the unit strain.<span class="classic-only"> Units with Defence 4 or less are not slowed by slowing terrain.</span></li>
 </ul>
-<p>There can be asterisks after certain stats, these will be explained below (in Combat and Terrain)</p>
+<p class="classic-only">There can be asterisks after certain stats, these will be explained below (in Combat and Terrain)</p>
+<p class="variant-only">See Move, Attack rolls and Terrain for the effects of stat asterisks.</p>
 <h2>Setup</h2>
 <h3>Prepare the battlefield</h3>
 <p>Play on an area 4 feet wide and 3 feet deep, with the players sitting opposite each other at the long edges.</p>
@@ -107,64 +120,85 @@ th{background:rgba(37,41,35,.07)}
 <ol>
 <li>Choose one of your units that doesn’t have a command marker on it.</li>
 <li>Place one of your command markers on it.</li>
-<li>The unit may take one action: Move, Shoot, Strike, Extra Pivot or Rally. It may also pivot (see Pivoting).</li>
+<li class="classic-only">The unit may take one action: Move, Shoot, Strike, Extra Pivot or Rally. It may also pivot (see Pivoting).</li>
+<li class="variant-only not-v3">The unit may take one action: Move, Shoot, Strike or Reform.</li>
+<li class="v3-only">The unit may take one action: Move, Shoot, Strike, Reform or Rally.</li>
 </ol>
 <p>Because the marker stays on the unit until clean-up, each unit can be activated only once per round.</p>
 <h2>Pivoting</h2>
-<p>A pivot turns a unit up to 90 degrees around its centre. In each activation, a unit may make as many pivots as its Mobility, as well as taking its action. It can pivot before its action, after it, or partway through a Move (but see Charging).</p>
-<p>A unit can’t pivot:</p>
-<ul>
+<p class="classic-only">A pivot turns a unit up to 90 degrees around its centre. In each activation, a unit may make as many pivots as its Mobility, as well as taking its action. It can pivot before its action, after it, or partway through a Move (but see Charging).</p>
+<p class="variant-only not-v3">A pivot turns a unit up to 90 degrees around its centre. As part of a Move, a unit can make up to its Mobility in pivots. It may pivot before travelling any distance, partway through the Move or at the end. It may spend the Move pivoting in place. See Charging for how pivoting affects enemy contact.</p>
+<p class="not-v3">A unit can’t pivot:</p>
+<ul class="not-v3">
 <li>while it is touching an enemy, or</li>
 <li>if its card would touch another unit, impassable terrain or the battlefield’s edge at any point while turning.</li>
 </ul>
-<p>These rules also apply to the extra pivot from the Extra Pivot action.</p>
+<p class="v3-only">During its Move, a unit can make up to its Mobility in pivots. Each pivot turns the unit up to 90 degrees around its centre and may happen at the start, during or at the end of the Move.</p>
+<p class="v3-only">A unit may pivot through other units, impassable terrain and the battlefield’s edge. At the end of a single pivot or a sequence of consecutive pivots, its card must be fully on the battlefield and clear of other units and impassable terrain.</p>
+<p class="classic-only">These rules also apply to the extra pivot from the Extra Pivot action.</p>
 <h2>Actions</h2>
 <h3>Move</h3>
 <p>Choose a direction, then move the unit in a straight line, either forwards up to its Pace or backwards up to half its Pace. It can’t switch between forwards and backwards during the Move.</p>
-<p>Units can’t overlap other units, impassable terrain, or the battlefield’s edge.</p>
+<p class="classic-only">Units can’t overlap other units, impassable terrain, or the battlefield’s edge.</p>
+<p class="variant-only not-v3">Keep the moving unit within the battlefield and clear of impassable terrain. A unit with an asterisk after its Move stat (Pace) may pass through friendly units when advancing, withdrawing or charging. It must have enough movement to clear each friendly unit completely before stopping or pivoting. These units also ignore slowing terrain. All other units must move around friendly units.</p>
+<p class="v3-only">Units can’t move over enemy units, impassable terrain or the battlefield’s edge. Units can’t move over friendly units either. Units with an asterisk beside their Pace stat ignore slowing terrain.</p>
 <p>If the unit pivots partway through, it carries on in the same direction relative to its new facing. Pivots don’t use up distance, but the total distance moved can’t go over the limit.</p>
-<p>A unit touching an enemy can’t Move, unless it belongs to the Master Tactician. Even then, it can’t pivot until it is no longer touching the enemy.</p>
+<p class="not-v3">A unit touching an enemy can’t Move, unless it belongs to the Master Tactician. Even then, it can’t pivot until it is no longer touching the enemy.</p>
+<p class="v3-only">A unit touching an enemy can Move only if it belongs to the Master Tactician. Its Move may begin with a pivot.</p>
 <h3>Charging</h3>
-<p>A unit can only move into contact with an enemy by charging: moving forwards without pivoting during the Move. It may pivot before the Move. Any other Move must stop before touching an enemy.</p>
+<p class="classic-only">A unit can only move into contact with an enemy by charging: moving forwards without pivoting during the Move. It may pivot before the Move. Any other Move must stop before touching an enemy.</p>
+<p class="variant-only not-v3">A unit can charge by moving straight forwards into contact with an enemy. Any pivot earlier in the same activation, including one made before travelling any distance, prevents a charge. Any other Move must stop before touching an enemy.</p>
+<p class="v3-only">A unit can charge by moving straight forwards until an enemy touches its front. It may pivot before it starts travelling, but a pivot after it has started moving prevents a charge. Any other Move must stop before touching an enemy.</p>
 <p>When a charging unit touches one or more enemies:</p>
 <ol>
 <li>it stops moving,</li>
 <li>it can’t pivot for the rest of this activation, and</li>
-<li>it may immediately Strike one enemy it is touching, as a free extra action.</li>
+<li class="not-v3">it may immediately Strike one enemy it is touching, as a free extra action.</li>
+<li class="v3-only">it may immediately Strike one enemy touching its front, as a free extra action.</li>
 </ol>
 <h3>Shoot</h3>
 <p>A unit can Shoot only if it has a Shoot value greater than 0 and isn’t touching an enemy. Choose a target that meets all of these conditions:</p>
 <ul>
 <li>Not in contact: it isn’t touching any of your units.</li>
 <li>In range: a straight line from the centre of the shooter’s front edge to the nearest point of the target is no longer than the shooter’s Range.</li>
-<li>In line of sight: the whole target card can be seen from the centre of the shooter’s front edge. That is, no straight line from that point to any part of the target may pass through the shooter itself, another unit or concealing terrain before reaching the target.</li>
+<li class="not-v3">In line of sight: the whole target card can be seen from the centre of the shooter’s front edge. That is, no straight line from that point to any part of the target may pass through the shooter itself, another unit or concealing terrain before reaching the target.</li>
+<li class="v3-only">In line of sight: you can draw an unobstructed straight line from the centre of the shooter’s front edge to the centre of any edge of the target that the shooter can see, without passing through blocking terrain or a unit, including the target itself.</li>
 </ul>
 <p>Then make an attack roll using the shooter’s Shoot value.</p>
-<h3>Extra Pivot</h3>
-<p>The unit makes one additional pivot, following the Pivoting rules.</p>
-<p>For example, a unit with Mobility 2 can make up to three pivots during an activation if it chooses the Extra Pivot action. This is the only way Mobility 0 units can pivot.</p>
+<h3 class="classic-only">Extra Pivot</h3>
+<p class="classic-only">The unit makes one additional pivot, following the Pivoting rules.</p>
+<p class="classic-only">For example, a unit with Mobility 2 can make up to three pivots during an activation if it chooses the Extra Pivot action. This is the only way Mobility 0 units can pivot.</p>
+<h3 class="variant-only">Reform</h3>
+<p class="variant-only">Turn the unit around its centre to face any direction, up to 180 degrees either way. A unit with Mobility 0 can Reform.</p>
+<p class="variant-only not-v3">Apply the same clearance and enemy-contact restrictions as for a pivot.</p>
+<p class="v3-only">A unit must start its Reform clear of enemy contact and finish with its card fully on the battlefield and clear of other units and impassable terrain.</p>
 <h3>Strike</h3>
-<p>Make an attack roll against one enemy the unit is touching, using its Melee value.</p>
-<h3>Rally</h3>
-<p>Roll a die and half the result, rounded up. Remove that much strain from the unit.</p>
+<p class="not-v3">Make an attack roll against one enemy the unit is touching, using its Melee value.</p>
+<p class="v3-only">Make an attack roll against one enemy touching the unit’s front, using its Melee value.</p>
+<h3 class="classic-only">Rally</h3>
+<p class="classic-only">Roll a die and half the result, rounded up. Remove that much strain from the unit.</p>
+<h3 class="v3-only">Rally</h3>
+<p class="v3-only">Remove one strain from the unit. A unit can rally even while touching an enemy.</p>
 <h2>Attack rolls</h2>
+<p class="v3-only">A unit with 5 or more strain can’t attack: it can’t Shoot, Strike or charge.</p>
 <p>Resolve a Shoot or Strike action as follows.</p>
 <ol>
 <li>Build the dice pool</li>
 </ol>
 <p>Take dice equal to the attacker’s Shoot value for shooting or its Melee value for a strike.</p>
-<p>Apply the modifiers below. Each modifier applies only once. Always roll at least one die.</p>
-<table>
+<p class="v3-only">There are no modifiers to the dice pool.</p>
+<p class="not-v3">Apply the modifiers below. Each modifier applies only once. Always roll at least one die.</p>
+<table class="not-v3">
 <thead><tr><th>Modifier</th><th>Effect</th></tr></thead>
 <tbody>
 <tr><td>The target is outflanked</td><td>+1 die</td></tr>
 <tr><td>The attacker is outflanked</td><td>−1 die</td></tr>
 <tr><td>The attacker is higher than the target</td><td>+1 die</td></tr>
 <tr><td>The attacker is lower than the target</td><td>−1 die</td></tr>
-<tr><td>Striking a target that has no command marker</td><td>+1 die</td></tr>
+<tr class="not-v3"><td>Striking a target that has no command marker</td><td>+1 die</td></tr>
 </tbody></table>
-<p>Outflanking: Your unit is outflanked if an enemy touches its flank and that enemy is not touching any other unit from your army.</p>
-<p>Height: A unit in elevated terrain is higher than a unit outside elevated terrain. For the free Strike after a charge, use the attacker’s position immediately before it started moving forwards</p>
+<p class="not-v3">Outflanking: Your unit is outflanked if an enemy touches its flank and that enemy is not touching any other unit from your army.</p>
+<p class="not-v3">Height: A unit in elevated terrain is higher than a unit outside elevated terrain. For the free Strike after a charge, use the attacker’s position immediately before it started moving forwards</p>
 <ol start="2">
 <li>Determine the target number</li>
 </ol>
@@ -195,9 +229,11 @@ th{background:rgba(37,41,35,.07)}
 <h4>Slowing</h4>
 <p>If a unit is in slowing terrain at any point during a Move, including at the start, that Move can be no longer than 4 inches. So a unit that has already moved more than 4 inches can’t enter slowing terrain during that Move. Units with an asterisk after their Pace ignore this rule.</p>
 <h4>Elevated</h4>
-<p>Blocks line of sight between units that are both outside it. A shooter in elevated terrain can see over other units, but not over terrain. Units in elevated terrain are higher than units outside it (see Height).</p>
+<p class="not-v3">Blocks line of sight between units that are both outside it. A shooter in elevated terrain can see over other units, but not over terrain. Units in elevated terrain are higher than units outside it (see Height).</p>
+<p class="v3-only">Blocks line of sight between units that are both outside it. A shooter in elevated terrain can see over other units, but not over terrain.</p>
 <h3>Sample terrain</h3>
-<p>Hill: Elevated.</p>
+<p class="not-v3">Hill: Elevated.</p>
+<p class="v3-only">Hill: Elevated. A hill is also slowing to units entering it, but not to a unit that starts its Move on it.</p>
 <p>Forest: Concealing; Slowing.</p>
 <p>Mountain: Concealing; Impassable.</p>
 <p>Swamp: Impassable.</p>

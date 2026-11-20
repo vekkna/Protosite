@@ -39,6 +39,8 @@ test('display recommendations do not enter fullscreen or lock orientation withou
     const h = displayHarness();
     h.context.updateFullscreenUI();
     assert.deepEqual(h.calls, []);
+    assert.equal(h.elements['fullscreen-btn'].ariaLabel, 'Enter full screen');
+    assert.equal(h.elements['fullscreen-btn'].ariaPressed, 'false');
     assert.equal(h.elements['landscape-btn'].hidden, false);
     assert.equal(h.elements['landscape-btn'].textContent, 'Landscape + Full Screen');
 });
@@ -55,6 +57,8 @@ test('landscape action enters fullscreen then locks; fullscreen alone does not l
     const fullscreenOnly = displayHarness();
     await fullscreenOnly.context.toggleFullscreen();
     assert.deepEqual(fullscreenOnly.calls, ['fullscreen']);
+    assert.equal(fullscreenOnly.elements['fullscreen-btn'].ariaLabel, 'Exit full screen');
+    assert.equal(fullscreenOnly.elements['fullscreen-btn'].ariaPressed, 'true');
 });
 
 test('unsupported or denied orientation and fullscreen provide manual rotation guidance', async () => {

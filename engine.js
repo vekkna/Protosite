@@ -16,10 +16,11 @@
 const SeizeEngine = (() => {
     const PX = 20;                 // pixels per inch
     const TOUCH = 0.02;            // px: pieces this close are touching
-    const CONTACT = 0.01;          // px: sweep margin used to reach enemy contact
     const STANDOFF = 1;            // px: gap kept when a non-charging move stops short of an enemy
     const PIVOT_CLEARANCE = 0.5;   // px: clearance needed while turning
     const DEPLOY_IN = 6, SLOW_IN = 4, ROUT_STRAIN = 7;
+    const FLANK_DICE = 1;   // outflanking: +1 to strike/shoot an outflanked target, -1 when the attacker is outflanked
+    const SPENT_STRAIN = 5;        // V3: a unit with this much strain can't attack (no Shoot, Strike or charge)
     const TERRAIN = {
         hills:    { elevated: true },
         forest:   { concealing: true, slowing: true },
@@ -133,11 +134,10 @@ const SeizeEngine = (() => {
     const touchingPolys = (a, b) => polyDist(a, b) <= TOUCH;
 
     /**
-     * Swept SAT. `a` moves by vector v (px). Returns the travel distance (px) at
-     * which the gap to `b` first falls below `margin`, or null if it never does
-     * within |v|. margin 0 = first touch; negative margin = allowed penetration.
+     * Swept SAT. `a` moves by vector v (px). Returns the entry and exit distances
+     * if the sweep reaches `b`. A zero margin uses contact as the boundary.
      */
-    function sweep(a, b, v, margin = 0) {
+    function sweepInterval(a, b, v, margin = 0) {
         const len = Math.hypot(v.x, v.y);
         if (len < 1e-9) return null;
         let enter = -Infinity, exit = Infinity;
@@ -149,19 +149,25 @@ const SeizeEngine = (() => {
             enter = Math.max(enter, Math.min(t1, t2)); exit = Math.min(exit, Math.max(t1, t2));
         }
         if (enter >= exit || exit <= 1e-7 || enter > len) return null;
-        return Math.max(0, enter);
+        return { enter: Math.max(0, enter), exit };
     }
+    const sweep = (a, b, v, margin) => sweepInterval(a, b, v, margin)?.enter ?? null;
 
     // ---------- state helpers ----------
     const live = s => s.units.filter(u => u.owner);
     const unitById = (s, id) => s.units.find(u => u.id === id);
     const army = (s, p) => s.units.filter(u => u.owner === p);
     const trait = (t, name) => Boolean(TERRAIN[t.type] && TERRAIN[t.type][name]);
+    // V3: a hill slows a unit entering it, but not one that started its Move on it.
+    // The hills a unit stood on when its Move began (its current hills if the Move hasn't begun).
+    const hillsOf = (s, u) => s.terrain.filter(t => trait(t, 'elevated') && inFeature(u, t)).map(t => t.id);
+    const startHills = (s, u, act) => (act && act.startHills) || hillsOf(s, u);
+    const slows = (s, t, hills) => trait(t, 'slowing') || (v3Rules(s) && trait(t, 'elevated') && !hills.includes(t.id));
+    const inSlowing = (s, u, hills) => s.terrain.some(t => slows(s, t, hills) && inFeature(u, t));
     const inFeature = (u, t) => centreGap(u, t) < 0 && overlapping(rect(u), disc(t));
     const inTrait = (s, u, name) => s.terrain.some(t => trait(t, name) && inFeature(u, t));
     const touching = (a, b) => centreGap(a, b) <= TOUCH && touchingPolys(rect(a), rect(b));
     const enemiesTouching = (s, u) => live(s).filter(v => v.owner !== u.owner && touching(u, v));
-    const hasMarker = u => Boolean(u.activated);
 
     function activePlayer(s) {
         if (s.phase === 'draft') return s.draft.picker;
@@ -200,9 +206,12 @@ const SeizeEngine = (() => {
             ...Object.fromEntries(['pace', 'paceStar', 'mobility', 'melee', 'meleeAP', 'shoot', 'shootAP', 'range', 'defence', 'defenceStar']
                 .filter(k => spec[k] !== undefined).map(k => [k, spec[k]])) };
     }
+    // 'skirmishers' was V3's name for its first day.
+    const normalizeRules = rules => rules === 'skirmishers' ? 'v3' : ['reform', 'reform-variant', 'v3'].includes(rules) ? rules : 'classic';
+
     /**
      * options: { units:[spec], terrain:[{id,type,x,y,w,h}], terrainDeck:[type|'x'], firstPick:'p1'|'p2',
-     *            seed, width, height, tileSize }.
+     *            seed, width, height, tileSize, rules }.
      * If every unit already has an owner the draft is skipped (prepared battle).
      */
     function createGame(options = {}) {
@@ -212,6 +221,7 @@ const SeizeEngine = (() => {
             units: (options.units || []).map(makeUnit),
             terrain: (options.terrain || []).map((t, i) => ({ id: t.id || `t${i + 1}`, type: t.type, x: t.x, y: t.y, w: t.w, h: t.h || t.w })),
             terrainDeck: [...(options.terrainDeck || [])],
+            rules: normalizeRules(options.rules),
             phase: 'draft', firstPick: options.firstPick || 'p1',
             draft: { picker: options.firstPick || 'p1', step: 'pick', picked: null },
             round: 0, bids: { p1: null, p2: null }, master: null, turnStep: 0, commands: { p1: 0, p2: 0 },
@@ -228,11 +238,12 @@ const SeizeEngine = (() => {
 
     // ---------- draft ----------
     const zoneOf = (s, p) => (p === 'p1' ? [s.height - DEPLOY_IN * PX, s.height] : [0, DEPLOY_IN * PX]);
-    function terrainPlacementError(s, tile, pickedUnit) {
+    function terrainPlacementError(s, tile, pickedUnit, movingId) {
         const o = centre(tile), r = tile.w / 2;
+        if (!Number.isFinite(o.x) || !Number.isFinite(o.y)) return 'Place the tile on the battlefield.';
         if (o.x - r <= TOUCH || o.x + r >= s.width - TOUCH) return 'Terrain can’t touch the battlefield edge.';
         if (o.y - r <= DEPLOY_IN * PX + TOUCH || o.y + r >= s.height - DEPLOY_IN * PX - TOUCH) return 'Terrain can’t touch a deployment zone.';
-        if (s.terrain.some(t => Math.hypot(centre(t).x - o.x, centre(t).y - o.y) <= r + t.w / 2 + TOUCH)) return 'Terrain can’t touch another terrain tile.';
+        if (s.terrain.some(t => (!movingId || t.id !== movingId) && Math.hypot(centre(t).x - o.x, centre(t).y - o.y) <= r + t.w / 2 + TOUCH)) return 'Terrain can’t touch another terrain tile.';
         if (!overlapping(rect(pickedUnit), disc(tile))) return 'Terrain must overlap the unit you chose.';
         return '';
     }
@@ -247,6 +258,7 @@ const SeizeEngine = (() => {
         return spots.sort((a, b) => Math.hypot(a.x - o.x, a.y - o.y) - Math.hypot(b.x - o.x, b.y - o.y));
     }
     function deployError(s, u, pos) {
+        if (![pos.x, pos.y, pos.angle].every(Number.isFinite)) return 'Place the whole unit inside your deployment zone.';
         const moved = { ...u, ...pos }, poly = rect(moved), [y0, y1] = zoneOf(s, s.draft.picker);
         if (poly.some(p => p.x < -TOUCH || p.x > s.width + TOUCH || p.y < y0 - TOUCH || p.y > y1 + TOUCH)) return 'Place the whole unit inside your deployment zone.';
         if (live(s).some(v => v.id !== u.id && overlapping(poly, rect(v)))) return 'Units can’t overlap.';
@@ -255,27 +267,101 @@ const SeizeEngine = (() => {
     function draftAction(s, a) {
         const d = s.draft, p = d.picker;
         if (a.player && a.player !== p) fail(`It is ${label(p)}’s pick.`);
+        if (a.type === 'autoDraft') return autoDraft(s);
         if (a.type === 'pick') {
             if (d.step !== 'pick') fail('Finish the current pick first.');
             const u = unitById(s, a.unitId);
-            if (!u || u.owner) fail('Choose a unit from the draft pool.');
-            d.picked = u.id; log(s, `${label(p)} chose ${u.name}.`);
-            if (!s.terrainDeck.length) d.step = 'deploy';
-            else if (!TERRAIN[s.terrainDeck[0]]) { s.terrainDeck.shift(); d.step = 'deploy'; log(s, 'The terrain tile was open ground and is discarded.'); }
-            else { d.step = 'terrain'; if (!terrainSpots(s, 1).length && !terrainSpots(s, 1, 1.5).length) { const t = s.terrainDeck.shift(); d.step = 'deploy'; log(s, `No legal place for the ${t}; it is discarded.`); } }
+            if (!u || u.owner) fail('Select an available unit on the battlefield.');
+            d.picked = u.id; d.position = null; log(s, `${label(p)} chose ${u.name}.`);
+            if (!s.terrainDeck.length || !TERRAIN[s.terrainDeck[0]]) {
+                s.terrainDeck.shift(); d.step = 'deploy'; log(s, 'No terrain to place this turn.');
+            } else {
+                d.step = 'terrain';
+                if (!terrainSpots(s, 1).length && !terrainSpots(s, 1, 1.5).length) {
+                    const t = s.terrainDeck.shift();
+                    d.step = 'deploy';
+                    log(s, `No legal place for the ${t}; it is discarded.`);
+                }
+            }
         } else if (a.type === 'placeTerrain') {
             if (d.step !== 'terrain') fail('There is no terrain tile to place now.');
             const tile = tileAt(s, a.x, a.y), why = terrainPlacementError(s, tile, unitById(s, d.picked));
             if (why) fail(why);
-            s.terrainDeck.shift(); s.terrain.push({ id: `t${s.seq + 1}_${s.terrain.length + 1}`, ...tile }); d.step = 'deploy';
-            log(s, `${label(p)} placed a ${tile.type}.`); emit(s, { type: 'terrain' });
-        } else if (a.type === 'deploy') {
+            d.terrainId = `t${s.seq + 1}_${s.terrain.length + 1}`;
+            s.terrainDeck.shift(); s.terrain.push({ id: d.terrainId, ...tile }); d.step = 'deploy';
+            log(s, `${label(p)} placed ${tile.type} terrain.`); emit(s, { type: 'terrain' });
+        } else if (a.type === 'repositionTerrain') {
+            const i = s.terrain.findIndex(t => t.id === d.terrainId);
+            if (d.step !== 'deploy' || i === -1) fail('There is no terrain tile to reposition.');
+            if (d.position) fail('Terrain is fixed once the unit is in its deployment zone.');
+            const tile = { ...s.terrain[i], x: a.x, y: a.y };
+            const why = terrainPlacementError(s, tile, unitById(s, d.picked), d.terrainId);
+            if (why) fail(why);
+            s.terrain[i] = tile;
+        } else if (a.type === 'positionDeployment' || a.type === 'deploy') {
             if (d.step !== 'deploy') fail('Choose a unit and deal with its terrain tile first.');
             const u = unitById(s, d.picked), pos = { x: a.x, y: a.y, angle: a.angle ?? (p === 'p1' ? 0 : 180) }, why = deployError(s, u, pos);
             if (why) fail(why);
-            Object.assign(u, pos, { owner: p }); d.picked = null; d.step = 'pick'; d.picker = other(p);
+            if (a.type === 'positionDeployment') { d.position = pos; return; }
+            Object.assign(u, pos, { owner: p });
+            s.draft = { picker: other(p), step: 'pick', picked: null };
             if (s.units.every(v => v.owner)) beginBattle(s);
         } else fail('That isn’t possible during the draft.');
+    }
+
+    /** Distance from a point to the nearest part of a unit's rectangle (0 inside it). */
+    function pointRectDist(p, u) {
+        const o = centre(u), a = (u.angle || 0) * Math.PI / 180, dx = p.x - o.x, dy = p.y - o.y;
+        const lx = Math.abs(dx * Math.cos(a) + dy * Math.sin(a)) - u.w / 2, ly = Math.abs(-dx * Math.sin(a) + dy * Math.cos(a)) - u.h / 2;
+        return Math.hypot(Math.max(0, lx), Math.max(0, ly));
+    }
+    /** Inches by which a unit at this pose is too close to a side edge or another unit (or that unit to it) to pivot freely (0 = room to turn). */
+    function deploymentCramp(s, u) {
+        const c = centre(u);
+        let worst = Math.max(0, reach(u) + PIVOT_CLEARANCE - Math.min(c.x, s.width - c.x));   // the side edges
+        for (const v of live(s)) {
+            if (v.id === u.id) continue;
+            worst = Math.max(worst, reach(u) - pointRectDist(c, v) + PIVOT_CLEARANCE, reach(v) - pointRectDist(centre(v), u) + PIVOT_CLEARANCE);
+        }
+        return worst / PX;
+    }
+    function automaticDeployment(s, u) {
+        const { picker, position } = s.draft;
+        if (position && !deployError(s, u, position)) return position;
+        const spots = legalActions(s);
+        if (spots.length) {
+            // Nearest spot that leaves this unit and its neighbours room to pivot; if none does, the least cramped one.
+            const cost = spot => 1000 * deploymentCramp(s, { ...u, x: spot.x, y: spot.y, angle: spot.angle }) + Math.abs(spot.x - u.x);
+            return spots.reduce((best, spot) => cost(spot) < cost(best) ? spot : best);
+        }
+        // A partially deployed army can fill the usual front rank.
+        const [top, bottom] = zoneOf(s, picker);
+        const angle = picker === 'p1' ? 0 : 180;
+        for (let y = top; y + u.h <= bottom; y += 4) {
+            for (let x = 0; x + u.w <= s.width; x += 4) {
+                const pose = { x, y, angle };
+                if (!deployError(s, u, pose)) return pose;
+            }
+        }
+        fail(`No space to auto-deploy ${u.name} in its deployment zone.`);
+    }
+
+    function autoDraft(s) {
+        while (s.phase === 'draft') {
+            const { step, picked } = s.draft;
+            if (step === 'pick') {
+                const next = s.units.find(u => !u.owner);
+                if (!next) fail('There are no units to auto-draft.');
+                draftAction(s, { type: 'pick', unitId: next.id });
+            } else if (step === 'terrain') {
+                const spot = terrainSpots(s)[0] || terrainSpots(s, 1, 1.5)[0];
+                if (!spot) fail('There is no legal spot for the current terrain tile.');
+                draftAction(s, { type: 'placeTerrain', ...spot });
+            } else {
+                draftAction(s, { ...automaticDeployment(s, unitById(s, picked)), type: 'deploy' });
+            }
+        }
+        log(s, 'Auto-draft completed for both sides.');
     }
 
     // ---------- bidding and round flow ----------
@@ -294,6 +380,8 @@ const SeizeEngine = (() => {
         skipEmptyTurns(s);
     }
     function nextTurn(s) {
+        delete s.awaitingRoundEnd;
+        delete s.awaitingTurnEnd;
         if (s.turnStep < 2) { s.turnStep += 1; return; }
         s.units.forEach(u => { u.activated = false; });
         s.round += 1; s.phase = 'bidding'; s.bids = { p1: null, p2: null }; s.commands = { p1: 0, p2: 0 }; s.turnStep = 0;
@@ -301,128 +389,301 @@ const SeizeEngine = (() => {
         emit(s, { type: 'cleanup' });
     }
     /** A player with no commands (or no unit left to command) must pass. */
+    const canCommand = (s, p) => s.commands[p] > 0 && army(s, p).some(u => !u.activated);
     function skipEmptyTurns(s) {
         while (s.phase === 'command' && !s.activation) {
-            const p = activePlayer(s);
-            if (s.commands[p] > 0 && army(s, p).some(u => !u.activated)) break;
+            if (canCommand(s, activePlayer(s))) break;
             nextTurn(s);
         }
     }
 
     // ---------- activation queries ----------
     const newActivation = (unitId) => ({ unitId, action: null, pivots: 0, moved: 0, dir: null, pivotedInMove: false,
-        slowed: false, charged: false, freeStrike: false, startHigh: null });
+        slowed: false, charged: false, freeStrike: false, startHigh: null, overlap: false });
     const pivotAllowance = (u, act) => u.mobility + (act.action === 'extraPivot' ? 1 : 0);
+    const reformRules = s => s.rules === 'reform' || s.rules === 'reform-variant' || s.rules === 'v3';
+    // V3 (built on Reform): pivots may sweep through units, impassable terrain and the edge, but
+    // may not stop overlapping. Unlike the Reform Variant, no unit may move through friendly units.
+    const v3Rules = s => s.rules === 'v3';
+    const unmarkedStrikeDice = (s, marked) => !marked && !v3Rules(s) ? 1 : 0;
+    const spent = (s, u) => v3Rules(s) && u.strain >= SPENT_STRAIN;
+    const SPENT_TEXT = `A unit with ${SPENT_STRAIN} or more strain can’t attack.`;
+    const friendlyPassage = s => s.rules === 'reform-variant';
+    const crossingAt = (crossings, inches) => crossings?.find(c => inches > c.from + 1e-7 && inches < c.to - 1e-7);
 
     /** How far (inches) a unit can travel along its facing right now. */
     function moveLimit(s, u, act, backwards) {
         const dir = backwards ? 'back' : 'fwd', none = why => ({ max: 0, reason: why, charge: null, stop: 'rule' });
         if (act.action && act.action !== 'move') return none('This unit has already used its action.');
         if (act.charged) return none('A charge stops on contact.');
+        if (act.overlap) return none('Keep pivoting until the unit is clear of other units, impassable terrain and the edge.');
         if (act.dir && act.dir !== dir) return none('A Move can’t switch between forwards and backwards.');
         const stuck = enemiesTouching(s, u);
         if (stuck.length && u.owner !== s.master) return none('Only the Master Tactician’s units can move out of contact.');
         const f = forwardOf(u), sign = backwards ? -1 : 1, me = rect(u);
-        let budget = (backwards ? u.pace / 2 : u.pace) - act.moved, stop = 'pace';
+        let budget = (backwards ? u.pace / 2 : u.pace) - act.moved, stop = 'pace', blocker = null;
         // Slowing terrain caps the whole Move at 4 inches once the unit is in it.
         let slowAt = Infinity;
         if (!u.paceStar) {
-            if (act.slowed || inTrait(s, u, 'slowing')) slowAt = 0;
+            const hills = startHills(s, u, act);
+            const occupied = act.slowed ? null : s.terrain.find(t => slows(s, t, hills) && inFeature(u, t));
+            if (act.slowed || occupied) { slowAt = 0; blocker = occupied; }
             else for (const t of s.terrain) {
-                if (!trait(t, 'slowing') || centreGap(u, t) > budget * PX + 2) continue;
+                if (!slows(s, t, hills) || centreGap(u, t) > budget * PX + 2) continue;
                 const d = sweep(me, disc(t), { x: f.x * sign * budget * PX, y: f.y * sign * budget * PX }, -TOUCH);
-                if (d !== null) slowAt = Math.min(slowAt, d);
+                if (d !== null && d < slowAt) { slowAt = d; blocker = t; }
             }
             if (slowAt < Infinity) {
                 if (act.moved + slowAt / PX >= SLOW_IN) { if (slowAt / PX < budget) { budget = Math.max(0, slowAt / PX - 0.01); stop = 'slow'; } }
                 else if (SLOW_IN - act.moved < budget) { budget = SLOW_IN - act.moved; stop = 'slow'; }
             }
         }
-        if (budget <= 1e-6) return { max: 0, reason: stop === 'slow' ? 'Slowing terrain limits this Move to 4 inches.' : 'No movement left.', charge: null, stop, slowAt };
+        if (budget <= 1e-6) return { max: 0, reason: stop === 'slow' ? 'Slowing terrain limits this Move to 4 inches.' : 'No movement left.', charge: null, stop, blocker, slowAt };
         const v = { x: f.x * sign * budget * PX, y: f.y * sign * budget * PX };
         let px = budget * PX, charge = null;
-        const block = (d, why) => { if (d !== null && d < px) { px = Math.max(0, d); stop = why; charge = null; } };
+        if (stop !== 'slow') blocker = null;
+        const block = (d, why, obstacle) => {
+            if (d !== null && d < px) { px = Math.max(0, d); stop = why; charge = null; blocker = obstacle; }
+        };
         // battlefield edge
         for (const p of me) {
-            if (v.x > 1e-9) block((s.width - p.x) / v.x * budget * PX, 'edge');
-            if (v.x < -1e-9) block((0 - p.x) / v.x * budget * PX, 'edge');
-            if (v.y > 1e-9) block((s.height - p.y) / v.y * budget * PX, 'edge');
-            if (v.y < -1e-9) block((0 - p.y) / v.y * budget * PX, 'edge');
+            if (v.x > 1e-9) block((s.width - p.x) / v.x * budget * PX, 'edge', 'edge');
+            if (v.x < -1e-9) block((0 - p.x) / v.x * budget * PX, 'edge', 'edge');
+            if (v.y > 1e-9) block((s.height - p.y) / v.y * budget * PX, 'edge', 'edge');
+            if (v.y < -1e-9) block((0 - p.y) / v.y * budget * PX, 'edge', 'edge');
         }
         const far = o => centreGap(u, o) > budget * PX + 2;   // can't be reached this Move
-        for (const t of s.terrain) if (trait(t, 'impassable') && !far(t)) block(sweep(me, disc(t), v), 'terrain');
-        const canCharge = !backwards && !act.pivotedInMove;
+        for (const t of s.terrain) if (trait(t, 'impassable') && !far(t)) block(sweep(me, disc(t), v), 'terrain', t);
+        // Reform Variant: any pivot this activation, even before moving, rules out a charge.
+        // V3 (like Reform): pivots before moving keep the charge; a pivot after starting to move loses it.
+        const reformVariant = s.rules === 'reform-variant';
+        const canCharge = !backwards && (reformVariant ? !act.pivots : !act.pivotedInMove) && !spent(s, u);
+        const crossings = friendlyPassage(s) && u.paceStar ? [] : null;
         for (const o of live(s)) {
             if (o.id === u.id || far(o)) continue;
             const poly = rect(o);
-            if (o.owner === u.owner || stuck.includes(o)) { block(sweep(me, poly, v), 'unit'); continue; }
-            const d = sweep(me, poly, v, CONTACT);
+            if (crossings && o.owner === u.owner) {
+                const interval = sweepInterval(me, poly, v);
+                if (interval) crossings.push({ from: interval.enter / PX, to: interval.exit / PX, unit: o });
+                continue;
+            }
+            if (o.owner === u.owner || stuck.includes(o)) { block(sweep(me, poly, v), 'unit', o); continue; }
+            // Use the exact contact point. A small gap along a separating axis can
+            // still leave the corners too far apart for a charge at an angle.
+            const d = sweep(me, poly, v);
             if (d === null) continue;
-            if (canCharge) { if (d <= px) { px = d; stop = 'charge'; charge = { distance: d / PX, targets: [] }; } }
-            else block(d - STANDOFF, 'enemy');
+            if (canCharge) { if (d <= px) { px = d; stop = 'charge'; charge = { distance: d / PX, targets: [] }; blocker = o; } }
+            else block(d - STANDOFF, 'enemy', o);
         }
         if (charge) {
             const at = { ...u, x: u.x + f.x * px, y: u.y + f.y * px };
-            charge.targets = live(s).filter(o => o.owner !== u.owner && !stuck.includes(o) && touching(at, o)).map(o => o.id);
+            charge.targets = live(s).filter(o => o.owner !== u.owner && !stuck.includes(o) && canStrikeAt(s, at, o)).map(o => o.id);
             if (!charge.targets.length) { charge = null; stop = 'enemy'; px = Math.max(0, px - STANDOFF); }
             else charge.distance = px / PX;
         }
-        return { max: Math.max(0, px / PX), reason: '', charge, stop, slowAt: slowAt / PX };
+        // Combine overlapping intervals so a destination between two friendlies
+        // is offered only if the moving card fits there.
+        const passages = crossings?.sort((a, b) => a.from - b.from).reduce((list, crossing) => {
+            const previous = list[list.length - 1];
+            if (previous && crossing.from < previous.to - 1e-7) previous.to = Math.max(previous.to, crossing.to);
+            else list.push(crossing);
+            return list;
+        }, []);
+        const blocked = crossingAt(passages, px / PX);
+        if (blocked) block(blocked.from * PX, 'unit', blocked.unit);
+        let reason = '';
+        if (stop === 'enemy' && !canCharge) {
+            if (backwards) reason = 'Only a forward Move can charge.';
+            else reason = reformVariant ? 'A unit that pivots can’t charge this activation.' : 'A unit can’t charge after pivoting during a Move.';
+        } else if (blocked) {
+            reason = `Not enough room to clear ${blocked.unit.name}.`;
+        } else if (stop === 'unit' && stuck.includes(blocker)) {
+            reason = `Already touching ${blocker.name}.`;
+        }
+        const max = Math.max(0, px / PX);
+        return { max, reason, charge, stop, blocker, slowAt: slowAt / PX,
+            ...(passages?.length ? { crossings: passages.filter(c => c.from < max && c.to <= max + 1e-7) } : {}) };
     }
 
     const pivotCache = new Map();
     /** Largest legal pivot (degrees) anticlockwise and clockwise. */
-    function pivotLimit(s, u, act) {
+    function pivotLimit(s, u, act, reform = false) {
+        const lim = pivotScan(s, u, act, reform);
+        if (reform || !lim.remaining || u.paceStar || act.moved <= SLOW_IN + 1e-6) return lim;
+        const hills = startHills(s, u, act);
+        if (!s.terrain.some(t => slows(s, t, hills) && centreGap(u, t) < 1)) return lim;
+        // Already moved more than 4": the turn must stop before the card would overlap slowing terrain.
+        const clear = (sign, max, originalBlocker) => {
+            for (let k = 0; k < max; k++) {
+                const pose = { ...u, angle: u.angle + sign * (k + 1) };
+                const blocker = s.terrain.find(t => slows(s, t, hills) && inFeature(pose, t));
+                if (blocker) return [k, blocker];
+            }
+            return [max, originalBlocker];
+        };
+        const [left, leftBlocker] = clear(-1, lim.left, lim.leftBlocker);
+        const [right, rightBlocker] = clear(1, lim.right, lim.rightBlocker);
+        return { ...lim, left, right, leftBlocker, rightBlocker,
+            reason: left || right ? lim.reason : 'Slowing terrain limits this Move to 4 inches; there isn’t room to turn without entering it.' };
+    }
+    function pivotScan(s, u, act, reform) {
         const none = why => ({ left: 0, right: 0, remaining: 0, usesAction: false, reason: why });
         if (act.charged) return none('A unit that charged can’t pivot for the rest of its activation.');
-        if (enemiesTouching(s, u).length) return none('A unit touching an enemy can’t pivot.');
-        const used = act.pivots, free = u.mobility - used;
-        const usesAction = free <= 0 && !act.action;
-        const remaining = Math.max(0, pivotAllowance(u, act) - used) + (usesAction ? 1 : 0);
+        const through = v3Rules(s);
+        const canStartInContact = through && !reform && u.owner === s.master;
+        if (!act.overlap && !canStartInContact && enemiesTouching(s, u).length) return none('A unit touching an enemy can’t pivot.');
+        let remaining, usesAction, maxDeg = 90;
+        if (reform) {
+            // Reform: the activation's action, one turn of any size.
+            if (!reformRules(s)) return none('Reform is not in these rules.');
+            if (act.action) return none('This unit has already used its action.');
+            remaining = 1; usesAction = true; maxDeg = 180;
+        } else if (reformRules(s)) {
+            // Pivots belong to a Move: available before the action is chosen (they start a Move) or during one.
+            if (act.action && act.action !== 'move') return none('Pivots are only allowed as part of a Move.');
+            usesAction = false; remaining = Math.max(0, u.mobility - act.pivots);
+        } else {
+            const used = act.pivots, free = u.mobility - used;
+            usesAction = free <= 0 && !act.action;
+            remaining = Math.max(0, pivotAllowance(u, act) - used) + (usesAction ? 1 : 0);
+        }
         if (remaining <= 0) return none('No pivots left.');
         // Sampling every degree with half a pixel of clearance is conservative: no point of a unit moves
         // more than 0.4 px between a sample and the midpoint to the next, so nothing can be passed through.
-        const obstacles = [...live(s).filter(o => o.id !== u.id && centreGap(u, o) < PIVOT_CLEARANCE).map(o => rect(o)),
-            ...s.terrain.filter(t => trait(t, 'impassable') && centreGap(u, t) < PIVOT_CLEARANCE).map(disc)];
+        const obstacles = [...live(s).filter(o => o.id !== u.id && centreGap(u, o) < PIVOT_CLEARANCE),
+            ...s.terrain.filter(t => trait(t, 'impassable') && centreGap(u, t) < PIVOT_CLEARANCE)];
+        const polygons = obstacles.map(shape);
         const c0 = centre(u), r0 = reach(u) + PIVOT_CLEARANCE;
         const nearEdge = c0.x < r0 || c0.y < r0 || c0.x > s.width - r0 || c0.y > s.height - r0;
-        if (!obstacles.length && !nearEdge) return { left: 90, right: 90, remaining, usesAction, reason: '' };
+        if (!obstacles.length && !nearEdge) return { left: maxDeg, right: maxDeg, remaining, usesAction, reason: '' };
         // The scan depends only on this geometry, which the AI meets many times over: keep its answer.
-        let key = `${s.width},${s.height},${u.x},${u.y},${u.w},${u.h},${u.angle}`;
-        for (const o of obstacles) key += `|${o.length}:${o[0].x},${o[0].y},${o[1].x},${o[1].y},${o[2].x},${o[2].y}`;
-        const known = pivotCache.get(key);
-        if (known) return { left: known.left, right: known.right, remaining, usesAction, reason: known.left || known.right ? '' : 'There isn’t room to turn here.' };
-        if (pivotCache.size > 50000) pivotCache.clear();
-        const probe = { x: u.x, y: u.y, w: u.w, h: u.h, angle: u.angle };
-        const clearAt = angle => {
-            const poly = rect(probe, angle);
-            if (nearEdge && poly.some(p => p.x < PIVOT_CLEARANCE || p.y < PIVOT_CLEARANCE || p.x > s.width - PIVOT_CLEARANCE || p.y > s.height - PIVOT_CLEARANCE)) return false;
-            return !obstacles.some(o => gapBelow(poly, o, PIVOT_CLEARANCE));
-        };
-        const scan = sign => { let k = 0; while (k < 90 && clearAt(u.angle + sign * (k + 1))) k += 1; return k; };
-        const left = scan(-1), right = scan(1);
-        pivotCache.set(key, { left, right });
-        return { left, right, remaining, usesAction, reason: left || right ? '' : 'There isn’t room to turn here.' };
+        let key = `${through ? 'T' : ''}${maxDeg},${s.width},${s.height},${u.x},${u.y},${u.w},${u.h},${u.angle}`;
+        for (const o of polygons) key += `|${o.length}:${o[0].x},${o[0].y},${o[1].x},${o[1].y},${o[2].x},${o[2].y}`;
+        let limits = pivotCache.get(key);
+        if (!limits) {
+            const probe = { x: u.x, y: u.y, w: u.w, h: u.h, angle: u.angle };
+            const scan = sign => {
+                // V3: keep scanning past obstacles, recording the facings where the unit would overlap.
+                let last = 0, open = null;
+                const spans = [];
+                for (let k = 0; k < maxDeg; k++) {
+                    const poly = rect(probe, u.angle + sign * (k + 1));
+                    let hit = null;
+                    if (nearEdge && poly.some(p => p.x < PIVOT_CLEARANCE || p.y < PIVOT_CLEARANCE || p.x > s.width - PIVOT_CLEARANCE || p.y > s.height - PIVOT_CLEARANCE)) hit = 'edge';
+                    else { const index = polygons.findIndex(o => gapBelow(poly, o, PIVOT_CLEARANCE)); if (index !== -1) hit = index; }
+                    if (hit === null) { if (open) { spans.push(open); open = null; } last = k + 1; continue; }
+                    if (!through) return [k, hit];
+                    if (open) open.to = k + 1; else open = { from: k + 1, to: k + 1, hit };
+                }
+                if (!through) return [maxDeg, null];
+                if (open) spans.push(open);
+                return [last, spans.length ? spans[0].hit : null, spans];
+            };
+            limits = [scan(-1), scan(1)];
+            if (pivotCache.size > 50000) pivotCache.clear();
+            pivotCache.set(key, limits);
+        }
+        const [[clearLeft, li, ls], [clearRight, ri, rs]] = limits;
+        // V3: with another pivot to follow, this one may end overlapping (pivotEndError checks it can finish clear).
+        const chain = through && remaining >= 2, left = chain ? maxDeg : clearLeft, right = chain ? maxDeg : clearRight;
+        const blocker = index => index === 'edge' ? 'edge' : (obstacles[index] || null);
+        // Only spans short of the farthest clear facing matter: they are facings the turn passes through.
+        const spans = (list, max) => (list || []).filter(b => b.from < max).map(b => ({ from: b.from, to: b.to, blocker: blocker(b.hit) }));
+        return { left, right, leftBlocker: blocker(li), rightBlocker: blocker(ri), remaining, usesAction,
+            ...(through ? { chain, blocked: { left: spans(ls, left), right: spans(rs, right) } } : {}),
+            reason: left || right ? '' : 'There isn’t room to turn here.' };
     }
 
-    function shotError(s, u, v) {
-        if (!(u.shoot > 0)) return 'This unit can’t shoot.';
-        if (enemiesTouching(s, u).length) return 'A unit touching an enemy can’t shoot.';
-        if (enemiesTouching(s, v).length) return 'Target is in contact with one of your units.';
-        const me = rect(u), target = rect(v), origin = { x: (me[0].x + me[1].x) / 2, y: (me[0].y + me[1].y) / 2 }, f = forwardOf(u);
-        if (target.some(q => dot(sub(q, origin), f) < -TOUCH)) return 'Target isn’t entirely in front of the shooter.';
-        if (Math.min(...target.map((q, i) => pointSeg(origin, q, target[(i + 1) % 4]))) > u.range * PX + TOUCH) return 'Out of range.';
+    /** What the unit would overlap (with pivot clearance) at this facing: a unit, a terrain feature, 'edge' or null. */
+    function overlapAt(s, u, angle) {
+        const poly = rect(u, angle);
+        if (poly.some(p => p.x < PIVOT_CLEARANCE || p.y < PIVOT_CLEARANCE || p.x > s.width - PIVOT_CLEARANCE || p.y > s.height - PIVOT_CLEARANCE)) return 'edge';
+        for (const o of live(s)) if (o.id !== u.id && centreGap(u, o) < PIVOT_CLEARANCE && gapBelow(poly, rect(o), PIVOT_CLEARANCE)) return o;
+        for (const t of s.terrain) if (trait(t, 'impassable') && centreGap(u, t) < PIVOT_CLEARANCE && gapBelow(poly, disc(t), PIVOT_CLEARANCE)) return t;
+        return null;
+    }
+    const obstacleLabel = b => b === 'edge' ? 'the battlefield’s edge' : b?.name || b?.type || 'an obstacle';
+    /**
+     * V3: a run of pivots may pass through anything, but the facing after the last one must be clear.
+     * A pivot may end overlapping only if a later pivot can still reach a clear facing.
+     */
+    function pivotEndError(s, u, lim, deg) {
+        if (!v3Rules(s)) return '';
+        const angle = u.angle + deg, blocker = overlapAt(s, u, angle);
+        if (!blocker) return '';
+        const more = lim.remaining - 1, reach = 90 * more;
+        if (more < 1) return `A unit can pivot through ${obstacleLabel(blocker)} but can’t finish its pivots overlapping it.`;
+        // Turning back to where the run started is usually clear, so try that first.
+        if (Math.abs(deg) <= reach + 1e-6 && !overlapAt(s, u, u.angle)) return '';
+        for (let k = 1; k <= reach; k++) if (!overlapAt(s, u, angle - k) || !overlapAt(s, u, angle + k)) return '';
+        return `There’s no room to finish pivoting clear of ${obstacleLabel(blocker)}.`;
+    }
+    /** The overlap span (if any) that would stop a turn of `deg` from ending there. Samples are whole degrees. */
+    function pivotOverlap(lim, deg) {
+        if (lim?.chain) return null;
+        const a = Math.abs(deg);
+        return (lim?.blocked?.[deg < 0 ? 'left' : 'right'] || []).find(b => a > b.from - 1 + 1e-6 && a < b.to + 1 - 1e-6) || null;
+    }
+    function pivotAllowed(lim, deg) {
+        return Math.abs(deg) <= (deg < 0 ? lim.left : lim.right) + 1e-6 && !pivotOverlap(lim, deg);
+    }
+    /** The legal turn nearest `deg` on the same side (0 if none). */
+    function nearestPivot(lim, deg) {
+        const sign = deg < 0 ? -1 : 1, max = sign < 0 ? lim.left : lim.right;
+        let a = Math.min(Math.abs(deg), max);
+        const span = pivotOverlap(lim, sign * a);
+        if (span) {
+            const before = span.from - 1, after = span.to + 1;
+            a = after <= max && after - a < a - before ? after : before;
+        }
+        return sign * a;
+    }
+
+    const shotError = (s, u, v) => shotCheck(s, u, v).reason;
+    function shotCheck(s, u, v) {
+        if (!(u.shoot > 0)) return { reason: 'This unit can’t shoot.' };
+        if (spent(s, u)) return { reason: SPENT_TEXT };
+        if (enemiesTouching(s, u).length) return { reason: 'A unit touching an enemy can’t shoot.' };
+        if (enemiesTouching(s, v).length) return { reason: 'Target is in contact with one of your units.' };
+        const arc = firingArc(u), target = rect(v), { origin } = arc;
+        const outsideArc = firingArcError(arc, target);
+        if (outsideArc) return { reason: outsideArc };
         const high = inTrait(s, u, 'elevated');
         const blockers = [
-            ...(high ? [] : live(s).filter(o => o.id !== u.id && o.id !== v.id).map(o => ({ poly: rect(o), what: o.name, c: centre(o), r: reach(o) }))),
+            ...(high ? [] : live(s).filter(o => o.id !== u.id && o.id !== v.id).map(o => ({ poly: rect(o), what: o.name, piece: o, c: centre(o), r: reach(o) }))),
             ...s.terrain.filter(t => trait(t, 'concealing') || (trait(t, 'elevated') && !inFeature(u, t) && !inFeature(v, t)))
-                .map(t => ({ poly: disc(t), what: t.type, c: centre(t), r: reach(t) }))
+                .map(t => ({ poly: disc(t), what: t.type, piece: t, c: centre(t), r: reach(t) }))
         ];
         // The fan of triangles from the firing point to each target edge covers every sight line.
         // A blocker lies inside its circle, so one whose circle clears a triangle cannot overlap it (same answer, cheaper).
         const fan = [0, 1, 2, 3].map(i => [origin, target[i], target[(i + 1) % 4]]);
-        for (const b of blockers) for (const tri of fan)
-            if (pointTriangleGap(b.c, tri) <= b.r + 1e-6 && overlapping(tri, b.poly)) return `Line of sight blocked by ${b.what}.`;
+        const inFan = b => fan.some(tri => pointTriangleGap(b.c, tri) <= b.r + 1e-6 && overlapping(tri, b.poly));
+        if (!v3Rules(s)) {
+            const b = blockers.find(inFan);
+            return b ? { reason: `Line of sight blocked by ${b.what}.`, blocker: b.piece } : { reason: '' };
+        }
+        // V3: one clear straight line to the centre of any target edge the shooter can see is enough.
+        // The target blocks too, so only edges facing the shooter count: an edge faces it when the
+        // firing point lies outside that edge's line (an edge seen exactly side-on doesn't count).
+        const hiding = blockers.filter(inFan);
+        const tc = centre(v), mids = [0, 1, 2, 3].map(i => ({ x: (target[i].x + target[(i + 1) % 4].x) / 2, y: (target[i].y + target[(i + 1) % 4].y) / 2 }))
+            .filter(q => dot(sub(origin, q), sub(q, tc)) > 1e-6);
+        if (mids.some(q => !hiding.some(b => overlapping([origin, q], b.poly)))) return { reason: '' };
+        if (!hiding.length) return { reason: 'Line of sight blocked by the target itself.' };
+        return { reason: `Line of sight blocked by ${hiding[0].what}.`, blocker: hiding[0].piece };
+    }
+
+    function firingArc(u) {
+        const [a, b] = rect(u);
+        return {
+            origin: { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 },
+            forward: forwardOf(u), radius: u.range * PX
+        };
+    }
+
+    function firingArcError({ origin, forward, radius }, target) {
+        if (target.some(q => dot(sub(q, origin), forward) < -TOUCH)) return 'Target isn’t entirely in front of the shooter.';
+        if (target.every((q, i) => pointSeg(origin, q, target[(i + 1) % 4]) > radius + TOUCH)) return 'Out of range.';
         return '';
     }
 
@@ -432,6 +693,16 @@ const SeizeEngine = (() => {
         const flank = [[trim(p[1], p[2]), p[2]], [p[2], p[3]], [p[3], trim(p[0], p[3])]];
         return flank.some(seg => touchingPolys(seg, e));
     }
+    /**
+     * True when an enemy touches the front edge (corners included) of unit a. A unit lying flush
+     * alongside touches only a front corner from the side; it counts only if part of it is ahead of the front.
+     */
+    function touchesFront(a, enemy) {
+        const p = rect(a), e = rect(enemy), f = forwardOf(a);
+        return touchingPolys([p[0], p[1]], e) && e.some(q => dot(sub(q, p[0]), f) > TOUCH);
+    }
+    // V3: a unit can only strike (and so only charge) enemies touching its front.
+    const canStrikeAt = (s, u, v) => touching(u, v) && (!v3Rules(s) || touchesFront(u, v));
     function outflanked(s, a) {
         return enemiesTouching(s, a).some(e => touchesFlank(a, e) && !live(s).some(o => o.owner === a.owner && o.id !== a.id && touching(o, e)));
     }
@@ -450,12 +721,16 @@ const SeizeEngine = (() => {
     /** Dice pool, target number and odds for an attack, without rolling. */
     function attackPreview(s, attackerId, targetId, kind, startHigh = null) {
         const u = unitById(s, attackerId), v = unitById(s, targetId), shooting = kind === 'shoot', mods = [];
-        if (outflanked(s, v)) mods.push({ label: 'Target outflanked', dice: 1 });
-        if (outflanked(s, u)) mods.push({ label: 'Attacker outflanked', dice: -1 });
+        // V3 has no combat modifiers: the pool is the unit's stat.
+        if (!v3Rules(s)) {
+        if (outflanked(s, v)) mods.push({ label: 'Target outflanked', dice: FLANK_DICE });
+        if (outflanked(s, u)) mods.push({ label: 'Attacker outflanked', dice: -FLANK_DICE });
         const high = startHigh === null ? inTrait(s, u, 'elevated') : startHigh, targetHigh = inTrait(s, v, 'elevated');
         if (high && !targetHigh) mods.push({ label: 'Attacker higher', dice: 1 });
         if (!high && targetHigh) mods.push({ label: 'Attacker lower', dice: -1 });
-        if (!shooting && !hasMarker(v)) mods.push({ label: 'Target has no command marker', dice: 1 });
+        const unmarked = shooting ? 0 : unmarkedStrikeDice(s, v.activated);
+        if (unmarked) mods.push({ label: 'Target has no command marker', dice: unmarked });
+        }
         const base = shooting ? u.shoot : u.melee, pool = Math.max(1, base + mods.reduce((n, m) => n + m.dice, 0));
         let tn = v.defence, tnNote = '';
         if (shooting ? u.shootAP : u.meleeAP) { if (tn > 3) { tn = 3; tnNote = 'Armour-piercing'; } }
@@ -487,16 +762,17 @@ const SeizeEngine = (() => {
     function optionsWith(s, u, act) {
         const actionFree = !act.action, contact = enemiesTouching(s, u);
         const targetsFor = kind => live(s).filter(v => v.owner !== u.owner).map(v => {
-            const why = kind === 'shoot' ? shotError(s, u, v) : (touching(u, v) ? '' : 'Not in contact.');
-            return { id: v.id, ok: !why, reason: why, preview: why ? null : attackPreview(s, u.id, v.id, kind, kind === 'strike' && act.freeStrike ? act.startHigh : null) };
+            const check = kind === 'shoot' ? shotCheck(s, u, v) : { reason: canStrikeAt(s, u, v) ? '' : touching(u, v) ? 'Not touching this unit’s front.' : 'Not in contact.' };
+            return { id: v.id, ok: !check.reason, ...check, preview: check.reason ? null : attackPreview(s, u.id, v.id, kind, kind === 'strike' && act.freeStrike ? act.startHigh : null) };
         });
-        const canShoot = actionFree && u.shoot > 0 && !contact.length;
-        const canStrike = (actionFree || act.freeStrike) && contact.length > 0;
+        const canShoot = actionFree && u.shoot > 0 && !contact.length && !spent(s, u);
+        const canStrike = (actionFree || act.freeStrike) && contact.length > 0 && !spent(s, u);
         return {
             canAct: true, reason: '', activated: Boolean(s.activation), activation: act,
             forward: moveLimit(s, u, act, false), backward: moveLimit(s, u, act, true), pivot: pivotLimit(s, u, act),
+            reform: reformRules(s) ? pivotLimit(s, u, act, true) : null, rules: s.rules || 'classic',
             shoot: canShoot ? targetsFor('shoot') : [], strike: canStrike ? targetsFor('strike').filter(t => t.ok) : [],
-            freeStrike: act.freeStrike, canRally: actionFree && u.strain > 0, actionFree, inContact: contact.length > 0
+            freeStrike: act.freeStrike, canRally: actionFree && u.strain > 0 && (!reformRules(s) || v3Rules(s)), actionFree, inContact: contact.length > 0
         };
     }
 
@@ -522,20 +798,59 @@ const SeizeEngine = (() => {
             x: v.x + v.w / 2, y: v.y + v.h / 2 });
         applyStrain(s, v, strain);
     }
-    function endActivation(s) { s.activation = null; skipEmptyTurns(s); }
+    function endActivation(s, { reviewRoundEnd, reviewTurnEnd }) {
+        s.activation = null;
+        if ((reviewRoundEnd || reviewTurnEnd) && !canCommand(s, activePlayer(s))) {
+            const hasLaterOrders = [s.master, other(s.master), s.master].slice(s.turnStep + 1).some(p => canCommand(s, p));
+            if (hasLaterOrders ? reviewTurnEnd : reviewRoundEnd) {
+                if (hasLaterOrders) s.awaitingTurnEnd = true;
+                else s.awaitingRoundEnd = true;
+                return;
+            }
+        }
+        skipEmptyTurns(s);
+    }
     /** Close the activation by itself once nothing further is possible. */
-    function autoEnd(s) {
+    function autoEnd(s, review) {
         const act = s.activation;
         if (!act || s.phase !== 'command') return;
         const u = unitById(s, act.unitId);
-        if (!u) return endActivation(s);
+        if (!u) return endActivation(s, review);
         const o = unitOptions(s, u.id);
-        const canMove = o.forward.max > 0.005 || o.backward.max > 0.005;
-        const canPivot = o.pivot.remaining > 0 && (o.pivot.left > 0 || o.pivot.right > 0);
-        if (!canMove && !canPivot && !o.strike.length && !o.shoot.some(t => t.ok) && !o.canRally) endActivation(s);
+        const canMove = o.forward.charge || o.forward.max > 0.005 || o.backward.max > 0.005;
+        const canPivot = (o.pivot.remaining > 0 && (o.pivot.left > 0 || o.pivot.right > 0))
+            || Boolean(o.reform && o.reform.remaining > 0 && (o.reform.left > 0 || o.reform.right > 0));
+        if (!canMove && !canPivot && !o.strike.length && !o.shoot.some(t => t.ok) && !o.canRally) endActivation(s, review);
     }
 
-    function commandAction(s, a) {
+    function updatePivotActivation(s, u, act, deg, reform, usesAction) {
+        if (reform) act.action = 'reform';
+        else if (reformRules(s)) {
+            // A pivot starts a Move. Once the unit has moved, it can no longer charge.
+            if (act.moved > 0 && !act.charged) act.pivotedInMove = true;
+            act.action = 'move';
+        } else if (usesAction) act.action = 'extraPivot';
+        else if (act.action === 'move' && !act.charged) act.pivotedInMove = true;
+        if (!reform) act.pivots += 1;
+        if (act.action === 'move' && v3Rules(s) && !act.startHills) act.startHills = hillsOf(s, u);
+        // A turn during a Move can sweep through slowing terrain before it reaches its final facing.
+        if (act.action === 'move' && !u.paceStar && !act.slowed && act.moved <= SLOW_IN + 1e-6) {
+            const hills = startHills(s, u, act);
+            for (let k = 1; k <= 6; k++) if (inSlowing(s, { ...u, angle: u.angle + deg * k / 6 }, hills)) { act.slowed = true; break; }
+        }
+    }
+
+    function movementAfterPivot(s, u, activation, degrees, { reform, usesAction }) {
+        const projected = { ...activation };
+        const pose = { ...u, angle: u.angle + degrees };
+        if (Math.abs(degrees) >= 0.5) {
+            updatePivotActivation(s, u, projected, degrees, reform, usesAction);
+            projected.overlap = v3Rules(s) && Boolean(overlapAt(s, pose, pose.angle));
+        }
+        return { pose, forward: moveLimit(s, pose, projected, false), backward: moveLimit(s, pose, projected, true) };
+    }
+
+    function commandAction(s, a, review) {
         const p = activePlayer(s);
         if (a.player && a.player !== p) fail(`It is ${label(p)}’s turn.`);
         if (a.type === 'pass') {
@@ -555,7 +870,10 @@ const SeizeEngine = (() => {
         const act = s.activation;
         if (!act) fail('Activate a unit first.');
         const u = unitById(s, act.unitId);
-        if (a.type === 'endActivation') return endActivation(s);
+        if (a.type === 'endActivation') {
+            if (s.activation?.overlap) fail(`Keep pivoting: ${unitById(s, s.activation.unitId).name} can’t finish overlapping another unit, impassable terrain or the edge.`);
+            return endActivation(s, review);
+        }
         if (a.type === 'move') {
             const inches = Number(a.inches), backwards = Boolean(a.backwards);
             if (!Number.isFinite(inches) || inches <= 0) fail('Move a positive distance.');
@@ -563,27 +881,34 @@ const SeizeEngine = (() => {
             if (limit.max <= 0) fail(limit.reason || 'This unit can’t move that way.');
             if (inches > limit.max + 0.011) fail(`This unit can move at most ${limit.max.toFixed(2)}″ that way.`);
             const charging = Boolean(limit.charge) && inches >= limit.max - 1e-6;
-            const dist = Math.min(inches, limit.max), f = forwardOf(u), sign = backwards ? -1 : 1;
+            const dist = charging ? limit.max : Math.min(inches, limit.max), f = forwardOf(u), sign = backwards ? -1 : 1;
+            if (crossingAt(limit.crossings, dist)) fail('The unit must finish its move clear of friendly units.');
             if (act.startHigh === null) act.startHigh = inTrait(s, u, 'elevated');
+            if (v3Rules(s) && !act.startHills) act.startHills = hillsOf(s, u);
             if (!u.paceStar && dist * PX > limit.slowAt * PX - 1e-6) act.slowed = true;
             u.x += f.x * sign * dist * PX; u.y += f.y * sign * dist * PX;
             act.action = 'move'; act.dir = backwards ? 'back' : 'fwd'; act.moved += dist;
-            if (!u.paceStar && inTrait(s, u, 'slowing')) act.slowed = true;
+            if (!u.paceStar && inSlowing(s, u, startHills(s, u, act))) act.slowed = true;
             emit(s, { type: 'move', unitId: u.id });
+            if (!charging) log(s, `${label(u.owner)} · ${u.name} ${backwards ? 'withdraws' : 'advances'} ${dist.toFixed(2)}″ (${act.moved.toFixed(2)}″ moved).`);
             if (charging) {
                 act.charged = true; act.freeStrike = true;
                 log(s, `${u.name} charges ${limit.charge.targets.map(id => unitById(s, id).name).join(' and ')}.`);
                 emit(s, { type: 'charge', unitId: u.id, targets: limit.charge.targets });
             }
         } else if (a.type === 'pivot') {
-            const deg = Number(a.degrees), lim = pivotLimit(s, u, act);
+            const deg = Number(a.degrees), reform = Boolean(a.reform), lim = pivotLimit(s, u, act, reform);
             if (!Number.isFinite(deg) || Math.abs(deg) < 0.01) fail('Choose an angle to pivot.');
             if (lim.remaining <= 0) fail(lim.reason);
-            if (Math.abs(deg) > 90 + 1e-6) fail('A pivot turns a unit up to 90°.');
+            if (Math.abs(deg) > (reform ? 180 : 90) + 1e-6) fail(reform ? 'Reform turns a unit up to 180° either way.' : 'A pivot turns a unit up to 90°.');
             if (Math.abs(deg) > (deg < 0 ? lim.left : lim.right) + 1e-6) fail('There isn’t room to turn that far without touching something.');
-            if (lim.usesAction) act.action = 'extraPivot';
-            else if (act.action === 'move' && !act.charged) act.pivotedInMove = true;
-            u.angle += deg; act.pivots += 1;
+            const endError = pivotEndError(s, u, lim, deg);
+            if (endError) fail(endError);
+            updatePivotActivation(s, u, act, deg, reform, lim.usesAction);
+            u.angle += deg;
+            act.overlap = v3Rules(s) && Boolean(overlapAt(s, u, u.angle));
+            log(s, reform ? `${label(u.owner)} · ${u.name} reforms, turning ${deg > 0 ? 'clockwise' : 'anticlockwise'} ${Math.abs(deg)}°.`
+                : `${label(u.owner)} · ${u.name} pivots ${deg > 0 ? 'clockwise' : 'anticlockwise'} ${Math.abs(deg)}° (${Math.max(0, u.mobility - act.pivots)} pivots left).`);
             emit(s, { type: 'pivot', unitId: u.id });
         } else if (a.type === 'shoot') {
             if (act.action) fail('This unit has already used its action.');
@@ -595,27 +920,31 @@ const SeizeEngine = (() => {
             if (act.action && !act.freeStrike) fail('This unit has already used its action.');
             const v = unitById(s, a.targetId);
             if (!v || v.owner === u.owner || !touching(u, v)) fail('Strike an enemy this unit is touching.');
+            if (!canStrikeAt(s, u, v)) fail('A unit can only strike an enemy touching its front.');
+            if (spent(s, u)) fail(SPENT_TEXT);
             if (!act.action) act.action = 'strike';
             resolveAttack(s, u, v, 'strike', act, a.forcedStrain); act.freeStrike = false;
         } else if (a.type === 'rally') {
             if (act.action) fail('This unit has already used its action.');
+            if (reformRules(s) && !v3Rules(s)) fail('There is no Rally action in these rules.');
             if (u.strain < 1) fail('This unit has no strain to remove.');
-            const die = a.forcedDie === undefined ? rollDie(s) : a.forcedDie, removed = Math.min(u.strain, Math.ceil(die / 2));
+            // V3: no roll; rallying removes one strain, even in contact with an enemy.
+            const die = v3Rules(s) ? null : a.forcedDie === undefined ? rollDie(s) : a.forcedDie, removed = die === null ? 1 : Math.min(u.strain, Math.ceil(die / 2));
             u.strain -= removed; act.action = 'rally';
-            log(s, `${u.name} rallies: rolled ${die}, removes ${removed} strain.`);
+            log(s, die === null ? `${u.name} rallies, removing 1 strain.` : `${u.name} rallies: rolled ${die}, removes ${removed} strain.`);
             emit(s, { type: 'rally', unitId: u.id, die, removed, owner: u.owner, x: u.x + u.w / 2, y: u.y + u.h / 2 });
         } else fail('Unknown action.');
-        if (s.phase === 'command') autoEnd(s);
+        if (s.phase === 'command') autoEnd(s, review);
     }
 
     /** Returns a new state. Throws an Error with a player-readable message if the action is illegal. */
-    function apply(state, action) {
+    function apply(state, action, review = {}) {
         if (state.phase === 'finished') fail('The battle is over.');
         if ((action.forcedStrain !== undefined || action.forcedDie !== undefined) && !state.hypothetical) fail('Dice can only be fixed in a hypothetical state.');
         const s = clone(state);
         if (s.phase === 'draft') draftAction(s, action);
         else if (s.phase === 'bidding') bidAction(s, action);
-        else commandAction(s, action);
+        else commandAction(s, action, review);
         return s;
     }
 
@@ -654,17 +983,28 @@ const SeizeEngine = (() => {
                 if (s.commands[p] > 0) army(s, p).filter(u => !u.activated).forEach(u => out.push({ type: 'activate', player: p, unitId: u.id }));
             } else {
                 const o = unitOptions(s, s.activation.unitId);
-                out.push({ type: 'endActivation', player: p });
+                if (!s.activation.overlap) out.push({ type: 'endActivation', player: p });
+                const mover = unitById(s, s.activation.unitId), endsOK = (lim, deg) => pivotAllowed(lim, deg) && !pivotEndError(s, mover, lim, deg);
                 o.strike.forEach(t => out.push({ type: 'strike', player: p, targetId: t.id }));
                 o.shoot.filter(t => t.ok).forEach(t => out.push({ type: 'shoot', player: p, targetId: t.id }));
                 if (o.canRally) out.push({ type: 'rally', player: p });
                 for (const [lim, backwards] of [[o.forward, false], [o.backward, true]]) {
-                    if (lim.max <= 0.05) continue;
-                    for (const f of options.moveFractions || [1, 0.5, 0.25]) out.push({ type: 'move', player: p, inches: f === 1 ? lim.max : round2(lim.max * f), backwards });
+                    if (lim.max <= 0.05) {
+                        if (lim.charge) out.push({ type: 'move', player: p, inches: lim.max, backwards });
+                        continue;
+                    }
+                    for (const f of options.moveFractions || [1, 0.5, 0.25]) {
+                        const inches = f === 1 ? lim.max : round2(lim.max * f);
+                        if (!crossingAt(lim.crossings, inches)) out.push({ type: 'move', player: p, inches, backwards });
+                    }
                 }
                 if (o.pivot.remaining > 0) for (const deg of options.pivotAngles || [15, 45, 90]) {
-                    if (deg <= o.pivot.left) out.push({ type: 'pivot', player: p, degrees: -deg });
-                    if (deg <= o.pivot.right) out.push({ type: 'pivot', player: p, degrees: deg });
+                    if (endsOK(o.pivot, -deg)) out.push({ type: 'pivot', player: p, degrees: -deg });
+                    if (endsOK(o.pivot, deg)) out.push({ type: 'pivot', player: p, degrees: deg });
+                }
+                if (o.reform && o.reform.remaining > 0) for (const deg of options.reformAngles || [45, 90, 135, 180]) {
+                    if (endsOK(o.reform, -deg)) out.push({ type: 'pivot', player: p, degrees: -deg, reform: true });
+                    if (endsOK(o.reform, deg) && deg < 180) out.push({ type: 'pivot', player: p, degrees: deg, reform: true });
                 }
             }
         }
@@ -672,9 +1012,9 @@ const SeizeEngine = (() => {
     }
 
     return {
-        PX, TERRAIN, ROUT_STRAIN, createGame, apply, legalActions, unitOptions, attackPreview, activePlayer, parseStats,
+        PX, TERRAIN, ROUT_STRAIN, FLANK_DICE, SPENT_STRAIN, createGame, normalizeRules, reformRules, v3Rules, unmarkedStrikeDice, pivotAllowed, nearestPivot, pivotOverlap, pivotEndError, overlapAt, apply, legalActions, unitOptions, attackPreview, activePlayer, parseStats,
         observe, optionsAsIf, strainDist, clone, inTrait, enemiesTouching: (s, u) => enemiesTouching(s, u),
-        terrainSpots, terrainPlacementError, deployError, tileAt, outflanked, shotError, moveLimit, pivotLimit,
+        terrainSpots, terrainPlacementError, deployError, tileAt, outflanked, touchesFront, canStrikeAt, shotError, shotCheck, firingArc, firingArcError, moveLimit, crossingAt, pivotLimit, movementAfterPivot,
         geometry: { rect, disc, satGap, polyDist, sweep, forwardOf, centre, touching, inFeature, reach },
         other, label
     };

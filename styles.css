@@ -1694,65 +1694,6 @@ input::placeholder {
     background: var(--gold);
 }
 
-#unit-tooltip {
-    position: absolute;
-    top: 0;
-    left: 0;
-    width: max-content;
-    padding: 6px 8px;
-    border-radius: 12px;
-    border: 1px solid rgba(23, 108, 113, 0.45);
-    background:
-        linear-gradient(180deg, rgba(66, 49, 32, 0.95), rgba(20, 14, 10, 0.96)),
-        radial-gradient(circle at top, rgba(238, 214, 158, 0.12), transparent 40%);
-    box-shadow: 0 14px 26px rgba(0, 0, 0, 0.45), inset 0 1px 0 rgba(255, 246, 223, 0.15);
-    color: var(--ink-soft);
-    pointer-events: none;
-    z-index: 35;
-    opacity: 0;
-    visibility: hidden;
-    transform: translateY(8px) scale(0.97);
-    transform-origin: center center;
-    transition: opacity 0.18s ease, transform 0.18s ease, visibility 0.18s ease;
-}
-
-#unit-tooltip.interactive {
-    pointer-events: auto;
-    touch-action: manipulation;
-}
-
-#unit-tooltip.visible {
-    opacity: 1;
-    visibility: visible;
-    transform: translateY(0) scale(1);
-}
-
-.unit-popup-controls {
-    display: flex;
-    position: relative;
-    z-index: 1;
-}
-
-.unit-popup-controls .piece-control-row {
-    display: flex;
-    gap: 6px;
-    align-items: center;
-}
-
-.unit-popup-controls button {
-    width: 28px;
-    min-height: 26px;
-    padding: 0;
-    font-size: 1.05rem;
-    font-weight: bold;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    line-height: 1;
-    cursor: pointer;
-    border-radius: 8px;
-}
-
 /* Flipped board perspective for Challenger (Player 2) */
 #game-table.is-flipped #piece-controls {
     transform: translateX(-50%) rotate(180deg);
@@ -1761,14 +1702,6 @@ input::placeholder {
 #game-table.is-flipped #angle-indicator,
 #game-table.is-flipped #remote-angle-indicator {
     transform: translate(-50%, -50%) rotate(180deg);
-}
-
-#game-table.is-flipped #unit-tooltip {
-    transform: translateY(8px) scale(0.97) rotate(180deg);
-}
-
-#game-table.is-flipped #unit-tooltip.visible {
-    transform: translateY(0) scale(1) rotate(180deg);
 }
 
 #game-table.is-flipped .command-token-table,
@@ -1990,7 +1923,6 @@ input::placeholder {
 
     .piece,
     .rotation-handle,
-    #unit-tooltip,
     #piece-controls,
     button {
         transition: none;
@@ -2016,7 +1948,6 @@ input::placeholder {
     .range-ring,
     #angle-indicator,
     #piece-controls,
-    #unit-tooltip,
     #stats-panel,
     .sidebar,
     .palette-item,
@@ -3113,12 +3044,6 @@ input::placeholder { color: #7a8176; }
 .die-face.rolling { color: #31575a; }
 .staging-hint, .command-group-title { color: #4b5e4d; }
 .turn-status-card h4 { color: #263d41; }
-
-#unit-tooltip {
-    background: #e8e6d1;
-    border-color: #aab398;
-    color: #263d41;
-}
 
 /* Consistent interface rhythm; board pieces retain their physical dimensions. */
 :root {

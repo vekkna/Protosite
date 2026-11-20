@@ -19,12 +19,10 @@ const UNIT_HIT_POINTS = 7;
 const ARCHER_SHOOTING_VALUES = [2, 3, 4];
 const SAVE_KEY = 'wargameSave_v6';
 const UI_STATE_KEY = 'wargameUiState_v1';
-const TOOLTIP_HOVER_DELAY_MS = 350;
-const TOOLTIP_SUPPRESS_AFTER_MANIPULATION_MS = 300;
 const DRAG_THRESHOLD_PX = 8;
 const UNIT_LONG_PRESS_MS = 500;
 const TOUCH_ROTATION_STEP_DEG = 5;
-const UNIT_LABEL_MAX_FONT_PX = 17;
+const UNIT_LABEL_MAX_FONT_PX = 10;
 const UNIT_LABEL_MIN_FONT_PX = 7.5;
 const UNIT_LABEL_FONT_STEP_PX = 0.25;
 
@@ -38,6 +36,7 @@ const ACTIVE_GAMES_KEY = 'seize_the_day_active_games_v1';
 const getGameSaveKey = (roomCode) => 'seize_the_day_save_' + (roomCode || '').toUpperCase();
 
 let currentRoomCode = '';
+let sessionMode = 'online';
 let isRoomCodeHidden = true;
 let peer = null;
 let conn = null;
@@ -54,7 +53,6 @@ let biddingState = {
     firstRoundTieWinner: 'p2'
 };
 let commandTokens = [];
-let statsTooltipTimer = null;
 let isRightSidebarHidden = false;
 let isMultiplayerPanelCollapsed = false;
 let preferredSidebarWidth = null;
@@ -86,6 +84,7 @@ function addOrUpdateActiveGame(meta) {
     const index = list.findIndex(g => g.roomCode === cleanCode);
     const entry = {
         roomCode: cleanCode,
+        mode: sessionMode,
         role: meta.role || (meta.isHost ? 'p1' : 'p2'),
         isHost: meta.isHost !== undefined ? Boolean(meta.isHost) : meta.role === 'p1',
         round: meta.round || 1,
@@ -99,7 +98,7 @@ function addOrUpdateActiveGame(meta) {
         list.unshift(entry);
     }
     saveActiveGamesList(list);
-    renderActiveGamesUI();
+    if (!currentRoomCode) renderActiveGamesUI();
 }
 
 function removeActiveGame(roomCode) {
@@ -149,7 +148,7 @@ function renderActiveGamesUI() {
 
         const roleBadge = document.createElement('span');
         roleBadge.className = `option-badge ${game.role === 'p1' ? 'badge-p1' : 'badge-p2'}`;
-        roleBadge.textContent = game.role === 'p1' ? 'Player 1' : 'Player 2';
+        roleBadge.textContent = game.mode === 'solo' ? 'Solo battle' : game.mode === 'shared' ? 'Shared screen' : game.role === 'p1' ? 'Player 1' : 'Player 2';
 
         const codeStrong = document.createElement('strong');
         codeStrong.className = 'active-game-code';
@@ -265,8 +264,8 @@ function updateTerrainVisibility() {
         if (zone) zone.style.height = `${inchesToPx(DEPLOY_INCHES)}px`;
     });
     const section = document.getElementById('terrain-section');
-    if (section) {
-        section.hidden = typeof GuidedPlay !== 'undefined' ? !GuidedPlay.snapshot().drafting : hasBattleStarted();
+    if (section && typeof GuidedPlay === 'undefined') {
+        section.hidden = !deploying;
         section.style.display = section.hidden ? 'none' : '';
     }
 }
@@ -657,9 +656,10 @@ function updateFullscreenUI() {
     const supported = Boolean(root && (root.requestFullscreen || root.webkitRequestFullscreen));
     const isFullscreen = Boolean(getFullscreenElement());
     button.disabled = !supported;
-    button.innerText = isFullscreen ? 'Exit Full Screen' : 'Full Screen';
+    button.ariaLabel = isFullscreen ? 'Exit full screen' : 'Enter full screen';
+    button.ariaPressed = String(isFullscreen);
     button.title = supported
-        ? (isFullscreen ? 'Exit full screen' : 'Open game in full screen')
+        ? button.ariaLabel + ' (F)'
         : 'Full screen is unavailable in this browser';
     const help = document.getElementById('display-help');
     if (help) help.textContent = !supported
@@ -768,7 +768,13 @@ table.style.height = `${tableHeightPx}px`;
 // --- GAME STATE ---
 let activePiece = null;
 let ghostPiece = null;
-let isMeasuring = false;
+let rulerDrag = null;
+let rulerPreview = null;
+let rulerMode = false;
+const pinnedRulers = [];
+let rulerAnimationFrame = null;
+let pingMode = false;
+let pingPointer = false;
 let anchorX = 0;
 let anchorY = 0;
 let hoveredUnit = null;
@@ -776,15 +782,16 @@ let hoveredTerrain = null;
 let angleIndicatorTimer = null;
 let rotationPivotTarget = null;
 let rotationPivotStartAngle = 0;
-let suppressTooltipUntil = 0;
 let selectedPiece = null;
 let activePointerId = null;
 let pendingDragPiece = null;
+let pendingCornerDrag = false;
+let pendingDeploymentPivot = false;
 let rotatingPiece = null;
 let rotationDragStartAngle = 0;
 let rotationDragLastPointerAngle = 0;
 let rotationDragPointerDelta = 0;
-let rotationDragUndoPushed = false;
+let gestureUndoState = null;
 let rotationDragCenterX = 0;
 let rotationDragCenterY = 0;
 let pointerStartX = 0;
@@ -795,7 +802,6 @@ let activePieceHalfWidth = 0;
 let activePieceHalfHeight = 0;
 let pendingPointerMove = null;
 let pointerMoveFrame = null;
-let measurementPointerId = null;
 let didLongPressSelect = false;
 let unitLongPressTimer = null;
 let undoStack = [];
@@ -805,16 +811,23 @@ roundState = CommandTracker.create();
 let terrainCardRemoveTimer = null;
 let terrainCardRevealTimer = null;
 let isTerrainCardAnimating = false;
-const MAX_UNDO = 20;
+// Switch this back to restore the original ring input.
+const USE_PIVOT_RING = false;
 
 const lineElement = document.getElementById('measure-line');
 const measureTextElement = document.getElementById('measure-text');
 
 // --- RULEBOOK MODAL ---
+let openModalId = null;
+let modalOpener = null;
 
 function setModalVisibility(modalId, isVisible) {
     const modal = document.getElementById(modalId);
     if (!modal) return;
+    if (!isVisible && openModalId !== modalId) return;
+    if (isVisible) modalOpener = document.activeElement;
+    openModalId = isVisible ? modalId : null;
+    for (const id of ['container', 'landing-screen']) document.getElementById(id).inert = isVisible;
 
     modal.style.display = isVisible ? 'flex' : 'none';
     modal.setAttribute('aria-hidden', String(!isVisible));
@@ -828,12 +841,16 @@ function setModalVisibility(modalId, isVisible) {
                 focusTarget.focus();
             }
         }
-    }
+    } else { modalOpener?.focus?.({ preventScroll: true }); modalOpener = null; }
 }
 
 function openRulebook() {
     closeControlsHelp();
     closeMatchupAnalysis();
+    const frame = document.getElementById('rulebook-frame');
+    const rules = GuidedPlay.activeRules();
+    const source = ['reform-variant', 'v3'].includes(rules) ? `game-rules.html?rules=${rules}` : 'game-rules.html';
+    if (frame.getAttribute('src') !== source) frame.setAttribute('src', source);
     setModalVisibility('rulebook-modal', true);
 }
 
@@ -879,11 +896,12 @@ function closeMatchupAnalysis() {
 }
 
 window.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape') {
-        clearPieceSelection();
-        closeRulebook();
-        closeControlsHelp();
-        closeMatchupAnalysis();
+    if (e.key === 'Escape' && !e.defaultPrevented) {
+        if (openModalId) setModalVisibility(openModalId, false);
+        else if (document.getElementById('container').style.display !== 'none') {
+            clearPieceSelection();
+            if (typeof GuidedPlay !== 'undefined') GuidedPlay.render();
+        }
     }
 });
 
@@ -893,6 +911,7 @@ let globalRulesDB = [];
 const RULES_CSV_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vQXT5eF4DzRhJokOVdTb5g1Lnt6_gFkeh7oEdg2DLYAtY98FxybE-ijwA8uoWDiYtiBb0a3BM-ukWx9/pub?gid=2000929092&single=true&output=csv';
 
 function loadRules() {
+    if (typeof Papa === 'undefined') return;
     Papa.parse(RULES_CSV_URL, {
         download: true,
         header: false,
@@ -982,20 +1001,25 @@ function readStatsCache() {
     }
 }
 
+// Local snapshot of the sheet (refresh with `node tools/sync-stats.js`), tried when the sheet can't be reached.
+const STATS_SNAPSHOT_URL = 'unit-cards-source.csv';
+
+// Last resort if neither the sheet, the browser cache nor the snapshot loads. Keep in step with
+// unit-cards-source.csv (tests/roles-stats.test.js checks this).
 const FALLBACK_DEFAULT_UNITS = [
-    { Unit: "Heavy Infantry", Speed: "5", Drill: "0", Melee: "6", Ranged: "-", Def: "5", Footprint: "SW", Quantity: "2" },
-    { Unit: "Fanatics", Speed: "6", Drill: "1", Melee: "10", Ranged: "-", Def: "3", Footprint: "SW", Quantity: "2" },
+    { Unit: "Heavy Infantry", Speed: "6", Drill: "0", Melee: "6", Ranged: "-", Def: "5", Footprint: "SW", Quantity: "2" },
+    { Unit: "Fanatics", Speed: "5", Drill: "1", Melee: "5", Ranged: "-", Def: "3", Footprint: "SW", Quantity: "2" },
     { Unit: "Heavy Cavalry", Speed: "10", Drill: "0", Melee: "4", Ranged: "-", Def: "5", Footprint: "SN", Quantity: "2" },
-    { Unit: "Infantry", Speed: "6", Drill: "2", Melee: "3", Ranged: "-", Def: "5", Footprint: "SW", Quantity: "2" },
-    { Unit: "Halberds", Speed: "6", Drill: "0", Melee: "3*", Ranged: "-", Def: "4", Footprint: "SW", Quantity: "2" },
-    { Unit: "Spears", Speed: "6", Drill: "1", Melee: "2", Ranged: "-", Def: "6", Footprint: "SW", Quantity: "2" },
-    { Unit: "Cavalry", Speed: "12", Drill: "1", Melee: "4", Ranged: "-", Def: "4", Footprint: "SN", Quantity: "2" },
-    { Unit: "Lancers", Speed: "11", Drill: "2", Melee: "2*", Ranged: "-", Def: "4", Footprint: "SN", Quantity: "2" },
-    { Unit: "Light Infantry", Speed: "7", Drill: "4", Melee: "3", Ranged: "1*/4", Def: "4", Footprint: "SW", Quantity: "2" },
-    { Unit: "Light Cavalry", Speed: "14", Drill: "3", Melee: "4", Ranged: "-", Def: "3", Footprint: "SN", Quantity: "2" },
-    { Unit: "Archers", Speed: "6", Drill: "1", Melee: "1", Ranged: "4/24", Def: "3", Footprint: "SW", Quantity: "2" },
-    { Unit: "Crossbows", Speed: "6", Drill: "0", Melee: "1", Ranged: "3*/18", Def: "3", Footprint: "SW", Quantity: "2" },
-    { Unit: "Mounted Archers", Speed: "12", Drill: "3", Melee: "1", Ranged: "3/12", Def: "3", Footprint: "SN", Quantity: "2" }
+    { Unit: "Infantry", Speed: "6", Drill: "2", Melee: "3", Ranged: "-", Def: "5", Footprint: "SW", Quantity: "3" },
+    { Unit: "Halberds", Speed: "6", Drill: "1", Melee: "2*", Ranged: "-", Def: "4", Footprint: "SW", Quantity: "1" },
+    { Unit: "Spears", Speed: "6", Drill: "1", Melee: "1", Ranged: "-", Def: "6", Footprint: "SW", Quantity: "2" },
+    { Unit: "Cavalry", Speed: "12", Drill: "1", Melee: "3", Ranged: "-", Def: "4", Footprint: "SN", Quantity: "2" },
+    { Unit: "Lancers", Speed: "11", Drill: "2", Melee: "2*", Ranged: "-", Def: "4", Footprint: "SN", Quantity: "1" },
+    { Unit: "Light Infantry", Speed: "7*", Drill: "4", Melee: "3", Ranged: "-", Def: "4*", Footprint: "SW", Quantity: "3" },
+    { Unit: "Light Cavalry", Speed: "14", Drill: "3", Melee: "2", Ranged: "-", Def: "3*", Footprint: "SN", Quantity: "2" },
+    { Unit: "Archers", Speed: "6", Drill: "1", Melee: "1", Ranged: "3/18", Def: "3", Footprint: "SW", Quantity: "3" },
+    { Unit: "Crossbows", Speed: "5", Drill: "0", Melee: "1", Ranged: "2*/14", Def: "3", Footprint: "SW", Quantity: "1" },
+    { Unit: "Mounted Archers", Speed: "12", Drill: "3", Melee: "1", Ranged: "3/12", Def: "3*", Footprint: "SN", Quantity: "2" }
 ];
 
 // Initialize with cached stats if present, or fallback default units immediately
@@ -1013,6 +1037,7 @@ function getFreshStatsUrl() {
 }
 
 function loadStats(forceRefresh = false) {
+    if (typeof Papa === 'undefined') return Promise.resolve(availableUnitRows);
     if (!forceRefresh && statsLoadedFromSource && availableUnitRows.length > 0) {
         return Promise.resolve(availableUnitRows);
     }
@@ -1052,8 +1077,26 @@ function loadStats(forceRefresh = false) {
                     return;
                 }
 
-                console.warn("Using fallback stats after load error:", err);
-                resolve(availableUnitRows);
+                Papa.parse(STATS_SNAPSHOT_URL, {
+                    download: true,
+                    header: true,
+                    skipEmptyLines: true,
+                    transformHeader: header => header.trim(),
+                    complete: function (snapshot) {
+                        const rows = snapshot.data.filter(row => row.Unit && row.Unit.trim());
+                        if (rows.length) {
+                            console.warn("Using the local stats snapshot after load error:", err);
+                            setStatsData(rows, false);
+                        } else {
+                            console.warn("Using built-in fallback stats after load error:", err);
+                        }
+                        resolve(availableUnitRows);
+                    },
+                    error: function () {
+                        console.warn("Using built-in fallback stats after load error:", err);
+                        resolve(availableUnitRows);
+                    }
+                });
             }
         });
     }).finally(() => {
@@ -1126,7 +1169,7 @@ function buildStatsMarkup(unitSource) {
     if (stats) {
         const colour = unitSource.dataset && unitSource.dataset.owner === 'p2' ? 'orange' : 'blue';
         const safeCardName = cleanName.replace(/[&<>"']/g, character => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[character]));
-        const artworkFile = typeof UnitArtwork !== 'undefined' ? UnitArtwork.fileFor({ ...stats, Unit: cleanName }) : '';
+        const artworkFile = typeof UnitArtwork !== 'undefined' ? UnitArtwork.screenFileFor({ ...stats, Unit: cleanName }) : '';
         const artworkHtml = artworkFile ? `<div class="stats-artwork-emblem army-${colour}"><img class="stats-unit-artwork" src="images/${encodeURIComponent(artworkFile)}" alt="${safeCardName} artwork" onerror="this.parentElement.hidden=true"></div>` : '';
         const filteredRules = [...new Set(activeRules.filter(r => r && r.trim() !== ""))];
         const rulesHtml = filteredRules.length > 0
@@ -1143,22 +1186,22 @@ function buildStatsMarkup(unitSource) {
                     ${artworkHtml}
                     <div class="stats-grid">
                         <div class="stat-chip">
-                            <img class="stat-icon" src="icons/move.svg" alt="Move">
+                            <img class="stat-icon" src="images/move-icon.png" alt="">
                             <span class="stat-label">Speed / Drill</span>
                             <span class="stat-value">${getStatValue(stats, 'Speed', 'Move')}/${getStatValue(stats, 'Drill')}</span>
                         </div>
                         <div class="stat-chip">
-                            <img class="stat-icon" src="icons/shoot.svg" alt="Shoot">
+                            <img class="stat-icon" src="icons/shoot.svg" alt="">
                             <span class="stat-label">Ranged</span>
                             <span class="stat-value">${getStatValue(stats, 'Ranged', 'Shoot')}</span>
                         </div>
                         <div class="stat-chip">
-                            <img class="stat-icon" src="icons/strike.svg" alt="Melee">
+                            <img class="stat-icon" src="images/strike-icon.png" alt="">
                             <span class="stat-label">Melee</span>
                             <span class="stat-value">${getStatValue(stats, 'Melee', 'Strike')}</span>
                         </div>
                         <div class="stat-chip">
-                            <img class="stat-icon" src="icons/defence.svg" alt="Defence">
+                            <img class="stat-icon" src="images/defence-icon.png" alt="">
                             <span class="stat-label">Defence</span>
                             <span class="stat-value">${getStatValue(stats, 'Def', 'Defence')}</span>
                         </div>
@@ -1174,81 +1217,39 @@ function buildStatsMarkup(unitSource) {
 
 function updateStatsPanel(unitSource) {
     const panel = document.getElementById('stats-content');
-    panel.innerHTML = buildStatsMarkup(unitSource);
-    if (unitSource) {
-        const profileDetails = document.getElementById('unit-profile-details');
-        if (profileDetails) profileDetails.open = true;
+    const markup = buildStatsMarkup(unitSource);
+    if (panel.profileMarkup !== markup) {
+        panel.innerHTML = markup;
+        panel.profileMarkup = markup;
     }
 }
 
-function buildUnitControlsMarkup() {
-    return `
-        <div class="unit-popup-controls" role="toolbar" aria-label="Selected unit controls">
-            <div id="unit-popup-wounds" class="piece-control-row">
-                <button type="button" class="btn-grey" data-wound-step="-1" aria-label="Remove one strain">−</button>
-                <button type="button" class="btn-grey" data-wound-step="1" aria-label="Add one strain">+</button>
-            </div>
-        </div>
-    `;
+function hideTerrainTooltip() {
+    const tooltip = document.getElementById('terrain-tooltip');
+    if (!tooltip) return;
+    tooltip.classList.remove('visible'); tooltip.setAttribute('aria-hidden', 'true');
 }
-
-function hideUnitTooltip() {
-    if (statsTooltipTimer) {
-        clearTimeout(statsTooltipTimer);
-        statsTooltipTimer = null;
-    }
-
-    const tooltip = document.getElementById('unit-tooltip');
-    tooltip.classList.remove('visible');
-    tooltip.classList.remove('interactive');
-    tooltip.setAttribute('aria-hidden', 'true');
-}
-
-function suppressUnitTooltip(durationMs = TOOLTIP_SUPPRESS_AFTER_MANIPULATION_MS) {
-    suppressTooltipUntil = Date.now() + durationMs;
-    hideUnitTooltip();
-}
-
-function positionUnitTooltip(unitEl) {
-    const tooltip = document.getElementById('unit-tooltip');
-    if (!tooltip || !unitEl) return;
-    const unitRect = {
-        left: parseFloat(unitEl.style.left) || 0,
-        top: parseFloat(unitEl.style.top) || 0,
-        width: unitEl.offsetWidth,
-        height: unitEl.offsetHeight
-    };
-
-    const tooltipWidth = tooltip.offsetWidth || 100;
-    const tooltipHeight = tooltip.offsetHeight || 50;
-
-    const centerX = unitRect.left + (unitRect.width / 2);
-    let left = centerX - (tooltipWidth / 2);
-    left = Math.min(Math.max(12, left), tableWidthPx - tooltipWidth - 12);
-
-    let top = unitRect.top - tooltipHeight - 12;
-    if (top < 12) {
-        top = unitRect.top + unitRect.height + 12;
-    }
-
-    tooltip.style.left = `${left}px`;
-    tooltip.style.top = `${top}px`;
-}
-
-function showUnitTooltip(unitEl, interactive = false) {
-    if (!interactive || !unitEl) return;
-
-    const tooltip = document.getElementById('unit-tooltip');
-    tooltip.innerHTML = buildUnitControlsMarkup();
-    tooltip.classList.toggle('interactive', true);
-    tooltip.setAttribute('aria-hidden', 'false');
-    positionUnitTooltip(unitEl);
-    tooltip.classList.add('visible');
-}
-
-function queueUnitTooltip(unitEl) {
-    // Hover tooltip over battlefield removed per user request
-    return;
+function showTerrainTooltip(terrain) {
+    if (isDraggingPiece || rotatingPiece) return;
+    const tooltip = document.getElementById('terrain-tooltip'); if (!tooltip) return;
+    const base = typeof SeizeEngine !== 'undefined' ? SeizeEngine.TERRAIN[terrain.dataset.subType] || {} : {};
+    // V3: hills also slow, and height gives no dice.
+    const v3 = typeof GuidedPlay !== 'undefined' && GuidedPlay.activeRules && GuidedPlay.activeRules() === 'v3';
+    const traits = base;
+    const rules = [];
+    if (traits.impassable) rules.push('Impassable: units cannot overlap, move or pivot through this feature.');
+    if (traits.concealing) rules.push('Concealing: blocks shooting line of sight.');
+    if (traits.slowing) rules.push('Slowing: a Move that enters or starts here is limited to 4″ in total. Units with a Pace asterisk ignore this.');
+    if (traits.elevated) rules.push(`Elevated: blocks sight between units outside it. Shooters here see over units, but not terrain.${v3 ? '' : ' Higher ground gives +1 attack die; attacking uphill gives −1 die.'}`);
+    if (v3 && traits.elevated) rules.push('Slowing to units entering it: a Move that enters a hill is limited to 4″ in total. A unit that starts its Move on the hill isn’t slowed by it. Units with a Pace asterisk ignore this.');
+    tooltip.replaceChildren();
+    const title = document.createElement('strong'); title.textContent = getTerrainCardLabel(terrain.dataset.subType); tooltip.appendChild(title);
+    for (const rule of rules) { const p = document.createElement('p'); p.textContent = rule; tooltip.appendChild(p); }
+    tooltip.setAttribute('aria-hidden', 'false'); tooltip.classList.add('visible');
+    const center = getUnitGeometry(terrain);
+    const w = tooltip.offsetWidth || 260, h = tooltip.offsetHeight || 120;
+    tooltip.style.left = `${Math.max(8, Math.min(tableWidthPx - w - 8, center.x - w / 2))}px`;
+    tooltip.style.top = `${Math.max(8, Math.min(tableHeightPx - h - 8, center.y - h - 15))}px`;
 }
 
 // --- SELECTION & PIECE CONTROLS ---
@@ -1268,28 +1269,17 @@ function clearPieceSelection() {
     const controls = document.getElementById('piece-controls');
     controls.classList.remove('visible');
     controls.setAttribute('aria-hidden', 'true');
-    hideUnitTooltip();
 }
 
 function positionPieceControls() {
     updateSelectionRanges();
     const controls = document.getElementById('piece-controls');
-    if (!selectedPiece || !selectedPiece.isConnected || isDraggingPiece || rotatingPiece) {
+    if (!selectedPiece?.isConnected || selectedPiece.classList.contains('unit') || isDraggingPiece || rotatingPiece || typeof GuidedPlay !== 'undefined') {
         controls.classList.remove('visible');
         controls.setAttribute('aria-hidden', 'true');
-        hideUnitTooltip();
         return;
     }
 
-    const isUnitSelected = selectedPiece.classList.contains('unit');
-    if (isUnitSelected) {
-        controls.classList.remove('visible');
-        controls.setAttribute('aria-hidden', 'true');
-        showUnitTooltip(selectedPiece, true);
-        return;
-    }
-
-    hideUnitTooltip();
     controls.style.visibility = 'hidden';
     controls.classList.add('visible');
     controls.setAttribute('aria-hidden', 'false');
@@ -1342,14 +1332,17 @@ function setPieceAngle(piece, nextAngle, angleDelta = null) {
     const previousAngle = parseFloat(piece.dataset.angle) || 0;
     piece.dataset.angle = nextAngle;
     piece.style.transform = `rotate(${nextAngle}deg)`;
-    showAngleIndicator(piece, angleDelta ?? getRotationDelta(piece, previousAngle, nextAngle));
+    refreshPinnedRulers();
+    if (typeof GuidedPlay === 'undefined' || GuidedPlay.isDeployPiece(piece)) {
+        showAngleIndicator(piece, angleDelta ?? getRotationDelta(piece, previousAngle, nextAngle));
+    }
     positionPieceControls();
 }
 
 function rotatePiece(piece, delta) {
     if (typeof GuidedPlay !== 'undefined') return GuidedPlay.rotate(piece, delta);
     if (!piece) return;
-    suppressUnitTooltip();
+    hideTerrainTooltip();
     pushUndo();
     const previousAngle = parseFloat(piece.dataset.angle) || 0;
     const nextAngle = previousAngle + delta;
@@ -1391,6 +1384,7 @@ function handlePieceTap(piece, event) {
         if (selectedPiece === piece) selectedPiece = null;
         if (!inspectedUnits.size) isTouchMultiSelectActive = false;
         positionPieceControls();
+        if (typeof GuidedPlay !== 'undefined') GuidedPlay.render();
         return;
     }
     selectPiece(piece, additive);
@@ -1400,30 +1394,15 @@ const pieceControls = document.getElementById('piece-controls');
 pieceControls.addEventListener('pointerdown', (event) => {
     event.stopPropagation();
 });
-const unitTooltip = document.getElementById('unit-tooltip');
-unitTooltip.addEventListener('pointerdown', (event) => {
-    if (unitTooltip.classList.contains('interactive')) {
-        event.stopPropagation();
-    }
-});
-
 function handleSelectedPieceControlClick(event) {
-    if (!selectedPiece) return;
     const rotationButton = event.target.closest('[data-rotate-step]');
-    if (rotationButton) {
+    if (selectedPiece && rotationButton) {
         const step = parseFloat(rotationButton.dataset.rotateStep) || TOUCH_ROTATION_STEP_DEG;
         rotatePiece(selectedPiece, step);
-        return;
-    }
-
-    const woundButton = event.target.closest('[data-wound-step]');
-    if (woundButton && selectedPiece.classList.contains('unit')) {
-        adjustUnitWounds(selectedPiece, parseInt(woundButton.dataset.woundStep, 10));
     }
 }
 
 pieceControls.addEventListener('click', handleSelectedPieceControlClick);
-unitTooltip.addEventListener('click', handleSelectedPieceControlClick);
 
 // --- NETWORKING & REMOTE SANDBOX FLOW ---
 function generateShortId() {
@@ -1435,8 +1414,12 @@ function generateShortId() {
     return result;
 }
 
-function hostGameFromLanding() {
-    if (typeof GuidedPlay !== 'undefined') GuidedPlay.reset();
+function hostGameFromLanding(mode = 'online', difficulty = 'normal') {
+    sessionMode = mode;
+    if (typeof GuidedPlay !== 'undefined') {
+        GuidedPlay.reset();
+        GuidedPlay.setAI(mode === 'solo' ? 'p2' : null, difficulty);
+    }
     const activeList = loadActiveGamesList();
     let shortId = generateShortId();
     let tries = 0;
@@ -1465,6 +1448,7 @@ function hostGameFromLanding() {
     }
 
     // Reset battlefield board
+    resetTableTools();
     table.querySelectorAll('.unit, .terrain, .ghost, .range-ring, .command-token-table').forEach(p => p.remove());
     undoStack.length = 0;
     hoveredUnit = null;
@@ -1476,7 +1460,6 @@ function hostGameFromLanding() {
     isDraggingPiece = false;
     clearPieceSelection();
     removeRangeRing();
-    hideUnitTooltip();
 
     // Spawn 12 random units from spreadsheet (or fallback) in central draft grid
     createDefaultUnits();
@@ -1522,9 +1505,8 @@ function hostGameFromLanding() {
     updateBiddingUI();
     updateDraftNoticeUI();
     fitTableToScreen();
-    fitAllUnitLabels();
 
-    hostGame(shortId);
+    if (mode === 'online') hostGame(shortId);
 
     // Refresh unit stats in background if online
     loadStats().catch(err => console.warn('Background stats refresh:', err));
@@ -1533,7 +1515,7 @@ function hostGameFromLanding() {
 function joinGameFromLanding() {
     const input = document.getElementById('landing-join-code');
     const code = (input ? input.value : '').trim().toUpperCase();
-    if (!code || code.length < 3) {
+    if (!code || code.length !== 4) {
         alert('Please enter a valid room code.');
         if (input) input.focus();
         return;
@@ -1549,6 +1531,10 @@ function joinGameFromLanding() {
     }
 
     currentRoomCode = code;
+    resetTableTools();
+    sessionMode = 'online';
+    if (typeof GuidedPlay !== 'undefined') { GuidedPlay.reset(); GuidedPlay.setAI(null); }
+    undoStack.length = 0;
     isHost = false;
     isRoomCodeHidden = false;
 
@@ -1565,6 +1551,8 @@ function joinGameFromLanding() {
         table.querySelectorAll('.unit, .terrain, .ghost, .range-ring, .command-token-table').forEach(p => p.remove());
         commandTokens = [];
         renderAllCommandTokens();
+        clearPieceSelection();
+        if (typeof GuidedPlay !== 'undefined') GuidedPlay.render();
     }
 
     addOrUpdateActiveGame({
@@ -1582,7 +1570,6 @@ function joinGameFromLanding() {
     updateBiddingUI();
     updateDraftNoticeUI();
     fitTableToScreen();
-    fitAllUnitLabels();
 
     joinGameWithCode(code);
 
@@ -1607,6 +1594,9 @@ function resumeGame(roomCode) {
     }
 
     currentRoomCode = cleanCode;
+    sessionMode = entry.mode || 'online';
+    resetTableTools();
+    undoStack.length = 0;
     isHost = Boolean(entry.isHost);
 
     // Immediately switch the view so the UI responds instantly
@@ -1618,6 +1608,15 @@ function resumeGame(roomCode) {
     const saved = localStorage.getItem(getGameSaveKey(cleanCode));
     if (saved) {
         restoreBoardState(saved, true);
+    } else if (!table.querySelector('.unit')) {
+        // Older entries can have only the shared startup snapshot.
+        const legacy = localStorage.getItem(SAVE_KEY);
+        if (legacy) restoreBoardState(legacy, true);
+        else {
+            createDefaultUnits();
+            createDefaultTerrain();
+            saveGame(true);
+        }
     }
 
     entry.lastPlayed = Date.now();
@@ -1628,10 +1627,10 @@ function resumeGame(roomCode) {
     updateBiddingUI();
     updateDraftNoticeUI();
     fitTableToScreen();
-    fitAllUnitLabels();
 
     if (isHost) {
-        hostGame(cleanCode);
+        if (typeof GuidedPlay !== 'undefined' && GuidedPlay.aiPlayer()) sessionMode = 'solo';
+        if (sessionMode === 'online') hostGame(cleanCode);
     } else {
         joinGameWithCode(cleanCode);
     }
@@ -1650,6 +1649,7 @@ function deleteActiveGame(roomCode, event) {
 
 function exitToLanding() {
     saveGame(true);
+    if (typeof GuidedPlay !== 'undefined') GuidedPlay.reset();
 
     if (conn) {
         try { conn.close(); } catch(e) {}
@@ -1695,6 +1695,18 @@ function updatePlayerBanner() {
     const statusText = document.getElementById('network-status');
 
     if (!badge || !roomText || !statusText) return;
+
+    if (typeof GuidedPlay !== 'undefined' && GuidedPlay.aiPlayer?.()) {
+        badge.textContent = '';
+        statusText.textContent = '';
+        statusText.className = 'network-status';
+        return;
+    }
+    if (sessionMode === 'shared') {
+        badge.textContent = 'Shared screen';
+        badge.className = 'player-role-badge';
+        return;
+    }
 
     if (isHost) {
         badge.textContent = 'Player 1 (Host)';
@@ -1803,7 +1815,8 @@ function joinGameWithCode(hostId) {
     }
 
     peer.on('open', () => {
-        conn = peer.connect(cleanId);
+        // Moves and their undo snapshots must reach the other player in order.
+        conn = peer.connect(cleanId, { reliable: true });
         setupConnection();
     });
     peer.on('error', (err) => {
@@ -1816,6 +1829,7 @@ function joinGameWithCode(hostId) {
 function setupConnection() {
     if (!conn) return;
     conn.on('open', () => {
+        undoStack.length = 0;
         updatePlayerBanner();
         if (isHost) {
             sendData({ type: 'SYNC_BOARD', payload: getBoardState({ forNetwork: true }) });
@@ -1826,7 +1840,9 @@ function setupConnection() {
     });
     conn.on('close', () => {
         conn = null;
+        undoStack.length = 0;
         updatePlayerBanner();
+        if (typeof GuidedPlay !== 'undefined') GuidedPlay.render();
     });
 }
 
@@ -1994,7 +2010,10 @@ function handleIncomingData(data) {
     if (typeof GuidedPlay !== 'undefined' && data && GuidedPlay.incoming(data)) return;
     if (!data) return;
     if (data.type === 'SYNC_BOARD') {
-        restoreBoardState(data.payload, true);
+        undoStack.length = 0;
+        restoreBoardState(data.payload, true, true);
+    } else if (data.type === 'BOARD_PING') {
+        if (conn?.open) showBoardPing(data, true);
     } else if (data.type === 'PIECE_DRAG_START') {
         const piece = findPieceById(data.pieceId);
         if (piece) {
@@ -2057,6 +2076,7 @@ function handleIncomingData(data) {
             if (selectedPiece === piece) positionPieceControls();
         }
     } else if (data.type === 'ROLL_DICE') {
+        clearUndoHistory();
         const incomingRolls = Array.isArray(data.rolls) ? data.rolls : [];
         renderDiceRoll(incomingRolls.length ? incomingRolls : createPlaceholderRoll(data.count || 2));
     } else if (data.type === 'BID_READY') {
@@ -2086,7 +2106,7 @@ function handleIncomingData(data) {
         if (data.round !== undefined && data.round !== biddingState.round) return;
         endRoundAndResetBidding(false);
     }
-    if (data.type.startsWith('PIECE_')) updateSelectionRanges();
+    if (data.type.startsWith('PIECE_')) { updateSelectionRanges(); refreshPinnedRulers(); }
 }
 
 function sendData(dataObj) {
@@ -2286,9 +2306,7 @@ function getAssignedPlayer(unit) {
 }
 
 // --- SERIALIZATION ---
-function getBoardState(options = {}) {
-    const isNetworkPayload = options.forNetwork === true;
-    const localPlayerKey = getLocalBidPlayerKey();
+function collectBoardState() {
     const diceInput = document.getElementById('dice-count');
 
     const state = {
@@ -2311,12 +2329,6 @@ function getBoardState(options = {}) {
         commandTokens: commandTokens.map(t => ({ ...t }))
     };
 
-    // Neither secret bid is included in board snapshots before the reveal handshake.
-    if (isNetworkPayload && !biddingState.revealed) {
-        delete state.biddingState.p1.value;
-        delete state.biddingState.p2.value;
-    }
-
     document.querySelectorAll('.unit').forEach(el => {
         if (el.classList.contains('ghost')) return;
         state.pieces.push({
@@ -2334,6 +2346,7 @@ function getBoardState(options = {}) {
     });
 
     document.querySelectorAll('.terrain').forEach(el => {
+        if (el.classList.contains('ghost')) return;
         state.pieces.push({
             type: 'terrain',
             pieceId: el.dataset.pieceId || getPieceId(el),
@@ -2346,6 +2359,15 @@ function getBoardState(options = {}) {
         });
     });
 
+    return state;
+}
+
+function getBoardState(options = {}, state = collectBoardState()) {
+    if (options.forNetwork && !state.biddingState.revealed) {
+        // Strip both private bids before the reveal, keeping the local save intact.
+        const bids = state.biddingState;
+        return JSON.stringify({ ...state, biddingState: { ...bids, p1: { ready: bids.p1.ready }, p2: { ready: bids.p2.ready } } });
+    }
     return JSON.stringify(state);
 }
 
@@ -2355,8 +2377,8 @@ function restoreBoardState(jsonString, suppressBroadcast = false) {
     table.querySelectorAll('.unit, .terrain, .ghost, .range-ring, .command-token-table').forEach(p => p.remove());
 
     const state = JSON.parse(jsonString);
-    if (typeof GuidedPlay !== 'undefined') GuidedPlay.restore(state.guided);
     const data = Array.isArray(state) ? state : state.pieces;
+    if (typeof GuidedPlay !== 'undefined') GuidedPlay.restore(state.guided, data);
     roundState = state.roundState || CommandTracker.create();
 
     cancelTerrainCardAnimation();
@@ -2435,7 +2457,8 @@ function restoreBoardState(jsonString, suppressBroadcast = false) {
 
 function saveGame(suppressBroadcast = false) {
     if (typeof GuidedPlay !== 'undefined') GuidedPlay.render();
-    const state = getBoardState();
+    const board = collectBoardState();
+    const state = JSON.stringify(board);
     if (currentRoomCode) {
         localStorage.setItem(getGameSaveKey(currentRoomCode), state);
         addOrUpdateActiveGame({
@@ -2450,8 +2473,8 @@ function saveGame(suppressBroadcast = false) {
     }
     localStorage.setItem(SAVE_KEY, state);
     updateBiddingUI();
-    if (!suppressBroadcast) {
-        sendData({ type: 'SYNC_BOARD', payload: getBoardState({ forNetwork: true }) });
+    if (!suppressBroadcast && conn?.open) {
+        sendData({ type: 'SYNC_BOARD', payload: board.biddingState.revealed ? state : getBoardState({ forNetwork: true }, board) });
     }
 }
 
@@ -2483,6 +2506,7 @@ function appendRotationHandle(piece) {
     if (!handle) {
         handle = document.createElement('div');
         handle.classList.add('rotation-handle');
+        handle.hidden = !USE_PIVOT_RING;
         handle.setAttribute('role', 'button');
         handle.setAttribute('aria-label', 'Drag ring to rotate');
         handle.title = 'Drag ring to rotate';
@@ -2521,21 +2545,33 @@ function unitLabelFits(label) {
     return label.scrollWidth <= label.clientWidth + 1 && label.scrollHeight <= label.clientHeight + 1;
 }
 
+let unitLabelContext;
 function fitAllUnitLabels() {
-    const labels = Array.from(document.querySelectorAll('.unit-label'));
-    if (!labels.length) return;
-
-    labels.forEach(label => {
-        for (let fontSize = UNIT_LABEL_MAX_FONT_PX; fontSize >= UNIT_LABEL_MIN_FONT_PX; fontSize -= UNIT_LABEL_FONT_STEP_PX) {
-            label.style.fontSize = `${fontSize}px`;
-            if (unitLabelFits(label)) break;
-        }
-    });
+    document.querySelectorAll('.unit-label').forEach(fitUnitLabelText);
 }
 
-function fitUnitLabelText(unitEl) {
-    if (!unitEl || !unitEl.querySelector('.unit-label')) return;
-    fitAllUnitLabels();
+function fitUnitLabelText(label) {
+    // Fit against the card's declared footprint, independent of hidden layout,
+    // rotation, drag ghosts and the order in which cards are attached.
+    const card = label.parentElement || label.parentNode;
+    if (!card) return;
+    if (unitLabelContext === undefined) unitLabelContext = document.createElement('canvas').getContext?.('2d') || null;
+    const width = (parseFloat(card.style.width) || 69) - 8;
+    const height = (parseFloat(card.style.height) || 49) * 0.325;
+    const words = label.textContent.trim().split(/\s+/);
+    let fontSize = UNIT_LABEL_MAX_FONT_PX;
+    for (; fontSize > UNIT_LABEL_MIN_FONT_PX; fontSize -= UNIT_LABEL_FONT_STEP_PX) {
+        if (unitLabelContext) unitLabelContext.font = `800 ${fontSize}px "Segoe UI", Arial, sans-serif`;
+        const measure = text => unitLabelContext ? unitLabelContext.measureText(text).width : text.length * fontSize * 0.6;
+        let lines = 1, line = '', fits = true;
+        for (const word of words) {
+            if (measure(word) > width) { fits = false; break; }
+            if (line && measure(`${line} ${word}`) > width) { lines++; line = word; }
+            else line = line ? `${line} ${word}` : word;
+        }
+        if (fits && lines * fontSize * 1.05 <= height) break;
+    }
+    label.style.fontSize = `${fontSize}px`;
 }
 
 function createUnitDOM(name, color, x, y, angle, wounds, stats = null, activated = false, owner = null) {
@@ -2564,7 +2600,7 @@ function createUnitDOM(name, color, x, y, angle, wounds, stats = null, activated
     div.dataset.unitId = div.dataset.unitId || ('u_' + Math.random().toString(36).slice(2, 9));
     div._unitStats = unitStats;
     applyUnitTheme(div, name);
-    const artworkFile = typeof UnitArtwork !== 'undefined' ? UnitArtwork.fileFor({ ...(unitStats || {}), Unit: name }) : '';
+    const artworkFile = typeof UnitArtwork !== 'undefined' ? UnitArtwork.screenFileFor({ ...(unitStats || {}), Unit: name }) : '';
     if (artworkFile) {
         const icon = document.createElement('img');
         icon.classList.add('unit-artwork-badge');
@@ -2600,6 +2636,7 @@ function createUnitDOM(name, color, x, y, angle, wounds, stats = null, activated
     div.addEventListener('mouseenter', () => {
         hoveredUnit = div;
         updateStatsPanel(div);
+        hideTerrainTooltip();
     });
 
     div.addEventListener('mouseleave', () => {
@@ -2607,19 +2644,35 @@ function createUnitDOM(name, color, x, y, angle, wounds, stats = null, activated
         removeRangeRing();
         if (selectedPiece !== div) {
             updateStatsPanel(selectedPiece && selectedPiece.classList.contains('unit') ? selectedPiece : null);
-            if (!selectedPiece) {
-                hideUnitTooltip();
-            }
         }
     });
 
     appendCommandDock();
     appendMarker();
     appendRotationHandle(div);
+    if (!USE_PIVOT_RING) {
+        for (const corner of ['nw', 'ne', 'se', 'sw']) {
+            const grip = document.createElement('span');
+            grip.className = `pivot-corner pivot-${corner}`;
+            grip.setAttribute('aria-hidden', 'true');
+            grip.title = 'Drag to pivot';
+            div.appendChild(grip);
+        }
+        const grip = document.createElement('button');
+        grip.type = 'button';
+        grip.className = 'pivot-corner deployment-pivot';
+        grip.title = 'Tap or drag to rotate';
+        grip.setAttribute('aria-label', 'Rotate unit');
+        grip.textContent = '↻';
+        grip.addEventListener('click', event => {
+            if (event.detail === 0) rotatePiece(div, 15);
+        });
+        div.appendChild(grip);
+    }
     attachListeners(div);
 
     table.appendChild(div);
-    fitUnitLabelText(div);
+    fitUnitLabelText(label);
     return div;
 }
 
@@ -2642,28 +2695,38 @@ function createTerrainDOM(subType, x, y, _w, _h, angle, pieceId = null) {
 
     appendRotationHandle(div);
     attachListeners(div);
-    div.addEventListener('mouseenter', () => hoveredTerrain = div);
-    div.addEventListener('mouseleave', () => hoveredTerrain = null);
+    div.addEventListener('mouseenter', () => { hoveredTerrain = div; showTerrainTooltip(div); });
+    div.addEventListener('mouseleave', () => { hoveredTerrain = null; hideTerrainTooltip(); });
 
     table.appendChild(div);
     return div;
 }
 
 // --- UNDO & BOARD RESET ---
-function pushUndo() {
-    if (undoStack.length >= MAX_UNDO) undoStack.shift();
-    undoStack.push(getBoardState());
+function pushUndo(state = getBoardState()) {
+    undoStack.push(state);
+}
+
+function clearUndoHistory() {
+    undoStack.length = 0;
+    gestureUndoState = null;
+    if (typeof GuidedPlay !== 'undefined') GuidedPlay.render();
 }
 
 window.undo = function () {
-    if (typeof GuidedPlay !== 'undefined' && conn && conn.open) return GuidedPlay.note('Undo is disabled in connected games to protect hidden bids and your opponent’s actions.');
+    if (activePointerId !== null) return;
+    if (typeof GuidedPlay !== 'undefined' && !GuidedPlay.canUndo()) return;
     if (undoStack.length === 0) return;
+    const selectedId = selectedPiece && getPieceId(selectedPiece);
     const previousState = undoStack.pop();
     restoreBoardState(previousState);
+    const restoredPiece = selectedId && findPieceById(selectedId);
+    if (restoredPiece) selectPiece(restoredPiece);
 };
 
 async function resetBoard(createUnits, shouldCreateTerrain = true) {
     if (typeof GuidedPlay !== 'undefined') GuidedPlay.reset();
+    resetTableTools();
     localStorage.removeItem(SAVE_KEY);
 
     table.querySelectorAll('.unit, .terrain, .ghost, .range-ring, .command-token-table').forEach(p => p.remove());
@@ -2678,7 +2741,6 @@ async function resetBoard(createUnits, shouldCreateTerrain = true) {
     activePointerId = null;
     pendingDragPiece = null;
     isDraggingPiece = false;
-    measurementPointerId = null;
     clearPieceSelection();
 
     const cp1 = document.getElementById('cp1');
@@ -2692,7 +2754,6 @@ async function resetBoard(createUnits, shouldCreateTerrain = true) {
     }
     updateBiddingUI();
     updateStatsPanel(null);
-    hideUnitTooltip();
     removeRangeRing();
 
     try {
@@ -2790,6 +2851,7 @@ function sortDiceHighestFirst(rolls) {
 function renderDiceRoll(rolls) {
     const displayedRolls = sortDiceHighestFirst(rolls);
     const card = document.getElementById('dice-roll-card');
+    if (!card) return;
     const placeholderRoll = createPlaceholderRoll(displayedRolls.length || 1);
 
     if (diceAnimationTimer) {
@@ -2807,31 +2869,12 @@ function renderDiceRoll(rolls) {
 }
 
 function rollDice() {
+    clearUndoHistory();
     const count = normalizeDiceCount(false);
     const rolls = sortDiceHighestFirst(Array.from({ length: count }, () => Math.floor(Math.random() * 6) + 1));
 
     renderDiceRoll(rolls);
     sendData({ type: 'ROLL_DICE', rolls: rolls, count: count });
-}
-
-// --- STARTUP BOARD STATE ---
-async function initGame() {
-    try {
-        await loadStats();
-    } catch (err) {
-        console.error("Unable to load unit stats:", err);
-    }
-
-    // Hosting/resuming while profiles load already initialized the requested battle.
-    if (currentRoomCode) return;
-    const saved = localStorage.getItem(SAVE_KEY);
-    if (saved) {
-        restoreBoardState(saved, true);
-    } else {
-        createDefaultUnits();
-        createDefaultTerrain();
-        saveGame(true);
-    }
 }
 
 // --- UNIT DEPLOYMENT GENERATION ---
@@ -3346,10 +3389,7 @@ function animateTerrainCardAdvance() {
 function renderTerrainCard() {
     const card = document.getElementById('terrain-card');
     const title = document.getElementById('terrain-card-title');
-    const note = document.getElementById('terrain-card-note');
-    const count = document.getElementById('terrain-deck-count');
-    if (count) count.textContent = `${terrainDeck.length} cards remaining`;
-    if (!card || !title || !note) return;
+    if (!card || !title) return;
 
     card.classList.remove(
         ...TERRAIN_TYPES.map(type => `terrain-card-${type}`),
@@ -3364,7 +3404,6 @@ function renderTerrainCard() {
         card.setAttribute('aria-disabled', 'true');
         card.setAttribute('aria-label', 'All terrain drawn. Start a new battle to create a terrain deck.');
         title.textContent = 'Deck Empty';
-        note.textContent = 'All terrain drawn';
         return;
     }
 
@@ -3376,9 +3415,6 @@ function renderTerrainCard() {
         ? 'Revealed X card. Drag onto the battlefield to discard it and reveal the next card.'
         : `Revealed ${label} card. Drag it onto the battlefield.`);
     title.textContent = label;
-    note.textContent = revealedCard === TERRAIN_NO_FEATURE_CARD
-        ? 'Drag onto battlefield — no terrain'
-        : 'Drag onto battlefield';
 }
 
 function createDefaultTerrain() {
@@ -3423,7 +3459,7 @@ function beginTerrainDrag(type, event, shouldPushUndo = true) {
         div.style.left = `${pointer.x - w / 2}px`;
         div.style.top = `${pointer.y - h / 2}px`;
     }
-    suppressUnitTooltip(Number.MAX_SAFE_INTEGER);
+    hideTerrainTooltip();
     if (event && event.currentTarget.setPointerCapture) {
         event.currentTarget.setPointerCapture(event.pointerId);
     }
@@ -3463,6 +3499,12 @@ function updateTerrainCardDrag(event) {
     drag.preview.style.display = drag.moved ? 'flex' : 'none';
     drag.preview.style.left = `${event.clientX}px`;
     drag.preview.style.top = `${event.clientY}px`;
+    if (typeof GuidedPlay !== 'undefined') {
+        const size = `${terrainDiameterPx * currentScale}px`;
+        drag.preview.style.width = size;
+        drag.preview.style.height = size;
+        drag.preview.classList.toggle('is-legal', drag.moved && !GuidedPlay.terrainDropError(getTablePointerPosition(event)));
+    }
 }
 
 function finishTerrainCardDrag(event) {
@@ -3507,22 +3549,27 @@ function isEditableShortcutTarget(target) {
 }
 
 window.addEventListener('keydown', (e) => {
-    if (isEditableShortcutTarget(e.target)) return;
+    if (e.defaultPrevented || openModalId || document.getElementById('container').style.display === 'none' || isEditableShortcutTarget(e.target)) return;
     if (!e.repeat && !e.altKey && !e.ctrlKey && !e.metaKey && e.key.toLowerCase() === 'f' && !isEditableShortcutTarget(e.target)) {
         e.preventDefault();
         toggleFullscreen();
         return;
     }
 
-    if ((e.ctrlKey || e.metaKey) && e.key === 'z') { e.preventDefault(); undo(); return; }
-    if (e.key === 'z') { undo(); return; }
+    if (!e.altKey && !e.shiftKey && e.key.toLowerCase() === 'z') { e.preventDefault(); undo(); return; }
+    if (!e.repeat && !e.altKey && !e.ctrlKey && !e.metaKey && e.key.toLowerCase() === 'p') {
+        e.preventDefault();
+        togglePingMode();
+        return;
+    }
+    if (e.key === 'Escape' && pingMode && activePointerId === null) setPingMode(false);
     if (e.key.toLowerCase() === 'r' && hoveredUnit) showRangeRing(hoveredUnit);
 
     const isPlus = (e.key === '+' || e.key === '=' || e.code === 'NumpadAdd');
     const isMinus = (e.key === '-' || e.key === '_' || e.code === 'NumpadSubtract');
 
     // Rotation Keys
-    if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+    if (typeof GuidedPlay === 'undefined' && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) {
         const target = activePiece || hoveredUnit || hoveredTerrain;
         if (target) {
             e.preventDefault();
@@ -3651,11 +3698,13 @@ function updateSelectionRanges() {
 }
 
 function renderUnitSelectionRanges(unit) {
+    if (unit.classList.contains('is-dragging') && typeof GuidedPlay !== 'undefined') return;
     const geometry = getUnitGeometry(unit);
     const { stats } = getUnitStats(unit);
     const speed = parseFloat(getStatValue(stats, 'Speed', 'Move'));
-    const ranged = String(getStatValue(stats, 'Ranged', 'Shoot')).split('/');
-    const shootingRange = ranged.length > 1 ? parseFloat(ranged[1]) : 0;
+    const [shoot, range] = String(getStatValue(stats, 'Shoot', 'Ranged')).split('/');
+    const explicitRange = parseFloat(getStatValue(stats, 'Range'));
+    const shootingRange = Number.isFinite(explicitRange) ? explicitRange : parseFloat(range);
     const frontX = geometry.x + geometry.forward.x * geometry.halfHeight;
     const frontY = geometry.y + geometry.forward.y * geometry.halfHeight;
     const angle = parseFloat(unit.dataset.angle) || 0;
@@ -3671,7 +3720,7 @@ function renderUnitSelectionRanges(unit) {
         selectionRangeElements.push(element);
         return element;
     };
-    if (shootingRange > 0) {
+    if (parseFloat(shoot) > 0 && shootingRange > 0) {
         const arc = addOverlay('shooting-range');
         const radius = inchesToPx(shootingRange);
         arc.style.width = `${radius * 2}px`;
@@ -3747,8 +3796,7 @@ function getActiveTableRect() {
     return activeTableRect;
 }
 
-function getTablePointerPosition(event) {
-    const tableRect = getActiveTableRect();
+function getTablePointerPosition(event, tableRect = getActiveTableRect()) {
     if (!isHost) {
         return {
             x: (tableRect.right - event.clientX) / currentScale,
@@ -3774,29 +3822,32 @@ function getPointerAngleFromPieceCenter(piece, event) {
 }
 
 function onRotationHandlePointerDown(e) {
-    if (typeof GuidedPlay !== 'undefined' && !GuidedPlay.canDrag(e.currentTarget.closest('.piece'), 'rotate')) return;
     if (!e.isPrimary || e.button !== 0 || activePointerId !== null) return;
+    const piece = e.currentTarget.closest('.piece');
+    if (!beginRotationDrag(piece, e.pointerId, e)) return;
     e.preventDefault();
     e.stopPropagation();
+    e.currentTarget.setPointerCapture?.(e.pointerId);
+}
 
-    const piece = e.currentTarget.closest('.piece');
-    if (!piece) return;
+function beginRotationDrag(piece, pointerId, start) {
+    if (!piece || (typeof GuidedPlay !== 'undefined' && !GuidedPlay.canDrag(piece, 'rotate'))) return false;
 
-    selectPiece(piece);
+    piece.fieldMotion?.finish();
+    captureGestureUndo();
+    selectPiece(piece, true);
     activeTableRect = table.getBoundingClientRect();
-    activePointerId = e.pointerId;
+    activePointerId = pointerId;
     rotatingPiece = piece;
     rotationDragStartAngle = parseFloat(piece.dataset.angle) || 0;
     rotationDragCenterX = (parseFloat(piece.style.left) || 0) + (piece.offsetWidth / 2);
     rotationDragCenterY = (parseFloat(piece.style.top) || 0) + (piece.offsetHeight / 2);
-    rotationDragLastPointerAngle = getPointerAngleFromPieceCenter(piece, e);
+    rotationDragLastPointerAngle = getPointerAngleFromPieceCenter(piece, start);
     rotationDragPointerDelta = 0;
-    rotationDragUndoPushed = false;
     pendingDragPiece = null;
     isDraggingPiece = false;
     piece.classList.add('is-rotating');
-    suppressUnitTooltip(Number.MAX_SAFE_INTEGER);
-    hideUnitTooltip();
+    hideTerrainTooltip();
     positionPieceControls();
 
     const pieceId = getPieceId(piece);
@@ -3809,9 +3860,11 @@ function onRotationHandlePointerDown(e) {
         });
     }
 
-    if (e.currentTarget.setPointerCapture) {
-        e.currentTarget.setPointerCapture(e.pointerId);
-    }
+    return true;
+}
+
+function captureGestureUndo() {
+    gestureUndoState = typeof GuidedPlay === 'undefined' ? getBoardState() : null;
 }
 
 function updateRotationFromPointer(e) {
@@ -3826,22 +3879,18 @@ function updateRotationFromPointer(e) {
     if (typeof GuidedPlay !== 'undefined') nextAngle = GuidedPlay.constrainRotation(rotatingPiece, rotationDragStartAngle, nextAngle);
     if (Math.abs(normalizeAngle(nextAngle - currentAngle)) < 0.15) return;
 
-    if (!rotationDragUndoPushed) {
-        pushUndo();
-        rotationDragUndoPushed = true;
-    }
-
     const delta = nextAngle - rotationDragStartAngle;
     setPieceAngle(rotatingPiece, nextAngle, delta);
     broadcastPieceRotateThrottled(rotatingPiece, nextAngle, delta);
 }
 
-function finishRotationDrag() {
+function finishRotationDrag(cancelled) {
     if (!rotatingPiece) return false;
 
-    suppressUnitTooltip();
+    hideTerrainTooltip();
     const pieceId = getPieceId(rotatingPiece);
-    const finalAngle = parseFloat(rotatingPiece.dataset.angle) || 0;
+    const piece = rotatingPiece;
+    const finalAngle = cancelled ? rotationDragStartAngle : (parseFloat(piece.dataset.angle) || 0);
     if (pieceId) {
         sendData({
             type: 'PIECE_ROTATE_END',
@@ -3849,17 +3898,23 @@ function finishRotationDrag() {
             angle: finalAngle
         });
     }
-    const guidedPivot = typeof GuidedPlay !== 'undefined' && GuidedPlay.dropRotation(rotatingPiece, rotationDragStartAngle, rotationDragUndoPushed);
-    if (rotationDragUndoPushed && !guidedPivot) {
-        saveGame();
+    piece.classList.remove('is-rotating');
+    const guidedPivot = typeof GuidedPlay !== 'undefined' && GuidedPlay.dropRotation(piece, cancelled);
+    if (!guidedPivot) {
+        if (cancelled) {
+            piece.dataset.angle = finalAngle;
+            piece.style.transform = `rotate(${finalAngle}deg)`;
+            if (typeof GuidedPlay !== 'undefined') GuidedPlay.render();
+        } else if (finalAngle !== rotationDragStartAngle) {
+            if (gestureUndoState) pushUndo(gestureUndoState);
+            saveGame();
+        }
     }
-
-    rotatingPiece.classList.remove('is-rotating');
     rotatingPiece = null;
     rotationDragStartAngle = 0;
     rotationDragLastPointerAngle = 0;
     rotationDragPointerDelta = 0;
-    rotationDragUndoPushed = false;
+    gestureUndoState = null;
     rotationDragCenterX = 0;
     rotationDragCenterY = 0;
     activePointerId = null;
@@ -3887,14 +3942,16 @@ function beginUnitLongPress(unit, pointerId) {
     }, UNIT_LONG_PRESS_MS);
 }
 
-function onPiecePointerDown(e) {
+function onPiecePointerDown(e, piece = e.currentTarget) {
     if (!e.isPrimary || e.button !== 0 || activePointerId !== null) return;
     e.preventDefault();
     e.stopPropagation();
 
     activePointerId = e.pointerId;
     activeTableRect = table.getBoundingClientRect();
-    pendingDragPiece = e.currentTarget;
+    pendingDragPiece = piece;
+    pendingCornerDrag = !USE_PIVOT_RING && Boolean(e.target?.closest?.('.pivot-corner'));
+    pendingDeploymentPivot = pendingCornerDrag && Boolean(e.target?.closest?.('.deployment-pivot'));
     pointerStartX = e.clientX;
     pointerStartY = e.clientY;
     isDraggingPiece = false;
@@ -3910,19 +3967,25 @@ function onPiecePointerDown(e) {
     }
 
     if (isTouchPointer(e)) {
-        hideUnitTooltip();
-        if (pendingDragPiece.classList.contains('unit')) beginUnitLongPress(pendingDragPiece, e.pointerId);
+        if (!pendingCornerDrag && pendingDragPiece.classList.contains('unit')) beginUnitLongPress(pendingDragPiece, e.pointerId);
     }
 }
+
+document.getElementById('deployment-terrain-grip')?.addEventListener('pointerdown', event => {
+    const tile = table.querySelector('.gp-deploy-terrain:not(.ghost)');
+    if (tile) onPiecePointerDown(event, tile);
+});
 
 function startPieceDrag() {
     if (typeof GuidedPlay !== 'undefined' && !GuidedPlay.canDrag(pendingDragPiece)) { pendingDragPiece = null; return; }
     if (!pendingDragPiece) return;
     cancelUnitLongPress();
 
-    suppressUnitTooltip(Number.MAX_SAFE_INTEGER);
-    pushUndo();
+    hideTerrainTooltip();
     activePiece = pendingDragPiece;
+    const previewMove = typeof GuidedPlay !== 'undefined' && activePiece.classList.contains('unit') && !GuidedPlay.isDeployPiece(activePiece);
+    if (!previewMove) activePiece.fieldMotion?.finish();
+    captureGestureUndo();
     pendingDragPiece = null;
     isDraggingPiece = true;
     activePiece.classList.add('is-dragging');
@@ -3933,12 +3996,13 @@ function startPieceDrag() {
     ghostPiece.classList.add('ghost');
     ghostPiece.classList.remove('is-selected');
     ghostPiece.classList.remove('is-range-inspected', 'is-movement-blocker');
+    ghostPiece.classList.toggle('gp-move-preview', previewMove);
     ghostPiece.removeAttribute('id');
-    ghostPiece.style.transform = activePiece.style.transform;
+    ghostPiece.style.transform = previewMove ? `rotate(${Number(activePiece.dataset.angle) || 0}deg)` : activePiece.style.transform;
     table.insertBefore(ghostPiece, activePiece);
     anchorX = (parseFloat(activePiece.style.left) || 0) + activePieceHalfWidth;
     anchorY = (parseFloat(activePiece.style.top) || 0) + activePieceHalfHeight;
-    showLine(anchorX, anchorY, anchorX, anchorY);
+    if (!previewMove && hasBattleStarted()) showLine(anchorX, anchorY, anchorX, anchorY);
     selectPiece(activePiece, true);
 
     const pieceId = getPieceId(activePiece);
@@ -3957,27 +4021,216 @@ function startPieceDrag() {
 document.getElementById('table-container').addEventListener('pointerdown', (e) => {
     if (e.target === e.currentTarget && e.isPrimary && e.button === 0 && activePointerId === null) {
         clearPieceSelection();
+        if (typeof GuidedPlay !== 'undefined') GuidedPlay.render();
     }
 });
 
 table.addEventListener('pointerdown', (e) => {
     if (!e.isPrimary || e.button !== 0 || activePointerId !== null) return;
     if (e.target !== table && e.target !== document.getElementById('ui-layer')) return;
-    e.preventDefault();
-    clearPieceSelection();
-    activePointerId = e.pointerId;
-    activeTableRect = table.getBoundingClientRect();
-    measurementPointerId = e.pointerId;
-    isMeasuring = true;
-    const pointer = getTablePointerPosition(e);
-    anchorX = pointer.x;
-    anchorY = pointer.y;
-    showLine(anchorX, anchorY, anchorX, anchorY);
+    startRulerDrag(e, true);
+});
 
-    if (table.setPointerCapture) {
-        table.setPointerCapture(e.pointerId);
+table.addEventListener('pointerdown', e => {
+    if (!e.isPrimary || activePointerId !== null) return;
+    if (pingMode && e.button === 0) {
+        e.preventDefault();
+        e.stopPropagation();
+        activePointerId = e.pointerId;
+        activeTableRect = table.getBoundingClientRect();
+        pointerStartX = e.clientX;
+        pointerStartY = e.clientY;
+        pingPointer = true;
+        table.setPointerCapture?.(e.pointerId);
+    } else if (e.button === 1 || e.button === 2 || (e.button === 0 && rulerMode)) {
+        startRulerDrag(e, false);
+    }
+}, true);
+table.addEventListener('contextmenu', e => e.preventDefault());
+table.addEventListener('auxclick', e => { if (e.button === 1) e.preventDefault(); });
+document.getElementById('ruler-controls')?.addEventListener('pointerup', event => {
+    if (event.pointerType !== 'touch' || !event.isPrimary) return;
+    const button = event.target.closest('button');
+    // A captured ruler drag can suppress the browser's next synthesized click.
+    if (button && !button.disabled && button.contains(document.elementFromPoint(event.clientX, event.clientY))) {
+        event.preventDefault();
+        button.click();
     }
 });
+
+function setPingMode(enabled) {
+    pingMode = enabled;
+    table.classList.toggle('ping-mode', enabled);
+    const button = document.getElementById('ping-toggle');
+    if (button) {
+        button.setAttribute('aria-pressed', String(enabled));
+        button.title = enabled ? 'Choose a spot to ping. Esc cancels.' : 'Ping the battlefield (P)';
+    }
+}
+
+function togglePingMode() {
+    if (activePointerId !== null) return;
+    setPingMode(!pingMode);
+    if (pingMode) {
+        rulerMode = false;
+        updateRulerControls();
+    }
+}
+
+function showBoardPing({ x, y }, remote) {
+    if (!Number.isFinite(x) || !Number.isFinite(y) || x < 0 || x > tableWidthPx || y < 0 || y > tableHeightPx) return;
+    const id = remote ? 'board-ping-peer' : 'board-ping-self';
+    document.getElementById(id)?.remove();
+    const make = tag => document.createElementNS('http://www.w3.org/2000/svg', tag);
+    const mark = make('g'), pulse = make('circle'), dot = make('circle');
+    mark.id = id;
+    mark.setAttribute('class', 'board-ping');
+    mark.setAttribute('transform', `translate(${x} ${y})`);
+    pulse.setAttribute('r', '18');
+    dot.setAttribute('r', '4');
+    mark.append(pulse, dot);
+    document.getElementById('board-pings').appendChild(mark);
+    setTimeout(() => mark.remove(), 1700);
+}
+
+function resetTableTools() {
+    if (rulerDrag || pingPointer) {
+        activePointerId = null;
+        activeTableRect = null;
+    }
+    resetRulers();
+    pingPointer = false;
+    setPingMode(false);
+    document.getElementById('board-pings')?.replaceChildren?.();
+}
+
+function startRulerDrag(e, allowTap) {
+    e.preventDefault();
+    e.stopPropagation();
+    pointerStartX = e.clientX;
+    pointerStartY = e.clientY;
+    activePointerId = e.pointerId;
+    activeTableRect = table.getBoundingClientRect();
+    rulerDrag = {
+        start: e.altKey ? rulerPoint(e) : snapRulerPoint(rulerPoint(e), true),
+        allowTap, moved: false, previous: rulerPreview
+    };
+    table.setPointerCapture?.(e.pointerId);
+}
+
+function rulerPoint(event) {
+    const { x, y } = getTablePointerPosition(event);
+    return { x: Math.max(0, Math.min(tableWidthPx, x)), y: Math.max(0, Math.min(tableHeightPx, y)) };
+}
+
+function updateRulerDrag(e) {
+    if (!rulerDrag.moved) {
+        if (Math.hypot(e.clientX - pointerStartX, e.clientY - pointerStartY) < DRAG_THRESHOLD_PX) return;
+        rulerDrag.moved = true;
+        rulerPreview?.mark.remove();
+        const make = tag => document.createElementNS('http://www.w3.org/2000/svg', tag);
+        const mark = make('g');
+        mark.append(make('line'), make('circle'), make('circle'), make('text'));
+        rulerPreview = { mark, start: rulerDrag.start, end: null, attached: false };
+        document.getElementById('ruler-draft').appendChild(mark);
+        updateRulerControls();
+    }
+    const raw = rulerPoint(e);
+    rulerPreview.end = e.altKey ? raw : snapRulerPoint(raw);
+    renderRuler(rulerPreview);
+}
+
+function renderRuler({ start, end, mark, attached }) {
+    const [line, a, b, label] = mark.children;
+    for (const [i, p, dot] of [[1, start, a], [2, end, b]]) {
+        line.setAttribute(`x${i}`, p.x);
+        line.setAttribute(`y${i}`, p.y);
+        dot.setAttribute('cx', p.x);
+        dot.setAttribute('cy', p.y);
+        dot.classList.toggle('ruler-anchor', Boolean(attached && p.unitId));
+    }
+    const x = Math.max(36, Math.min(tableWidthPx - 36, (start.x + end.x) / 2));
+    const y = Math.max(22, Math.min(tableHeightPx - 22, (start.y + end.y) / 2 + (isHost ? -16 : 16)));
+    label.setAttribute('x', x);
+    label.setAttribute('y', y);
+    if (!isHost) label.setAttribute('transform', `rotate(180, ${x}, ${y})`);
+    else label.removeAttribute('transform');
+    label.textContent = `${(Math.hypot(end.x - start.x, end.y - start.y) / SCALE).toFixed(2)}″`;
+}
+
+function refreshPinnedRulers() {
+    let animating = false;
+    for (const ruler of pinnedRulers) {
+        if (!ruler.attached) continue;
+        for (const point of [ruler.start, ruler.end]) {
+            if (!point.unitId) continue;
+            const piece = findPieceById(point.unitId);
+            if (!piece) continue;
+            const pose = rulerUnitPose(piece);
+            animating ||= Boolean(piece.fieldMotion);
+            Object.assign(point, BattleUX.anchorPoint(pose, point.anchor));
+        }
+        renderRuler(ruler);
+    }
+    if (animating && rulerAnimationFrame === null) {
+        rulerAnimationFrame = requestAnimationFrame(() => {
+            rulerAnimationFrame = null;
+            refreshPinnedRulers();
+        });
+    }
+}
+
+function updateRulerControls() {
+    const controls = document.getElementById('ruler-controls');
+    if (!controls) return;
+    const pinned = pinnedRulers.length;
+    controls.hidden = !rulerMode && !rulerPreview && !pinned;
+    const pin = document.getElementById('pin-ruler');
+    pin.disabled = Boolean(rulerDrag) || !rulerPreview || pinned >= 2;
+    pin.title = pinned >= 2 ? 'Two rulers pinned. Clear rulers to pin again.' : 'Keep this measurement on the battlefield';
+    const follow = document.getElementById('pin-ruler-follow');
+    follow.disabled = pin.disabled || !(rulerPreview?.start?.unitId || rulerPreview?.end?.unitId);
+    follow.title = follow.disabled && !pin.disabled ? 'Snap at least one endpoint to a unit edge' : 'Keep snapped ends attached to their units';
+    document.getElementById('clear-rulers').disabled = Boolean(rulerDrag) || (!rulerPreview && !pinned);
+    document.getElementById('ruler-toggle').setAttribute('aria-pressed', String(rulerMode));
+    table.classList.toggle('ruler-mode', rulerMode);
+}
+
+function toggleRulerMode() {
+    if (activePointerId !== null) return;
+    setPingMode(false);
+    rulerMode = !rulerMode;
+    updateRulerControls();
+}
+
+function pinRuler(attach = false) {
+    const pinned = document.getElementById('pinned-rulers');
+    if (rulerDrag || !rulerPreview || pinnedRulers.length >= 2) return;
+    rulerPreview.attached = attach;
+    pinnedRulers.push(rulerPreview);
+    pinned.appendChild(rulerPreview.mark);
+    refreshPinnedRulers();
+    rulerPreview = null;
+    rulerMode = false;
+    updateRulerControls();
+}
+
+function clearRulers() {
+    if (rulerDrag) return;
+    resetRulers(false);
+}
+
+function resetRulers(exitMode = true) {
+    rulerDrag = null;
+    rulerPreview = null;
+    pinnedRulers.length = 0;
+    if (rulerAnimationFrame !== null) cancelAnimationFrame(rulerAnimationFrame);
+    rulerAnimationFrame = null;
+    if (exitMode) rulerMode = false;
+    document.getElementById('ruler-draft')?.replaceChildren?.();
+    document.getElementById('pinned-rulers')?.replaceChildren?.();
+    updateRulerControls();
+}
 
 function showLine(x1, y1, x2, y2) {
     lineElement.style.opacity = 1;
@@ -3987,6 +4240,28 @@ function showLine(x1, y1, x2, y2) {
     lineElement.setAttribute('x2', x2);
     lineElement.setAttribute('y2', y2);
     measureTextElement.textContent = '0"';
+}
+
+function rulerUnitPose(el) {
+    const pose = el.fieldMotion ? GuidedPlay.visiblePose(el)
+        : { x: parseFloat(el.style.left), y: parseFloat(el.style.top), angle: Number(el.dataset.angle) || 0 };
+    return { ...pose, w: parseFloat(el.style.width), h: parseFloat(el.style.height) };
+}
+
+function snapRulerPoint(point, insideUnit = false) {
+    if (typeof BattleUX === 'undefined') return point;
+    let closest = point, distance = 10 / Math.max(currentScale, 0.1);
+    for (const el of table.querySelectorAll('.unit:not(.ghost)')) {
+        const u = rulerUnitPose(el);
+        const edge = BattleUX.nearestOnUnit(u, point), gap = Math.hypot(edge.x - point.x, edge.y - point.y);
+        const endpoint = () => ({ ...edge, unitId: el.dataset.unitId, anchor: BattleUX.unitAnchor(u, edge) });
+        if (insideUnit) {
+            const local = BattleUX.unitAnchor(u, point);
+            if (Math.abs(local.across) <= .5 && Math.abs(local.forward) <= .5) return endpoint();
+        }
+        if (gap < distance) { distance = gap; closest = endpoint(); }
+    }
+    return closest;
 }
 
 function flushPendingPointerMove() {
@@ -4006,7 +4281,8 @@ function queuePointerMove(e) {
     pendingPointerMove = {
         pointerId: e.pointerId,
         clientX: e.clientX,
-        clientY: e.clientY
+        clientY: e.clientY,
+        altKey: e.altKey
     };
 
     if (pointerMoveFrame) return;
@@ -4028,45 +4304,53 @@ function handlePointerMove(e) {
         return;
     }
 
+    if (rulerDrag) {
+        updateRulerDrag(e);
+        return;
+    }
+
     if (pendingDragPiece && !isDraggingPiece) {
         const movement = Math.hypot(e.clientX - pointerStartX, e.clientY - pointerStartY);
         if (movement < DRAG_THRESHOLD_PX) return;
+        if (pendingCornerDrag) {
+            if (beginRotationDrag(pendingDragPiece, e.pointerId, { clientX: pointerStartX, clientY: pointerStartY })) updateRotationFromPointer(e);
+            else pendingDragPiece = null;
+            return;
+        }
         startPieceDrag();
     }
 
-    if (!activePiece && !isMeasuring) return;
+    if (!activePiece) return;
     const pointer = getTablePointerPosition(e);
-    let targetX = pointer.x;
-    let targetY = pointer.y;
 
-    if (activePiece) {
-        const offX = parseFloat(activePiece.dataset.offsetX);
-        const offY = parseFloat(activePiece.dataset.offsetY);
-        let newLeft = pointer.x - offX;
-        let newTop = pointer.y - offY;
-        if (activePiece.classList.contains('unit') && hasBattleStarted()) {
-            const { forward } = getUnitGeometry(ghostPiece || activePiece);
-            const displacement = (newLeft + activePieceHalfWidth - anchorX) * forward.x
-                + (newTop + activePieceHalfHeight - anchorY) * forward.y;
-            newLeft = anchorX + forward.x * displacement - activePieceHalfWidth;
-            newTop = anchorY + forward.y * displacement - activePieceHalfHeight;
-        }
-        if (typeof GuidedPlay !== 'undefined') ({ left: newLeft, top: newTop } = GuidedPlay.constrainDrag(activePiece, newLeft, newTop));
-        activePiece.style.left = `${newLeft}px`;
-        activePiece.style.top = `${newTop}px`;
-        targetX = newLeft + activePieceHalfWidth;
-        targetY = newTop + activePieceHalfHeight;
-        broadcastPieceMoveThrottled(activePiece, newLeft, newTop, anchorX, anchorY, targetX, targetY);
-        updateSelectionRanges();
+    let newLeft = pointer.x - parseFloat(activePiece.dataset.offsetX);
+    let newTop = pointer.y - parseFloat(activePiece.dataset.offsetY);
+    if (activePiece.classList.contains('unit') && hasBattleStarted()) {
+        const { forward } = getUnitGeometry(ghostPiece || activePiece);
+        const displacement = (newLeft + activePieceHalfWidth - anchorX) * forward.x
+            + (newTop + activePieceHalfHeight - anchorY) * forward.y;
+        newLeft = anchorX + forward.x * displacement - activePieceHalfWidth;
+        newTop = anchorY + forward.y * displacement - activePieceHalfHeight;
     }
+    let charging = false;
+    if (typeof GuidedPlay !== 'undefined') ({ left: newLeft, top: newTop, charging = false } = GuidedPlay.constrainDrag(activePiece, newLeft, newTop));
+    const previewMove = ghostPiece?.classList.contains('gp-move-preview');
+    const preview = previewMove ? ghostPiece : activePiece;
+    if (previewMove) preview.classList.toggle('gp-charge-preview', charging);
+    preview.style.left = `${newLeft}px`;
+    preview.style.top = `${newTop}px`;
+    if (!previewMove && typeof GuidedPlay !== 'undefined') refreshPinnedRulers();
+    const targetX = newLeft + activePieceHalfWidth, targetY = newTop + activePieceHalfHeight;
+    broadcastPieceMoveThrottled(activePiece, newLeft, newTop, anchorX, anchorY, targetX, targetY);
+    if (typeof GuidedPlay === 'undefined') updateSelectionRanges();
 
-    if (anchorX > -1) {
+    if (!previewMove && hasBattleStarted()) {
         lineElement.setAttribute('x2', targetX);
         lineElement.setAttribute('y2', targetY);
         const dx = targetX - anchorX;
         const dy = targetY - anchorY;
         const distancePx = Math.sqrt(dx * dx + dy * dy);
-        measureTextElement.textContent = `${pxToInches(distancePx)}"`;
+        measureTextElement.textContent = `${(distancePx / SCALE).toFixed(2)}″`;
         const textX = anchorX + (dx / 2) + 10;
         const textY = anchorY + (dy / 2) - 10;
         measureTextElement.setAttribute('x', textX);
@@ -4083,25 +4367,63 @@ function onPointerUp(e) {
     if (e.pointerId !== activePointerId) return;
     cancelUnitLongPress();
     flushPendingPointerMove();
+    const cancelled = e.type === 'pointercancel';
+    if (pingPointer) {
+        if (!cancelled && Math.hypot(e.clientX - pointerStartX, e.clientY - pointerStartY) < DRAG_THRESHOLD_PX) {
+            const point = getTablePointerPosition(e);
+            showBoardPing(point, false);
+            sendData({ type: 'BOARD_PING', ...point });
+        }
+        pingPointer = false;
+        activePointerId = null;
+        activeTableRect = null;
+        setPingMode(false);
+        return;
+    }
+    if (rulerDrag) {
+        if (!cancelled) updateRulerDrag(e);
+        const { moved, allowTap, previous } = rulerDrag;
+        if (cancelled && moved) {
+            rulerPreview.mark.remove();
+            rulerPreview = previous;
+            if (previous) document.getElementById('ruler-draft').appendChild(previous.mark);
+        }
+        if (!cancelled && allowTap && !moved) {
+            const placed = typeof GuidedPlay !== 'undefined' && GuidedPlay.positionForDeployment(getTablePointerPosition(e));
+            if (!placed) {
+                clearPieceSelection();
+                if (typeof GuidedPlay !== 'undefined') GuidedPlay.render();
+            }
+        }
+        rulerDrag = null;
+        activePointerId = null;
+        activeTableRect = null;
+        updateRulerControls();
+        return;
+    }
     if (activeTerrainCardDrag) {
         finishTerrainCardDrag(e);
         return;
     }
 
     if (rotatingPiece) {
-        finishRotationDrag();
+        finishRotationDrag(cancelled);
         return;
     }
 
-    if (pendingDragPiece && !isDraggingPiece && !didLongPressSelect && e.type !== 'pointercancel') {
-        handlePieceTap(pendingDragPiece, e);
+    if (pendingDragPiece && !isDraggingPiece && !didLongPressSelect && !cancelled) {
+        if (pendingDeploymentPivot) rotatePiece(pendingDragPiece, 15);
+        else handlePieceTap(pendingDragPiece, e);
     }
 
     if (activePiece) {
         activePiece.classList.remove('is-dragging');
         const pieceId = getPieceId(activePiece);
-        const finalLeft = parseFloat(activePiece.style.left) || 0;
-        const finalTop = parseFloat(activePiece.style.top) || 0;
+        const previewMove = ghostPiece.classList.contains('gp-move-preview');
+        const origin = previewMove ? activePiece : ghostPiece;
+        const destination = cancelled ? origin : previewMove ? ghostPiece : activePiece;
+        const startLeft = parseFloat(origin.style.left) || 0, startTop = parseFloat(origin.style.top) || 0;
+        const finalLeft = parseFloat(destination.style.left) || 0, finalTop = parseFloat(destination.style.top) || 0;
         if (pieceId) {
             sendData({
                 type: 'PIECE_DRAG_END',
@@ -4110,10 +4432,17 @@ function onPointerUp(e) {
                 y: Math.round(finalTop)
             });
         }
-        activePiece.classList.remove('is-dragging');
-        if (typeof GuidedPlay !== 'undefined') GuidedPlay.dropPiece(activePiece);
-        saveGame();
+        if (cancelled) {
+            activePiece.style.left = `${startLeft}px`;
+            activePiece.style.top = `${startTop}px`;
+        }
+        const guidedMove = typeof GuidedPlay !== 'undefined' && GuidedPlay.dropPiece(activePiece, cancelled);
+        if (!guidedMove && (finalLeft !== startLeft || finalTop !== startTop)) {
+            if (gestureUndoState) pushUndo(gestureUndoState);
+            saveGame();
+        }
     }
+    gestureUndoState = null;
     activePiece = null;
     pendingDragPiece = null;
     activePointerId = null;
@@ -4121,16 +4450,10 @@ function onPointerUp(e) {
     activeTableRect = null;
     activePieceHalfWidth = 0;
     activePieceHalfHeight = 0;
-    measurementPointerId = null;
-    const completedManipulation = isDraggingPiece || isMeasuring;
     isDraggingPiece = false;
-    isMeasuring = false;
     if (ghostPiece) { ghostPiece.remove(); ghostPiece = null; }
     lineElement.style.opacity = 0;
     measureTextElement.style.opacity = 0;
-    if (completedManipulation) {
-        suppressUnitTooltip();
-    }
     positionPieceControls();
 }
 
@@ -4146,18 +4469,26 @@ window.addEventListener('pointercancel', onPointerUp);
 
 // --- RESPONSIVE TABLE SCALE & BOOTSTRAP ---
 let currentScale = 1;
+function battleLogSpace() {
+    const width = document.getElementById('battle-log-panel')?.offsetWidth;
+    return width ? width + 8 : 0;
+}
 // Prefer a compact single column; manual widening still opens a second column.
-function calculatePanelLayout(width, height, preferredWidth = null) {
+function calculatePanelLayout(width, height, preferredWidth = null, logSpace = 0) {
     const phoneLandscape = width < 1000 && height < 600;
-    const automaticWidth = phoneLandscape ? 420 : Math.min(320, Math.max(280, Math.floor(width * 0.25)));
-    const maxWidth = Math.max(208, Math.min(720, width - 320));
+    const defaultSidebarWidth = phoneLandscape ? Math.max(208, Math.min(270, Math.round(width * .32))) : Math.min(320, Math.max(280, Math.floor(width * 0.25)));
+    const available = width - logSpace;
+    const maxWidth = Math.max(208, Math.min(720, available - 320));
+    const fullHeightWidth = (height - 4) * tableWidthPx / tableHeightPx;
+    const widthBesideBoard = Math.floor(available - fullHeightWidth - 12);
+    const automaticWidth = Math.max(208, Math.min(defaultSidebarWidth, widthBesideBoard));
     const left = Number.isFinite(preferredWidth) ? Math.round(Math.max(208, Math.min(maxWidth, preferredWidth))) : automaticWidth;
     const twoColumns = left >= 420;
     const boardScale = Math.max(0.01, Math.min(
         Math.max(1, height - 4) / tableHeightPx,
-        Math.max(1, width - left - 8 - 4) / tableWidthPx
+        Math.max(1, available - left - 12) / tableWidthPx
     ));
-    return { left, boardScale, twoColumns };
+    return { left, boardScale, twoColumns, maxWidth };
 }
 
 function fitTableToScreen() {
@@ -4169,14 +4500,14 @@ function fitTableToScreen() {
 
     const fullscreen = Boolean(getFullscreenElement());
     const stackedPanels = !fullscreen && window.matchMedia && window.matchMedia('(max-width: 1100px) and (orientation: portrait)').matches;
+    const layout = calculatePanelLayout(appContainer.clientWidth, appContainer.clientHeight, typeof preferredSidebarWidth === 'number' ? preferredSidebarWidth : null, battleLogSpace());
     if (stackedPanels) {
         container.style.minWidth = "";
         if (leftSidebar) {
             leftSidebar.style.width = '100%';
             leftSidebar.classList.toggle('is-two-column', false);
         }
-    } else if (appContainer && leftSidebar && appContainer.clientWidth > 400 && appContainer.clientHeight > 300) {
-        const layout = calculatePanelLayout(appContainer.clientWidth, appContainer.clientHeight, typeof preferredSidebarWidth === 'number' ? preferredSidebarWidth : null);
+    } else if (leftSidebar && appContainer.clientWidth && appContainer.clientHeight) {
         container.style.minWidth = '';
         leftSidebar.style.width = layout.left + 'px';
         leftSidebar.classList.toggle('is-two-column', layout.twoColumns);
@@ -4185,10 +4516,9 @@ function fitTableToScreen() {
     if (resizeHandle && leftSidebar) {
         resizeHandle.hidden = stackedPanels;
         if (!stackedPanels) {
-            const sidebarWidth = parseFloat(leftSidebar.style.width) || 208;
-            resizeHandle.style.left = `${sidebarWidth - 2}px`;
+            const sidebarWidth = leftSidebar.offsetWidth || 208;
             resizeHandle.setAttribute('aria-valuenow', String(Math.round(sidebarWidth)));
-            resizeHandle.setAttribute('aria-valuemax', String(Math.max(208, Math.min(720, appContainer.clientWidth - 320))));
+            resizeHandle.setAttribute('aria-valuemax', String(layout.maxWidth));
         }
     }
 
@@ -4207,6 +4537,7 @@ function fitTableToScreen() {
     table.classList.toggle('is-flipped', !isHost);
     const rotateTransform = !isHost ? ' rotate(180deg)' : '';
     table.style.transform = `scale(${currentScale})${rotateTransform}`;
+    if (table.style.setProperty) table.style.setProperty('--deployment-grip-size', `${Math.max(34, Math.min(78, 30 / currentScale))}px`);
 }
 
 function setupSidebarResize() {
@@ -4223,7 +4554,7 @@ function setupSidebarResize() {
     handle.addEventListener('pointermove', event => {
         if (!drag || event.pointerId !== drag.pointerId) return;
         const app = document.getElementById('container');
-        preferredSidebarWidth = calculatePanelLayout(app.clientWidth, app.clientHeight, drag.width + event.clientX - drag.x).left;
+        preferredSidebarWidth = calculatePanelLayout(app.clientWidth, app.clientHeight, drag.width + event.clientX - drag.x, battleLogSpace()).left;
         fitTableToScreen();
     });
     const finish = event => {
@@ -4240,7 +4571,7 @@ function setupSidebarResize() {
         const app = document.getElementById('container');
         const current = document.getElementById('left-sidebar').getBoundingClientRect().width;
         const next = event.key === 'Home' ? 208 : event.key === 'End' ? 720 : current + (event.key === 'ArrowLeft' ? -1 : 1) * (event.shiftKey ? 40 : 16);
-        preferredSidebarWidth = event.key === 'Enter' ? null : calculatePanelLayout(app.clientWidth, app.clientHeight, next).left;
+        preferredSidebarWidth = event.key === 'Enter' ? null : calculatePanelLayout(app.clientWidth, app.clientHeight, next, battleLogSpace()).left;
         saveUIState();fitTableToScreen();
     });
 }
@@ -4256,7 +4587,7 @@ if (typeof ResizeObserver !== 'undefined') {
 }
 
 if (document.fonts && document.fonts.ready) {
-    document.fonts.ready.then(fitAllUnitLabels).catch(err => {
+    document.fonts.ready.then(() => fitAllUnitLabels()).catch(err => {
         console.warn('Unable to refit unit labels after font load:', err);
     });
 }
@@ -4275,10 +4606,20 @@ function checkUrlAutoJoin() {
 }
 
 const originalRestoreBoardState = restoreBoardState;
-restoreBoardState = function (jsonString, suppressBroadcast = false) {
+restoreBoardState = function (jsonString, suppressBroadcast = false, animateIncoming = false) {
+    const previous = new Map();
+    if (animateIncoming && typeof GuidedPlay !== 'undefined') {
+        for (const el of table.querySelectorAll('.unit:not(.ghost)')) {
+            previous.set(el.dataset.unitId, GuidedPlay.visiblePose(el));
+            el.fieldMotion?.finish();
+        }
+    }
     originalRestoreBoardState(jsonString, suppressBroadcast);
+    if (previous.size) for (const el of table.querySelectorAll('.unit:not(.ghost)')) {
+        const from = previous.get(el.dataset.unitId);
+        if (from) GuidedPlay.movePieceTo(el, parseFloat(el.style.left), parseFloat(el.style.top), Number(el.dataset.angle) || 0, { from, opponent: true });
+    }
     fitTableToScreen();
-    fitAllUnitLabels();
 };
 
 loadUIState();
@@ -4292,22 +4633,6 @@ updateFullscreenUI();
 updateRightSidebarUI();
 updateBiddingUI();
 renderTerrainCard();
-
-const originalInitGame = initGame;
-initGame = async function () {
-    await originalInitGame();
-    renderActiveGamesUI();
-    updateRoomCodeVisibility();
-    updateDraftNoticeUI();
-    updateBiddingUI();
-    renderAllCommandTokens();
-    fitTableToScreen();
-    fitAllUnitLabels();
-    setTimeout(() => {
-        fitTableToScreen();
-        fitAllUnitLabels();
-    }, 100);
-};
 
 window.hostGameFromLanding = hostGameFromLanding;
 window.joinGameFromLanding = joinGameFromLanding;
@@ -4329,4 +4654,4 @@ window.handlePeerData = handleIncomingData;
 window.getPieceId = getPieceId;
 window.findPieceById = findPieceById;
 
-initGame();
+loadStats().catch(err => console.warn('Background stats refresh:', err));

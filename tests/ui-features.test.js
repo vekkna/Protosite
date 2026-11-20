@@ -2,7 +2,7 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('fs');
 
-test('E2E UI Simulation: hover popup disabled, wound controls active, commands separated, draft hides on reveal, sides flip for challenger', () => {
+test('E2E UI Simulation: board controls, commands, deployment and challenger perspective', () => {
     const elements = {};
     const createElement = (tag) => {
         const el = {
@@ -178,19 +178,9 @@ test('E2E UI Simulation: hover popup disabled, wound controls active, commands s
     }));
     assert.equal(tableEl.children.length, countBeforeTyping, 'Typing in an input does not run the board undo shortcut');
 
-    // 2. Test unit hover vs selection tooltip
-    const sampleUnit = createElement('div');
-    sampleUnit.classList.add('piece', 'unit');
-    sampleUnit.style.left = '300px';
-    sampleUnit.style.top = '300px';
-    sampleUnit.dataset.name = 'Spearmen';
-
-    // Hover tooltip: queueUnitTooltip does not make unit-tooltip visible
-    elements['unit-tooltip'].classList.remove('visible');
-    // Call showUnitTooltip with interactive = false (hover mode)
-    // In our implementation, showUnitTooltip returns immediately if interactive is false
-    const tooltipEl = elements['unit-tooltip'];
-    assert.equal(tooltipEl.classList.contains('visible'), false, 'Hover should not make unit tooltip visible');
+    const html = fs.readFileSync(require.resolve('../index.html'), 'utf8');
+    assert.match(html, /id="unit-profile-details"/);
+    assert.doesNotMatch(html, /id="unit-tooltip"/);
 
     // 3. Test reveal bids hides draft notice banner
     elements['my-bid-input'].value = '3';

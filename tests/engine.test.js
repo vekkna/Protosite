@@ -226,6 +226,7 @@ test('move is blocked by a friendly unit', () => {
     const s = started([U('A', 'p1', 400, 400), U('F', 'p1', 400, 330), U('B', 'p2', 400, 100)], 'A');
     near(opts(s, 'A').forward.max, 1.5);           // F's bottom edge is 30px = 1.5" ahead
     assert.equal(opts(s, 'A').forward.charge, null);
+    assert.equal(opts(s, 'A').forward.blocker.id, 'F');
     assert.throws(() => run(s, { type: 'move', inches: 2 }), /at most/);
     const t = run(s, { type: 'move', inches: 1.5 });
     assert.ok(geo.touching(unit(t, 'A'), unit(t, 'F')), 'may end touching a friend');
@@ -236,6 +237,7 @@ test('move is blocked by impassable terrain (swamp and mountain)', () => {
         const o = opts(s, 'A');
         near(o.forward.max, 4, 0.1);                // circle bottom at y=320, unit top at y=400
         assert.equal(o.forward.stop, 'terrain');
+        assert.equal(o.forward.blocker.type, type);
         assert.throws(() => run(s, { type: 'move', inches: 4.6 }), /at most/);
         const t = run(s, { type: 'move', inches: o.forward.max });
         assert.ok(geo.satGap(geo.rect(unit(t, 'A')), geo.disc(t.terrain[0])) >= -0.05, 'not overlapping terrain');
@@ -403,12 +405,15 @@ test('pivot: blocked by a neighbour, the edge, or impassable terrain in the way'
     // friendly unit 0.1px beside A: any turn would clip it
     let s = started([U('A', 'p1', 400, 400), U('F', 'p1', 460.1, 400), U('B', 'p2', 100, 100)], 'A');
     assert.equal(opts(s, 'A').pivot.left + opts(s, 'A').pivot.right, 0);
+    assert.equal(opts(s, 'A').pivot.rightBlocker.id, 'F');
     assert.throws(() => run(s, { type: 'pivot', degrees: 10 }), /room/);
     // an enemy neighbour likewise
     s = started([U('A', 'p1', 400, 400), U('B', 'p2', 460.1, 400)], 'A');
+    assert.equal(opts(s, 'A').pivot.rightBlocker.id, 'B', 'A cached pivot must resolve the blocker in the current position');
     assert.throws(() => run(s, { type: 'pivot', degrees: 10 }), /room/);
     // battlefield edge
     s = started([U('A', 'p1', 0, 400), U('B', 'p2', 100, 100)], 'A');
+    assert.equal(opts(s, 'A').pivot.leftBlocker, 'edge');
     assert.throws(() => run(s, { type: 'pivot', degrees: 10 }), /room/);
     // swamp hugging the side
     s = started(open(), 'A', { terrain: [{ type: 'swamp', x: 460.1, y: 380, w: 60 }] });
@@ -474,6 +479,7 @@ test('shoot: forests and mountains block, even with nothing else around', () => 
     for (const type of ['forest', 'mountain']) {
         const s = started([shooter(), target()], 'S', { terrain: [{ type, x: 410, y: 300, w: 40 }] });
         assert.match(shot(s), /sight/i, type);
+        assert.equal(E.shotCheck(s, unit(s, 'S'), unit(s, 'T')).blocker.type, type);
     }
     for (const type of ['swamp', 'field']) {
         const s = started([shooter(), target()], 'S', { terrain: [{ type, x: 410, y: 300, w: 40 }] });
@@ -812,6 +818,7 @@ test('slowing: entering slowing terrain caps the whole Move at 4"', () => {
     const terrain = [{ type: 'field', x: 390, y: 260, w: 80 }];       // bottom at y=340, 3" ahead of A
     const s = started([U('A', 'p1', 400, 400, { pace: 8 }), U('B', 'p2', 100, 40)], 'A', { terrain });
     near(opts(s, 'A').forward.max, 4, 0.02);
+    assert.equal(opts(s, 'A').forward.blocker.type, 'field');
     assert.throws(() => run(s, { type: 'move', inches: 5 }));
     // 1" first, then in: total still 4
     const t = run(s, { type: 'move', inches: 1 });
@@ -1080,4 +1087,16 @@ test('legalActions over a random playout stays legal and the game progresses', (
         for (const u of s.units) for (const v of s.units) if (u.id < v.id) assert.ok(geo.satGap(geo.rect(u), geo.rect(v)) >= -0.05, `${u.id} and ${v.id} do not overlap`);
     }
     assert.ok(s.round >= 1);
+});
+
+test('auto-draft deploys every unit with room to pivot clear of friends and the side edges', () => {
+    // Twelve undrafted units, laid out in the pool so the nearest-spot rule alone would pack them flush.
+    const units = Array.from({ length: 12 }, (_, i) => U('a' + i, undefined, 100 + (i % 3) * 10, 300 + Math.floor(i / 3) * 10,
+        i % 3 ? {} : { w: 40, h: 60 }));
+    let s = E.createGame({ units, terrainDeck: [], seed: 3, firstPick: 'p1' });
+    s = E.apply(s, { type: 'autoDraft' });
+    for (const u of s.units) {
+        const lim = E.pivotLimit(s, u, { unitId: u.id, action: null, pivots: 0, moved: 0, dir: null, pivotedInMove: false });
+        assert.ok(Math.min(Math.abs(lim.left), Math.abs(lim.right)) >= 45, `${u.id} at x=${u.x} can only pivot ${lim.left}/${lim.right}`);
+    }
 });

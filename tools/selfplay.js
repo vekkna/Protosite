@@ -3,6 +3,7 @@
  * Self-play tournament for the AI.
  *   node tools/selfplay.js [games=20] [A=hard] [B=random] [--verbose] [--offset=N]
  * A and B are: easy | normal | hard | random | brawler | passive, optionally with weight overrides, e.g. hard:approach=0.03
+ * --rules=reform plays the Reform variant (no Rally; Reform action; pivots only during a Move).
  * Each pairing is played twice per seed with sides swapped, on the same draft pool and terrain deck.
  */
 const fs = require('fs');
@@ -23,12 +24,12 @@ function loadRoster() {
     }
     return roster;
 }
-function newGame(seed, roster) {
+function newGame(seed, roster, rules = 'classic') {
     const rnd = rng(seed * 7919 + 1), pool = roster.slice().sort(() => rnd() - 0.5).slice(0, 12);
     const units = pool.map((u, i) => ({ id: 'u' + i, name: u.name, stats: u.stats, w: SIZE[u.footprint][0], h: SIZE[u.footprint][1],
         x: 70 + (i % 4) * 250, y: 190 + Math.floor(i / 4) * 140 }));
     const deck = [...['forest', 'hills', 'field', 'swamp', 'mountain'].flatMap(t => [t, t]), ...Array(10).fill('x')].sort(() => rnd() - 0.5).slice(0, 12);
-    return E.createGame({ units, terrainDeck: deck, seed, firstPick: seed % 2 ? 'p1' : 'p2', tileSize: SIZE.SW[0] });
+    return E.createGame({ units, terrainDeck: deck, seed, firstPick: seed % 2 ? 'p1' : 'p2', tileSize: SIZE.SW[0], rules });
 }
 
 /** Baseline bots. Each returns a new state after one decision. */
@@ -75,8 +76,8 @@ function toMove(s) {
     if (s.phase === 'bidding') return s.bids.p1 === null ? 'p1' : 'p2';
     return E.activePlayer(s);
 }
-function playGame(seed, specs, roster, maxRounds = 30) {
-    let s = newGame(seed, roster), decisions = 0;
+function playGame(seed, specs, roster, maxRounds = 30, rules = 'classic') {
+    let s = newGame(seed, roster, rules), decisions = 0;
     const players = { p1: makePlayer(specs.p1, seed + 11), p2: makePlayer(specs.p2, seed + 23) }, time = { p1: 0, p2: 0 }, count = { p1: 0, p2: 0 };
     while (s.phase !== 'finished' && s.round <= maxRounds && decisions < 4000) {
         const p = toMove(s), t0 = performance.now();
@@ -91,11 +92,12 @@ function main() {
     const args = process.argv.slice(2).filter(a => !a.startsWith('--'));
     if (process.argv.includes('--verbose')) process.env.VERBOSE = '1';
     const offset = Number((process.argv.find(x => x.startsWith('--offset=')) || '').split('=')[1]) || 0;   // use fresh seeds to extend an earlier run
+    const rules = (process.argv.find(x => x.startsWith('--rules=')) || '--rules=classic').split('=')[1];   // classic | reform
     const games = Number(args[0]) || 20, A = args[1] || 'hard', B = args[2] || 'random', roster = loadRoster();
     const tally = { A: 0, B: 0, draw: 0 }, rounds = [], ms = { A: [], B: [] };
     for (let g = 0; g < games; g++) {
         const seed = Math.floor(g / 2) + 1 + offset, aIs = g % 2 ? 'p2' : 'p1';
-        const r = playGame(seed, aIs === 'p1' ? { p1: A, p2: B } : { p1: B, p2: A }, roster);
+        const r = playGame(seed, aIs === 'p1' ? { p1: A, p2: B } : { p1: B, p2: A }, roster, 30, rules);
         if (!r.winner) tally.draw += 1; else tally[r.winner === aIs ? 'A' : 'B'] += 1;
         rounds.push(r.rounds);
         ms.A.push(r.time[aIs] / Math.max(1, r.count[aIs])); ms.B.push(r.time[E.other(aIs)] / Math.max(1, r.count[E.other(aIs)]));

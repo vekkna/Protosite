@@ -14,17 +14,17 @@ PDF export uses ReportLab, already available in this computer's bundled runtime.
 
 Working templates are in `assets/templates/`: portrait 1260 × 1760 pixels and landscape 1760 × 1260 pixels, both at 508 dpi (20 pixels/mm). PNG exports carry this same physical resolution. The originals in `images/` are preserved. The portrait sources were proportionally too narrow and the prepared versions expand their width to fit the requested footprint. To prepare templates again after replacing originals, run `python card-maker/prepare-assets.py` (development utility requiring Pillow).
 
-All six separate stat icons, including `range-icon.png`, are trimmed to their visible alpha bounds and recoloured in the renderer. Equal cells and fixed gaps between the visible icon edges and number edges replace the old baked-in icon positions.
+The four stat icons are trimmed to their visible alpha bounds and recoloured in the renderer. Equal cells and fixed gaps between the visible icon edges and number edges replace the old baked-in icon positions.
 
-Stats map to wing = Speed, chevrons = Drill, swords = Melee, target = ranged strength, arrow = range, shield = Def. Ranged `4/24` becomes target `4` and arrow `24`; a dash indicates no ranged attack. Quantity does not multiply cards.
+Four stat groups use wing = Move/Drill, swords = Melee, bow = Shoot/Range, shield = Defence. Drill and range have no separate icons. Asterisks appear exactly where they are entered in the stat fields. Portrait cards show Move/Drill and Melee across the top row, with Shoot/Range and Defence across the bottom row; landscape cards use four cells. Existing templates and physical card sizes are retained.
 
-Absent stats appear as `0` in previews, printing, and exports. Source values and actual numeric zeros are preserved. Thin vertical dividers in the card colour separate landscape stats. Portrait cards retain the template's central divider with no horizontal lines between rows.
+Zero or missing Shooting and Range values appear as `-` in previews, printing, and exports. Other missing stats appear as `0`. Source values and actual numeric zeros are preserved. Thin vertical dividers in the card colour separate landscape stats. Portrait cards retain the template's central divider with no horizontal lines between rows.
 
 Artwork assignments include the embedded images imported from the source sheet. Artwork should have a transparent background for a silhouette outline; opaque images receive an outline around their rectangle.
 
 The sheet's `Icon` column can specify a local image filename (or `images/filename.png`). Empty cells use the shared defaults in `unit-artwork.js`. Light Cavalry artwork is raised slightly on its shield. Browser artwork overrides still take precedence; Reset unit restores the sheet assignment.
 
-Images inserted directly into sheet cells are omitted from CSV. To update those assignments, download the public sheet as XLSX, then run `python card-maker/import-sheet-icons.py path/to/export.xlsx`. This reads the RolesStats drawing anchors, maps images to Unit rows in the Icon column, preserves their original image bytes in `images/`, and updates the shared artwork assignments. It does not change the Google Sheet. Reopen the editor and regenerate the cards after importing.
+Images inserted directly into sheet cells are omitted from CSV. To update those assignments, download the public sheet as XLSX, then run `python card-maker/import-sheet-icons.py path/to/export.xlsx`. This reads the RolesStats drawing anchors, maps images to Unit rows in the Icon column, preserves their original image bytes for card exports, and uses Pillow to create 192-pixel WebP copies for the battlefield. SVG icons are used directly. The importer also updates the shared artwork assignments. It does not change the Google Sheet. Reopen the editor and regenerate the cards after importing.
 
 To update Protosite's printable card assets after exporting, run `python card-maker/publish-cards.py path/to/export.zip`. The exported images reflect the last export; refresh and export again after changing the sheet. The unit profile panel uses the live values and separate artwork.
 

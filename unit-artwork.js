@@ -37,12 +37,17 @@
         if (/^[^/\\<>:"|?*]+\.(png|jpe?g|webp|svg)$/i.test(supplied)) return supplied;
         return sheetFiles[row.Unit] || files[row.Unit] || '';
     }
+    const importedFiles = new Set(Object.values(sheetFiles));
+    function screenFileFor(row) {
+        const file = fileFor(row);
+        return importedFiles.has(file) ? file.replace(/\.(png|jpe?g|webp)$/i, '.screen.webp') : file;
+    }
     function cardFor(row, colour = 'blue') {
         if (!Object.prototype.hasOwnProperty.call(files, row.Unit)) return '';
         const slug = row.Unit.toLowerCase().replace(/[^a-z0-9]+/g, '-');
         return `images/unit-cards/${slug}-${colour === 'orange' ? 'orange' : 'blue'}.png`;
     }
-    const api = { files: { ...files, ...sheetFiles }, fileFor, cardFor, offsetY: row => row.Unit === 'Light Cavalry' ? -28 : 0 };
+    const api = { files: { ...files, ...sheetFiles }, fileFor, screenFileFor, cardFor, offsetY: row => row.Unit === 'Light Cavalry' ? -28 : 0 };
     root.UnitArtwork = api;
     if (typeof module === 'object' && module.exports) module.exports = api;
 })(typeof globalThis !== 'undefined' ? globalThis : this);

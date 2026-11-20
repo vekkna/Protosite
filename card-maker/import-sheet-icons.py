@@ -1,6 +1,6 @@
 """Read embedded images from RolesStats in a public XLSX export.
 
-The workbook is read only. Uses standard Python libraries, no account connection.
+The workbook is read only. Pillow prepares small copies for the game UI.
 """
 from pathlib import Path
 from xml.etree import ElementTree as ET
@@ -10,6 +10,7 @@ import posixpath
 import re
 import sys
 import zipfile
+from PIL import Image
 
 ROOT = Path(__file__).resolve().parent.parent
 NS = {'s': 'http://schemas.openxmlformats.org/spreadsheetml/2006/main',
@@ -21,6 +22,14 @@ def related(archive, owner):
     folder, name = posixpath.split(owner)
     rels = ET.fromstring(archive.read(posixpath.join(folder, '_rels', name + '.rels')))
     return {item.attrib['Id']: posixpath.normpath(posixpath.join(folder, item.attrib['Target'])) for item in rels if item.attrib.get('TargetMode') != 'External'}
+
+def prepare_screen_icon(path):
+    if path.suffix == '.svg':
+        return
+    with Image.open(path) as original:
+        icon = original.convert('RGBA')
+        icon.thumbnail((192, 192), Image.Resampling.LANCZOS)
+        icon.save(path.with_suffix('.screen.webp'), lossless=True, method=6)
 
 def import_icons(filename):
     mapping = {}
@@ -62,7 +71,9 @@ def import_icons(filename):
             if suffix not in ('.png', '.jpg', '.jpeg', '.webp', '.svg'):
                 raise ValueError('Unsupported embedded image format: ' + suffix)
             name = 'sheet-unit-icon-' + hashlib.sha256(content).hexdigest()[:16] + suffix
-            (ROOT / 'images' / name).write_bytes(content)
+            path = ROOT / 'images' / name
+            path.write_bytes(content)
+            prepare_screen_icon(path)
             mapping[unit] = name
     if not mapping:
         raise ValueError('No embedded Icon images found in RolesStats.')

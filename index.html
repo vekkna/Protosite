@@ -5,57 +5,72 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
     <title>Seize the Day Wargame</title>
-    <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
-    <script src="https://unpkg.com/papaparse@5.4.1/papaparse.min.js"></script>
     <link rel="stylesheet" href="styles.css">
     <link rel="stylesheet" href="battle-console.css">
     <link rel="stylesheet" href="guided-play.css">
+    <link rel="stylesheet" href="field-interface.css">
+    <script defer src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
+    <script defer src="https://unpkg.com/papaparse@5.4.1/papaparse.min.js"></script>
+    <script defer src="command-tracker.js"></script>
+    <script defer src="unit-artwork.js"></script>
+    <script defer src="engine.js"></script>
+    <script defer src="battle-ux.js"></script>
+    <script defer src="ai.js"></script>
+    <script defer src="guided-play.js"></script>
+    <script defer src="app.js"></script>
 </head>
 
 <body>
     <!-- Landing Screen -->
     <div id="landing-screen" class="landing-screen">
         <div class="landing-card">
-            <span class="landing-kicker">Guided Battles</span>
-            <h1 class="landing-title">SEIZE THE DAY</h1>
-            <p class="landing-subtitle">A two-player tactical wargame of positioning, timing, and initiative.</p>
-
-            <div class="landing-solo">
-                <div>
-                    <h3>Play the AI</h3>
-                    <p>A single-player battle against the computer. You draft and deploy at the bottom of the table.</p>
-                </div>
-                <div class="landing-solo-buttons">
-                    <button type="button" class="btn-grey" onclick="playVsAI('easy')">Easy</button>
-                    <button type="button" class="btn-blue" onclick="playVsAI('normal')">Normal</button>
-                    <button type="button" class="btn-gold" onclick="playVsAI('hard')">Hard</button>
+            <header class="menu-bar">
+                <span class="menu-wordmark"><img src="images/sheet-unit-icon-aed7b541aa1b7d07.screen.webp" alt="">Seize the Day</span>
+                <nav aria-label="Game reference"><button type="button" onclick="openControlsHelp()">How to play</button><button type="button" onclick="openRulebook()">Rulebook</button></nav>
+            </header>
+            <div class="campaign-hero">
+                <div class="campaign-heading">
+                    <h1>Seize <em>the</em> Day</h1>
+                    <p>Draft your army, bid for initiative, and rout half the opposing force to win.</p>
                 </div>
             </div>
-
-            <div class="landing-grid">
-                <div class="landing-option host-option">
-                    <span class="option-badge badge-p1">Player 1</span>
-                    <h3>Host Battle</h3>
-                    <p>Create a game room and get a 4-letter code to share with your opponent.</p>
-                    <button id="landing-host-btn" class="btn-blue landing-action-btn" onclick="GuidedPlay.setAI(null); hostGameFromLanding()">Host New Game</button>
-                </div>
-
-                <div class="landing-option join-option">
-                    <span class="option-badge badge-p2">Player 2</span>
-                    <h3>Join Battle</h3>
-                    <p>Enter the 4-letter game code from your opponent.</p>
+            <div class="setup-grid">
+                <section class="setup-solo">
+                    <h2>Solo battle</h2>
+                    <form onsubmit="event.preventDefault(); playVsAI(this.elements.difficulty.value)">
+                        <fieldset class="difficulty"><legend>Enemy difficulty</legend>
+                            <label><input type="radio" name="difficulty" value="easy"><span>Easy</span></label>
+                            <label><input type="radio" name="difficulty" value="normal" checked><span>Normal</span></label>
+                            <label><input type="radio" name="difficulty" value="hard"><span>Hard</span></label>
+                        </fieldset>
+                        <button class="start-battle" type="submit">Start solo battle <span aria-hidden="true">→</span></button>
+                    </form>
+                </section>
+                <section class="setup-multi">
+                    <h2>Multiplayer</h2>
+                    <p>Play on one screen or connect with a room code.</p>
+                    <div class="room-actions"><button type="button" onclick="hostGameFromLanding('shared')">Shared screen</button><button type="button" id="landing-host-btn" onclick="hostGameFromLanding()">Host New Game</button>
                     <form class="join-input-group" onsubmit="event.preventDefault(); joinGameFromLanding()">
                         <input type="text" id="landing-join-code" maxlength="4" placeholder="Room code" aria-label="Room code" minlength="4" required autocomplete="off" spellcheck="false">
-                        <button id="landing-join-btn" class="btn-blue landing-action-btn">Join</button>
-                    </form>
-                </div>
+                        <button id="landing-join-btn" type="submit">Join</button>
+                    </form></div>
+                </section>
             </div>
-
+            <div class="setup-rules">
+                <div class="landing-rules" role="group" aria-label="Rules for new games">
+                    <span class="landing-rules-label">New game rules</span>
+                    <button type="button" data-rules-choice="classic" aria-pressed="true" onclick="GuidedPlay.setRules('classic')">Classic</button>
+                    <button type="button" data-rules-choice="reform" aria-pressed="false" onclick="GuidedPlay.setRules('reform')">Reform</button>
+                    <button type="button" data-rules-choice="reform-variant" aria-pressed="false" onclick="GuidedPlay.setRules('reform-variant')">Reform Variant</button>
+                    <button type="button" data-rules-choice="v3" aria-pressed="false" onclick="GuidedPlay.setRules('v3')">V3</button>
+                </div>
+                <p id="rules-description">Rally to remove strain. Pivot before or after an action.</p>
+            </div>
             <!-- Active Battles List -->
             <div id="landing-active-games" class="landing-active-games" style="display: none;">
                 <div class="active-games-header">
                     <h3>Active Battles</h3>
-                    <span class="active-games-hint">Resume to reconnect</span>
+                    <span class="active-games-hint">Saved on this device</span>
                 </div>
                 <div class="active-games-list" id="active-games-list"></div>
             </div>
@@ -64,13 +79,12 @@
 
     <div id="container" style="display: none;">
         <div class="sidebar" id="left-sidebar" role="complementary" aria-label="Battle controls">
-            <div class="battle-console-title">Seize the Day<span>Field headquarters</span></div>
+            <div class="sidebar-content">
             <!-- Player Identity & Room Card -->
             <div id="player-banner" class="player-banner">
                 <div class="player-banner-top" id="player-banner-top">
                     <button id="toggle-room-code-btn" type="button" class="hosting-toggle" onclick="toggleRoomCodeArea()" aria-controls="room-code-area" aria-expanded="false" aria-label="Show hosting info" title="Show hosting info"><span class="tuck-chevron" aria-hidden="true">▾</span></button>
                     <div class="player-role-badge badge-p1" id="player-role-badge">Player 1</div>
-                    <button id="fullscreen-btn" type="button" class="btn-grey" onclick="toggleFullscreen()">Full Screen</button>
                 </div>
                 <div id="room-code-area" class="room-code-area">
                     <div class="room-code-badge" id="room-code-badge">
@@ -78,33 +92,28 @@
                         <button id="copy-room-link-btn" class="btn-copy-sm" onclick="event.stopPropagation(); copyRoomLink()" title="Copy invite link">Copy Link</button>
                     </div>
                     <div id="network-status" class="network-status">Waiting for opponent...</div>
-                <footer class="game-menu-footer"><button id="exit-game-btn" type="button" class="btn-grey" onclick="exitToLanding()">Main menu</button><span>Your battle is saved for resuming.</span></footer>
                 </div>
 
             </div>
 
             <div class="battle-console-grid">
             <div class="battle-command-column">
-            <section class="display-options" aria-label="Battlefield display">
-                <div id="landscape-notice">
-                    <strong>Best played in landscape</strong>
-                    <p id="landscape-help" role="status">Rotate your device sideways. If it stays upright, enable auto-rotate or turn off orientation lock.</p>
-                    <button id="landscape-btn" type="button" class="btn-grey" onclick="requestLandscape()" hidden>Landscape + Full Screen</button>
-                </div>
-                <p id="display-help" role="status">Full screen gives the battlefield more room.</p>
-            </section>
+            <div class="field-prompt">
+                <span id="field-phase">Deployment</span>
+                <h2 id="field-turn" aria-live="polite">Preparing battlefield</h2>
+                <div id="field-objective"></div>
+                <div id="ai-current-action" role="status" hidden></div>
+            </div>
+            <section id="guided-play" aria-label="Battle orders"></section>
 
             <section id="terrain-section" aria-label="Terrain deployment">
-                <h3>Terrain</h3>
-                <p class="sidebar-description">Drag the revealed card onto the field.</p>
+                <h3>Next terrain tile</h3>
                 <div id="terrain-card" class="palette-item terrain-deck-card is-empty"
                     onpointerdown="playTerrainCard(event)" oncontextmenu="event.preventDefault()" role="button" aria-disabled="true"
                     aria-label="Terrain deck empty. Start a new battle to create a terrain deck.">
-                    <span class="terrain-card-kicker">Revealed Card</span>
                     <span id="terrain-card-title" class="palette-title">Deck Empty</span>
-                    <span id="terrain-card-note" class="palette-note">All terrain drawn</span>
                 </div>
-                <p id="terrain-deck-count" class="terrain-deck-info"></p>
+                <p id="deployment-terrain-notice" role="status"></p>
                 <p id="terrain-draw-status" class="terrain-deck-info" role="status" aria-live="polite"></p>
             </section>
 
@@ -114,7 +123,7 @@
                 <p id="draft-notice-text">Preparing draft...</p>
             </div>
 
-            <section id="guided-play" aria-label="Guided game actions" aria-live="polite"></section>
+
 
             <!-- Top Left Bids & Turn Section -->
             <section id="bidding-turn-panel" class="bidding-turn-panel" aria-label="Bidding and Turn Management">
@@ -176,46 +185,15 @@
 
 
 
-            <!-- Battle Tools: Dice Roller -->
-            <section class="battle-tools-section">
-                <span class="sidebar-kicker">Dice Roller</span>
-                <div class="dice-controls">
-                    <div class="dice-count-field">
-                        <label for="dice-count">Number of d6</label>
-                        <div class="dice-count-adjuster">
-                            <button type="button" class="btn-grey dice-step-button" onclick="adjustDiceCount(-1)"
-                                aria-label="Decrease number of dice">−</button>
-                            <input type="number" id="dice-count" value="2" min="1" max="20" onchange="normalizeDiceCount()">
-                            <button type="button" class="btn-grey dice-step-button" onclick="adjustDiceCount(1)"
-                                aria-label="Increase number of dice">+</button>
-                        </div>
-                    </div>
-                    <button id="dice-btn" class="btn-blue" onclick="rollDice()">Roll</button>
-                </div>
-                <div id="dice-roll-card" class="dice-roll-card" role="status" aria-label="Dice roll result" aria-live="polite" aria-atomic="true">
-                    <div id="dice-values" class="dice-values">
-                        <span class="die-face empty">-</span>
-                    </div>
-                </div>
-            </section>
             </div>
             <div class="battle-reference-column">
             <details class="battle-extras" id="unit-profile-details" open>
-                <summary>Profiles &amp; help</summary>
+                <summary>Unit profile</summary>
                 <div id="stats-panel">
-                    <h3>Unit profile</h3>
                     <div id="stats-content">
                         <span class="stats-empty">Hover over or select a unit to inspect its profile.</span>
                     </div>
                 </div>
-                <details class="help-section">
-                    <summary>Help &amp; display</summary>
-                    <div class="sidebar-btn-row">
-                        <button id="controls-help-btn" type="button" class="btn-grey" onclick="openControlsHelp()"
-                            aria-haspopup="dialog" aria-controls="controls-modal">Controls</button>
-                        <button class="btn-grey" onclick="openRulebook()">Rulebook</button>
-                    </div>
-                </details>
 
             </details>
             <!-- Command Staging Zone (to the left of the battlefield) -->
@@ -249,15 +227,25 @@
 
             </div>
             </div>
+            </div>
+                <nav class="field-tools" aria-label="Battle view">
+                    <button type="button" id="ruler-toggle" aria-label="Ruler" title="Ruler (or right-drag / middle-drag)" aria-pressed="false" aria-controls="ruler-controls" onclick="toggleRulerMode()"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m3 16 13-13 5 5L8 21zM7 12l2 2m1-5 2 2m1-5 2 2"/></svg></button>
+                    <button type="button" id="ping-toggle" aria-label="Ping the battlefield" title="Ping the battlefield (P)" aria-pressed="false" aria-keyshortcuts="P" onclick="togglePingMode()"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="1"/><path d="M12 2v3m0 14v3M2 12h3m14 0h3"/></svg></button>
+                    <button type="button" id="controls-help-btn" aria-label="Controls and rules" title="Controls and rules" aria-haspopup="dialog" aria-controls="controls-modal" onclick="openControlsHelp()"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M9.5 9a2.6 2.6 0 1 1 4 2.2c-1.2.8-1.5 1.3-1.5 2.8m0 2.8v.2"/></svg></button>
+                    <button type="button" id="exit-game-btn" aria-label="Main menu" title="Save and return to main menu" onclick="exitToLanding()"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 11 12 3l9 8M5 10v11h5v-7h4v7h5V10"/></svg></button>
+                    <button type="button" id="fullscreen-btn" aria-label="Enter full screen" title="Enter full screen (F)" onclick="toggleFullscreen()"><svg viewBox="0 0 24 24" aria-hidden="true"><path class="expand-icon" d="M3 9V3h6m6 0h6v6m0 6v6h-6m-6 0H3v-6"/><path class="shrink-icon" d="M9 3v6H3m12-6v6h6m0 6h-6v6m-6 0v-6H3"/></svg></button>
+                </nav>
         </div>
         <div id="sidebar-resize-handle" role="separator" aria-orientation="vertical" aria-label="Resize battle controls" aria-valuemin="208" aria-valuemax="720" aria-valuenow="420" tabindex="0" title="Drag to resize. Use arrow keys to adjust. Double-click to restore automatic width."><span></span></div>
+        <main class="field-workspace">
         <div id="table-container">
-            <div id="game-table">
+            <div id="game-table" role="region" aria-label="Battlefield" tabindex="0">
                 <div id="deployment-zone-top" class="deployment-zone deployment-zone-top" aria-hidden="true"></div>
                 <div id="deployment-zone-bottom" class="deployment-zone deployment-zone-bottom" aria-hidden="true"></div>
-                <div id="unit-tooltip" aria-hidden="true"></div>
+                <div id="terrain-tooltip" role="tooltip" aria-hidden="true"></div>
                 <div id="angle-indicator" aria-hidden="true"></div>
                 <div id="remote-angle-indicator" class="angle-indicator remote" aria-hidden="true"></div>
+                <div id="deployment-terrain-grip" title="Drag to reposition terrain" aria-hidden="true" hidden>✥</div>
                 <div id="piece-controls" role="toolbar" aria-label="Selected piece controls" aria-hidden="true">
                     <div class="piece-control-row">
                         <button type="button" class="btn-grey" data-rotate-step="-5"
@@ -272,31 +260,57 @@
                     <text id="measure-text" x="0" y="0">0"</text>
                     <line id="remote-measure-line" x1="0" y1="0" x2="0" y2="0" />
                     <text id="remote-measure-text" x="0" y="0">0"</text>
+                    <g id="pinned-rulers" aria-hidden="true"></g>
+                    <g id="ruler-draft" aria-hidden="true"></g>
+                    <g id="board-pings" aria-hidden="true"></g>
                 </svg>
             </div>
+            <div id="ruler-controls" role="group" aria-label="Measurements" hidden>
+                <button type="button" id="pin-ruler" onclick="pinRuler()" disabled>Pin ruler</button>
+                <button type="button" id="pin-ruler-follow" onclick="pinRuler(true)" disabled>Pin to units</button>
+                <button type="button" id="clear-rulers" onclick="clearRulers()" disabled>Clear rulers</button>
+            </div>
         </div>
+            <aside id="battle-log-panel" aria-label="Battle log">
+                <h3>Battle log</h3>
+                <div id="battle-log-entries" tabindex="0"></div>
+            </aside>
+        </main>
     </div>
     <div id="controls-modal" class="modal-overlay" onclick="closeControlsHelp()" aria-hidden="true">
         <div class="modal-content controls-modal-content" role="dialog" aria-modal="true"
             aria-labelledby="controls-modal-title" onclick="event.stopPropagation()">
             <div class="modal-header">
                 <h2 id="controls-modal-title">Field Controls</h2>
+                <button type="button" class="btn-grey" onclick="openRulebook()">Rulebook</button>
                 <button class="btn-grey" onclick="closeControlsHelp()" aria-label="Close field controls">X</button>
             </div>
             <div class="modal-body controls-modal-body">
+                <section class="display-options" aria-label="Battlefield display">
+                    <div id="landscape-notice">
+                        <strong>Landscape view</strong>
+                        <p id="landscape-help" role="status">Rotate your device sideways. If it stays upright, enable auto-rotate or turn off orientation lock.</p>
+                        <button id="landscape-btn" type="button" class="btn-grey" onclick="requestLandscape()" hidden>Landscape + Full Screen</button>
+                    </div>
+                    <p id="display-help" role="status"></p>
+                </section>
                 <div id="controls-hint">
                     <div class="controls-group">
                         <span class="controls-group-label">Playing a battle</span>
                         <ul class="controls-help-list">
-                            <li>Draft: click a unit, draft it, place the terrain tile on it, then drag the unit into your deployment zone and confirm.</li>
-                            <li>Bid: pick a number. Bids are revealed together; the lower bid is Master Tactician.</li>
+                            <li>Tap an available unit on the battlefield. If there’s a terrain tile, drag it onto the unit and adjust it there. Drag the unit into your deployment zone to lock the terrain. Tap or drag the unit’s ↻ handle to rotate. Undo any adjustment before choosing Confirm Unit Deployment.</li>
+                            <li>Choose a command bid and lock it when ready. Both bids are revealed together. The lower bidder acts first and last.</li>
                             <li>Your highlighted units can be commanded. A unit's first order spends a command.</li>
-                            <li>Drag a unit along its lane to move. Dragging to the red end of the lane charges.</li>
-                            <li>Drag the ring around a unit to pivot, or use the pivot buttons.</li>
-                            <li>Click an outlined enemy to see the odds; click it again to shoot or strike.</li>
-                            <li>Enter ends the activation. Escape cancels a chosen target.</li>
-                            <li>Drag on empty battlefield to measure. Shift-click units to compare ranges.</li>
-                            <li>Z undoes the last step in a shared-screen game. F toggles full screen.</li>
+                            <li>Drag along a unit’s movement outline to preview its destination. Release to move. A red outline marks a charge.</li>
+                            <li>Drag a unit’s corner to pivot. Choose Reform first to spend the action on a turn of any size allowed by the surrounding space.</li>
+                            <li>While dragging a ranged unit, its firing arc follows the preview. Gold outlines show clear sightlines. Dashed outlines show blocked targets. Click a blocked target to see the reason.</li>
+                            <li>Select an outlined enemy to see the odds. Select it again to shoot or strike.</li>
+                            <li>With the battlefield focused, use Up/Down to move and Left/Right to turn. Hold Shift for smaller steps. Use Enter or Space on a focused enemy to target it.</li>
+                            <li>Enter ends the activation. Escape clears a selected order or target.</li>
+                            <li>Right-drag or middle-drag anywhere to measure. On touch, tap Ruler then drag. Keep dragging past an edge to release the snap, or hold Alt for free placement.</li>
+                            <li>Pin up to two rulers. Use Pin to units to keep snapped endpoints attached as units move. If a unit routs, its endpoint stays at the last position. Shift-click units to compare ranges.</li>
+                            <li>Click Ping or press P, then tap a spot on the battlefield to mark it for both players.</li>
+                            <li>Press Z to undo steps until a roll, reveal or phase change. Online, undo is available during your command window. Press F for full screen.</li>
                         </ul>
                     </div>
                 </div>
@@ -319,12 +333,6 @@
             </div>
         </div>
     </div>
-    <script src="command-tracker.js"></script>
-    <script src="unit-artwork.js"></script>
-    <script src="engine.js"></script>
-    <script src="ai.js"></script>
-    <script src="guided-play.js"></script>
-    <script src="app.js"></script>
 </body>
 
 </html>

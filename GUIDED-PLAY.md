@@ -20,6 +20,11 @@ Architecture
 - `app.js` — tabletop renderer, lobby, saving and PeerJS networking. It calls
   the client through a handful of hooks (`canDrag`, `constrainDrag`,
   `dropPiece`, `constrainRotation`, `dropRotation`, `tap`).
+- `battle-ux.js` — pure movement/charge preview geometry, rotated-card ruler
+  snapping and live AI order descriptions. Target route checks sample facings
+  every 5 degrees plus target bearings. Highlighted charge targets use the
+  engine's exact pivot and move checks. Extra Pivots that spend the action are
+  excluded.
 
 - `ai.js` — the AI opponent (`SeizeAI`). For each unit it proposes whole
   activations (charge, shoot, advance, withdraw, face, rally, hold), has the
@@ -34,7 +39,9 @@ Architecture
   they may never change a rules answer.
 - `tools/bench.js` — times the hard AI on 60 fixed positions and counts how
   many choices match a frozen version.
-- `tools/selfplay.js` — tournaments between AI versions and baseline bots:
+- `tools/rules-compare.js` — AI-v-AI games under `--rules=classic|reform` with a
+  breakdown of activation kinds and per-unit results; `tools/rules-merge.js` merges runs.
+- `tools/selfplay.js` — tournaments (`--rules=reform` for the variant) between AI versions and baseline bots:
   `node tools/selfplay.js 20 hard brawler`, or with weight overrides such as
   `hard:approach=0.03`. Add `--verbose` to print each decision.
 
@@ -42,8 +49,46 @@ Online games still send whole board snapshots after each action; the engine
 state travels inside the snapshot. Bids stay on each player's own machine until
 both are in.
 
+Choose **Auto-draft both sides** from the deployment panel to finish drafting
+and go straight to initiative bidding.
+
+Movement planning and feedback
+------------------------------
+
+Select a unit on the field or in the roster. **N** cycles through fresh units.
+The available order buttons highlight what you can do on the battlefield.
+Drag the unit to move or a corner to turn. Choose **Reform** before turning to
+spend the action on a Reform. Select an outlined enemy twice to preview and
+confirm an attack. **Undo** or **Z** reverses moves and pivots before a roll,
+phase change or an online turn handoff.
+
+Movement outlines show how far the unit can advance or withdraw. Dragging
+previews the destination, and the unit slides there on release. Drag a corner
+to pivot and see the movement corridor update with the facing. The ruler snaps to
+rotated card edges and reads to 0.01 inch. Unit profiles are in the sidebar. Hover
+over terrain to read its rules.
+The left sidebar shows the next action. The battle log on the right shows enemy
+orders and previous results.
+Shooting tracers, impact rings and strain text show attack resolution on the board.
+Select an enemy unit to inspect its firing range, movement corridors and charge
+targets during either player's turn. Unit names use smaller labels with
+the shared card maker icons centred above them. `TEXT-EDITING.md` maps page text
+to its source files.
+
 Rules interpretations worth checking
 ------------------------------------
+
+- Rules variant `rules: 'reform'` (chosen on the landing page, see HANDOVER.md): no Rally;
+  Reform action turns up to 180 degrees with pivot clearance; pivots only in a Move
+  (a pivot with no action yet starts one); a charge needs every pivot before moving.
+- Rules variant `rules: 'v3'`: Reform, plus a run of consecutive pivots may pass through
+  units, impassable terrain and the edge (only the facing after the last pivot must be clear;
+  Reform is one turn, so it must end clear). Unlike the Reform Variant, Pace-asterisk
+  units can't pass through friends.
+  Shooting needs one clear line from the shooter's front-edge centre to the centre of a target edge that faces the shooter (the target blocks too); no cover modifier.
+  Rally removes 1 strain (allowed while touching an enemy); a pivot before moving keeps the charge, one after starting to move loses it; a unit with 5+ strain can't attack (no Shoot, Strike or charge).
+  No combat modifiers (no outflanking or height dice); a unit can only strike (or charge) enemies touching its front; hills slow units entering them, but not a unit that starts its Move on one.
+- Turning during a Move into slowing terrain counts as entering it (both rule sets).
 
 - Concealing terrain blocks any sight line passing through it, so a unit
   standing in a forest can neither shoot nor be shot (the rules' "shooting out
@@ -57,7 +102,8 @@ Rules interpretations worth checking
 - The top terrain tile must be placed if any legal position exists; it is
   discarded automatically only when none does or when it is open ground.
 - A player with no commands left, or no unit left to command, passes
-  automatically. An activation closes by itself when nothing more can be done.
+  automatically. When a player's final move or pivot would end the round, the
+  board lets them choose Undo or End round.
 - The outlined circular tile is the terrain feature.
 
 Tests

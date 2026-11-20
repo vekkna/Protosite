@@ -1,6 +1,6 @@
 {
   "version": "0.0.1",
   "configurations": [
-    { "name": "protosite", "runtimeExecutable": "python", "runtimeArgs": ["-m", "http.server", "8173"], "port": 8173 }
+    { "name": "protosite", "runtimeExecutable": "python", "runtimeArgs": ["tools/serve.py", "8174"], "port": 8174, "autoPort": false }
   ]
 }

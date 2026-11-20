@@ -11,8 +11,11 @@ AI / guided-play work is committed; the card-maker and PDF work is not.
 What exists
 -----------
 
-- A rules-enforced browser game (open `index.html` through any static server;
-  `.claude/launch.json` starts `python -m http.server 8173`).
+- A rules-enforced browser game (open `index.html` through a static server:
+  `Start Seize the Day.bat` runs `tools/serve.py 8173 --open`, and `.claude/launch.json`
+  runs it on 8174). `tools/serve.py` sends `Cache-Control: no-cache`: with plain
+  `python -m http.server` a browser kept a stale `unit-artwork.js` next to a new
+  `app.js` and AI games hung on "Preparing battlefield" (2026-11-20).
 - `engine.js`: headless rules engine. Source of truth for all game state.
 - `guided-play.js`: the game client (board gestures to engine actions, panel,
   overlays, AI turn runner). Exposes `GuidedPlay`.
@@ -22,6 +25,19 @@ What exists
 - Rules source: the Google Doc linked in `rules url.txt`. `game-rules.html` is a
   copy made on 2026-11-16. The doc changes; re-check it before trusting the
   engine.
+- Unit stats source: the Google Sheet linked in `stats sheet url.txt` (tab
+  gid 663136589) is authoritative. The browser game (`SHEET_URL` in `app.js`)
+  and the card maker (`SOURCE` in `card-maker/server.py`) read it live.
+  `unit-cards-source.csv` is a snapshot used by the headless tools and tests
+  and as the offline fallback for the card maker and the game. Refresh it with
+  `node tools/sync-stats.js` after the sheet changes. If the sheet can't be
+  reached, the game uses its browser cache, then this snapshot, then
+  `FALLBACK_DEFAULT_UNITS` in `app.js`. `tests/roles-stats.test.js` fails
+  when that built-in list drifts from the snapshot, so copy the new values
+  into it after a sync. Every new game or board reset reloads the sheet.
+  Designer decision (2026-11-18): a resumed or rejoined game keeps the stats
+  it started with (they are stored in the save), so a battle never changes
+  mid-game and both online players share the same numbers.
 
 Modes: shared screen (two humans), online (PeerJS room code), and Play the AI
 (landing page; human is Player 1 at the bottom, AI is Player 2).
@@ -56,6 +72,8 @@ change can be measured against it:
     tools/baselines/ai-v3.js   + terrain-aware draft; the AI before round planning
     tools/baselines/ai-v4.js   + comboChallenger (combined attacks on one target)
     tools/baselines/ai-v5.js   + round play-out at hard level (playOut / roundValue)
+    tools/baselines/ai-v6.js   v5 + the exact speed-ups; the AI before the Reform rules variant
+    tools/baselines/ai-v7.js   v6 + Reform / Reform Variant / V3 support; the AI before V3 tuning
 
 Rules:
 
@@ -146,7 +164,7 @@ How the AI works
      key, never crossing into another turn), plus the usual `replyThreat`
      correction after the first activation. It wins only by `passMargin`.
      This is what lets a weak flanker charge first so that the heavy hitter's
-     strike also gets the outflank die.
+     strike also gets the outflank dice.
    - Hard level only, `playOut` / `roundValue` (`playout: 1`): the probe step
      instead plays the rest of the round out for each leading option and for
      passing. Each exact dice result of the option is followed by both sides
@@ -179,7 +197,13 @@ How the AI works
    - Deploy, `deployScore`: fast units to the wings; what terrain lies in the
      lane ahead (hills good, impassable or slowing bad for movers, cover bad
      for shooters); expected strain exchanged with enemy units already
-     deployed opposite; staying near friends.
+     deployed opposite; staying near friends, but not so close to a friend
+     or the side edge that it can't pivot (`deployRoom`, added 2026-11-19;
+     `deployRoom=0` packs units flush as before). Over 20 seeds the share of
+     units deployed unable to pivot 45° both ways fell from 130/240 to 6/240.
+   - Auto-draft (engine `automaticDeployment`, not the AI) also picks the
+     nearest spot that leaves pivot room (`deploymentCramp`): 221/240 stuck
+     before, 0/240 after. Covered by a test in tests/engine.test.js.
    - `draftSmart: 0` restores the first version (`chooseDraftSimple`) for
      comparison.
 
@@ -264,8 +288,185 @@ Listed in `GUIDED-PLAY.md`. The two that change play most: whether a unit in a
 forest can shoot or be shot, and whether "hard to shoot" comes from Mobility 3+
 (stat list) or the Defence asterisk (combat section; this is what is coded).
 
+Unit balance study (2026-11-17)
+-------------------------------
+
+720 normal-v-normal games (seeds 5000-5359, sides swapped), per-unit stats from
+attack/rout events plus a logistic regression of the winner on unit-count
+difference (coefficient SE about 0.1). Strongest: Spears (+0.28, Def 6 is
+very hard to strain), Fanatics (+0.25, ~5 strain per strike, most kills),
+Archers (+0.24, range 24). Weakest: Mounted Archers (-0.26; they almost never
+shoot, because moving and shooting are both the activation's one action).
+Drill 0 melee units fight rarely (attacks per unit: Heavy Infantry 0.5,
+Halberds 0.9, Heavy Cavalry 1.1, against 2+ for Drill 1+ melee units), since
+they cannot pivot and still move, and a pivot mid-move forbids a charge.
+Crossbows are not hurt by Drill 0 (180-degree arc, they stand still). Light
+Infantry never used its 1*/4 shot. Caveats: normal AI, not hard; the pool
+shuffle in `tools/selfplay.js` (`sort(() => rnd() - 0.5)`) is biased, so
+Heavy Infantry appeared 832 times and Cavalry 555. Run before the 2026-11-17
+sheet update (Light Infantry range 8, Archers 20, Crossbows 20, Mounted
+Archers Def 3*), so it describes the old stats. That study also missed the
+events of all but the last engine step of each AI decision, so its damage
+totals are undercounts (the win regression is unaffected).
+
+Second study (2026-11-18), on the sheet with Fanatics Melee 6 and one copy
+each of Halberds, Lancers and Crossbows (23 cards; the sheet's total row says
+21 and the rules say 24). 720 normal and 300 v4 games, with a fair pool
+shuffle and every engine event captured. The spread is much tighter. Spears
+stay strongest (+0.26 normal, +0.53 v4), Mounted Archers weakest (-0.17,
+-0.35); Light Cavalry is strong under v4 (+0.22) because it hunts shooters.
+Cavalry and Light Cavalry rout first (about twice their share of first
+routs, round 5-6). Heavy Infantry still makes only 0.7 attacks a game.
+Armies with 3 shooters win about 40%. Tweak test (normal AI): Drill 1 on
+Heavy Cavalry overshoots (+0.33), Spears Def 5 overshoots the other way
+(-0.17), Mounted Archers range 16 helps (-0.17 to -0.10).
+Second tweak (Spears Def 5 Melee 3, Heavy Infantry Drill 1, Heavy Cavalry
+Drill 1 Melee 3, Mounted Archers 3/16, Fanatics Melee 7), 720 normal and
+300 v4 games: the flattest set so far under the normal AI (every unit
+within +/-0.19, Spears 0.00), but under v4 Spears fall to -0.29 and
+Fanatics rise to +0.20; Mounted Archers still -0.14/-0.15.
+
+Rules variant: Reform (2026-11-17)
+----------------------------------
+
+The designer's new rules doc (`rules url.txt`, doc id 1Nj4...) removes Rally,
+replaces Extra Pivot with Reform (the action: face any direction) and allows
+pivots only during a Move; a charge is allowed if every pivot came before the
+unit started moving. It is a switchable variant: `createGame({ rules: 'reform' })`
+(default `'classic'`, unchanged). Code: `reformRules`, `pivotLimit(s,u,act,reform)`
+and the `pivot` branch of `commandAction` in `engine.js` (a Reform is a pivot
+action with `reform: true`, up to 180 either way, same clearance as a pivot);
+`plansFor` (Reform plans for turns beyond 90 x Mobility; continuing a Move a
+pivot started) and `pairGeometry` (no turn-and-shoot) in `ai.js`. Tests:
+`tests/reform-rules.test.js`.
+
+In the browser: a Rules toggle (Classic / Reform) on the landing page sets the
+rules for new games and is remembered in localStorage (`seize-the-day-rules`);
+a game keeps the rules it was created with (they are in its state, so saves
+and online games carry them). When Reform is available, choose it and drag a
+unit corner to Reform. A direct corner drag pivots within the ordinary limit,
+or Reforms beyond it when legal. The drag label indicates when a turn starts
+a Move or uses the action to Reform.
+
+Interpretations (confirm with the designer): a pivot with no action yet starts
+a Move, so the unit can no longer shoot or strike; a 0-inch Move with pivots is
+legal; Reform needs clearance, so not while touching an enemy; pivots after
+moving are allowed but forbid a charge.
+
+Rules variant: V3 (2026-11-18, called Skirmishers until 2026-11-19)
+--------------------------------------------------------------------
+
+`rules: 'v3'` (`v3Rules` in engine.js; `normalizeRules` maps the old
+'skirmishers' to it) is Reform plus the changes below. Charging follows the
+Reform Variant: any pivot in the activation, even before moving, rules out a
+charge (designer's correction, 2026-11-19). (1) A unit may pivot any number of times in a row;
+only its position after the last pivot of the run matters (within the
+battlefield, not overlapping a unit or impassable terrain). A pivot may end
+overlapping only if a later pivot can still reach a clear facing
+(`pivotEndError`); the activation then has `overlap: true`, which blocks moving
+and `endActivation` until a pivot ends clear, and lets the unit keep pivoting
+while touching an enemy. Reform is one turn, so it must end clear. `pivotScan`
+keeps scanning past obstacles and returns `blocked: {left,right}` spans and
+`chain` (another pivot follows); `pivotAllowed`, `pivotOverlap`, `nearestPivot`,
+`overlapAt` in `engine.js`. Guided play shows the card turning through the
+obstacle; on the last pivot it settles on the nearest clear facing, otherwise
+it may stop overlapping and End activation is disabled. The AI drops plans
+that stop overlapping.
+(2) Unlike the Reform Variant, no unit may pass through friendly units
+(`friendlyPassage` is Reform Variant only; a Pace asterisk still ignores slowing terrain). Rules page:
+`game-rules.html?rules=v3` (Reform Variant text plus `v3-only` /
+`not-v3` overrides). Tests at the end of `tests/reform-rules.test.js`.
+
+(3) Line of sight (designer, 2026-11-20): one unobstructed straight line from the
+centre of the shooter's front edge to the centre of one of the target's edges that the
+shooter can see, not passing through blocking terrain or a unit. The target blocks too, so
+only edges facing the shooter count (the firing point lies outside that edge's line; an
+edge seen exactly side-on doesn't count). There is no cover modifier
+(`COVER_DICE` was removed). `shotCheck` collects the blockers inside the sight fan
+(the old all-of-it test; none means a clear shot) and then tests the four lines to
+the facing edges' centres. Other blockers are the same as in the other rule sets (units
+unless the shooter is elevated, concealing terrain, elevated terrain neither unit is on). The AI's `clearShot` now only says shot or no shot.
+Firing arc and range are unchanged (target still wholly in front).
+
+Interpretation: a move segment of a Pace-asterisk unit must still end clear of
+friends (no pivoting while overlapping a friend mid-crossing).
+
+Also fixed in both rule sets (found by Astra): turning during a Move into
+slowing terrain now counts as entering it (sets the 4-inch cap, or the turn
+stops short of the terrain once the unit has moved more than 4").
+
+Measured with `tools/rules-compare.js` / `tools/rules-merge.js`, same seeds
+both ways (normal 5001-5200, hard 7001-7024):
+
+                          classic normal  reform normal  classic hard  reform hard
+    mean rounds (p10/50/90)  9.8 (6/9/14)  8.1 (6/8/11)  10.8 (6/9/16)  7.8 (5/7/11)
+    unfinished by round 30         5/200          0/200          1/24          0/24
+    attacks per rout                5.90           4.39          6.20          4.54
+    shots per game                   5.8            4.3           5.8           4.5
+    Reform share of activations        -           3.3%             -          2.2%
+
+Per unit (normal, ~180 fielded each, win% SE about 4): Heavy Cavalry 40 -> 46%
+(Reforms in 19% of its activations), Lancers 42 -> 48%, Mounted Archers 48 -> 40%
+(rout rate 52 -> 69%), Spears' strain dealt 4.0 -> 2.3 per unit. Rally was 13%
+of classic activations (21% for Mounted Archers). Caveat: the AI's weights were
+tuned under classic rules.
+
 Run log
 -------
+
+- 2026-11-20 (latest+1): V3 charges now follow Reform: a pivot before travelling keeps
+  the charge, a pivot after starting to move loses it (`reformVariant` in `moveLimit` is
+  Reform Variant only; the AI's charge threat uses the Reform geometry check for V3). V3
+  Rally is allowed while touching an enemy.
+- 2026-11-20 (latest): designer changed V3 again. (a) No combat modifiers at all:
+  `attackPreview` adds no mods in V3 (outflanking and height gone; AP and Loose
+  Formation are target-number rules and stay). (b) A unit can only strike enemies touching
+  its front (`touchesFront` / `canStrikeAt`): the enemy must touch the front edge (corners
+  included) and part of it must lie ahead of the front line, so a unit flush alongside
+  doesn't count. A charge also needs a target at the front (else it stops short). (c) Hills
+  slow units entering them in V3, but not a unit that started its Move on that hill
+  (`slows(s, t, hills)`; `act.startHills` records the hills at the Move's first move or
+  pivot, and before that the current hills are used). Leaving the start hill and re-entering
+  it in the same Move doesn't count as entering. Their line-of-sight effects are unchanged. (d) 5+ strain can't attack was already in. AI: `pairGeometry` uses no height
+  or flank dice in V3 and counts contact strikes only at the front; terrain choice and
+  deployment value hills less and treat them as slowing in V3. Untuned. Sanity run: hard v
+  normal, V3, 12 games, seeds 9100+: 7-4, 1 unfinished, mean 17.7 rounds.
+- 2026-11-20 (later): designer replaced V3's 'Attacker has 4 or more strain' −1 die
+  with: a unit with 5 or more strain can't attack (`SPENT_STRAIN`; no Shoot, Strike or
+  charge — the charge is our reading, since it exists for the free Strike). The AI's
+  `weary` weight is gone; `pairThreat` counts no attacks from such a unit and the
+  geometry cache key marks it (it changes whether it can shoot or charge). Frozen v7
+  doesn't have that key, so under V3 it may reuse a stale shot or charge answer.
+- 2026-11-20: stats sheet synced (`tools/sync-stats.js`): Fanatics 5/5 (was 6*/6),
+  Heavy Cavalry Speed 10, Halberds Melee 2*, Cavalry Melee 3, Light Cavalry Melee 2,
+  Archers 3/18 (x3), Crossbows Speed 5 and 2*/14, Infantry x3; `FALLBACK_DEFAULT_UNITS`
+  copied. V3 AI test: `weary=1` (pairThreat counts the weary die) v v7 (the AI frozen
+  before it), `--rules=v3`, 100 hard games, seeds 9001-9050, new stats: 38-48 with 14
+  unfinished (44% +/-10). No gain, so `weary` defaults to 0 and no v8 was frozen. V3
+  Rally (no roll) is now scored as one outcome (exact, speed only). With the reduced
+  stats V3 hard games are long: mean 17 rounds, 14% unfinished by round 30.
+- 2026-11-20: designer changed V3: Pace-asterisk units no longer pass through
+  friends (Reform Variant keeps it); line of sight is now a clear line to the centre
+  of a target edge facing the shooter, and the cover modifier is gone (`COVER_DICE` removed).
+- 2026-11-19 (later): designer reverted outflanking and cover to ±1 (`FLANK_DICE`,
+  `COVER_DICE` = 1, all rule sets), renamed Skirmishers to V3, and added to V3:
+  Rally (the action; not while touching an enemy; removes 1 strain, no roll) and
+  'Attacker has 4 or more strain' −1 die (`WEARY_STRAIN`). The AI's flank-threat
+  literal 1 now matches the engine again. Rules source: the Google Doc.
+- 2026-11-19: designer changed outflanking to +2/−2 and cover to −2 (`FLANK_DICE`,
+  `COVER_DICE` in engine.js; ai.js reads them). Positions suite (hard): 2 regressions,
+  'pin then flank' and 'strikes the unmarked enemy now': the AI passes, because
+  `pairGeometry`'s flank-threat bonus (now `E.FLANK_DICE`) makes waiting look better.
+  Holding that bonus at 1 (engine still 2) fixes both, and it is now applied in ai.js
+  (literal `1`, commented). flank1 v hard, 80 games, seeds 2001-2040: 39-33, 8 unfinished
+  (54%, within noise, no worse). After the fix the positions suite has the same 2 failures
+  as before the rule change (archers hold distance; second attacker after a rout). Normal-v-normal 30 games before/after: classic 10.4 -> 9.8
+  rounds, shots 5.7 -> 3.5 per game; skirmishers ~unchanged. Note unit-cards-source.csv
+  was stale v the sheet when this was measured. Later the same day: CSV synced
+  (`node tools/sync-stats.js`) and FALLBACK_DEFAULT_UNITS in app.js updated to match:
+  Heavy Infantry Pace 6, Heavy Cavalry Pace 12, Halberds Mobility 1, Spears Melee 1,
+  Light Infantry no Ranged (empty cell) and Quantity 3. Selfplay figures above predate this.
+- 2026-11-17: Reform rules variant v classic, normal v normal 200 games each and hard v hard 24 each, same seeds (see "Rules variant: Reform").
 
 - 2026-11-16: hard v v1, 40 games, seeds 1-20: 22-15, 3 unfinished.
 - 2026-11-16: hard v v1, 80 games, seeds 101-140: 52-27, 1 unfinished.
@@ -291,6 +492,11 @@ Run log
 - 2026-11-17: hard v hard:draftSmart=0, 100 games, seeds 301-350: 47-47, 6
   unfinished. (The ms/decision figures in that run were inflated by the
   machine being busy or asleep; ignore them.)
+- 2026-11-19: hard (deployRoom 0.3) v hard:deployRoom=0, 40 games, seeds
+  1-20: 22-14, 4 unfinished (61% ±16, so likely better, not yet proven).
+- 2026-11-19: after adding the side edges to `deployRoom`, the same match:
+  16-18, 6 unfinished (47% ±17). Taken together: no measurable effect on
+  strength either way; the change is kept because it plays more sensibly.
 
 Round-level planning: paused mid-way (2026-11-17)
 -------------------------------------------------
@@ -305,7 +511,7 @@ State at the pause:
   (planner off): `8/8 positional, 3/6 combinations`. It fails pin-then-flank,
   order-matters and hold-a-command. Note from the agent that wrote them: the
   plan's wording for position 1 was backwards. Under these rules the flanker
-  should arrive first, because its arrival gives the outflank die to every
+  should arrive first, because its arrival gives the outflank dice to every
   later striker. The positions encode flanker-first. Position 6
   (hold a command) is the least certain of the six.
 - Step 2 started: `planTurn` in `ai.js` (beam search over activations,

@@ -24,6 +24,23 @@ process.on('exit',()=>server.kill());
  await page.getByRole('button',{name:'Heavy Cavalry SN'}).click();
  await page.waitForFunction(()=>document.getElementById('blue').width===1260);
  if(await page.locator('#blue').getAttribute('class')!=='portrait')throw Error('SN must be portrait');
+ const frameEdges=await page.evaluate(()=>['blue','orange'].map(colour=>{
+  const canvas=document.getElementById(colour);
+  const {width,height}=canvas;
+  const {data}=canvas.getContext('2d').getImageData(0,0,width,height);
+  let top=height,bottom=-1;
+  for(let i=0;i<data.length;i+=4){
+   const ink=colour==='blue'?data[i+2]-data[i]:data[i]-data[i+1];
+   if(ink<=40)continue;
+   const y=Math.floor(i/(4*width));
+   top=Math.min(top,y);bottom=y;
+  }
+  return [top,bottom];
+ }));
+ const [blueEdges,orangeEdges]=frameEdges;
+ if(blueEdges[1]<0||orangeEdges[1]<0||blueEdges.some((edge,i)=>Math.abs(edge-orangeEdges[i])>2)){
+  throw Error('Portrait frame edges do not match: '+JSON.stringify(frameEdges));
+ }
  await page.getByLabel('Speed · wing').fill('17');
  await page.reload();await page.waitForFunction(()=>document.querySelectorAll('.unit').length===13);
  await page.getByRole('button',{name:'Heavy Cavalry SN'}).click();
@@ -32,12 +49,28 @@ process.on('exit',()=>server.kill());
  if(await page.getByLabel('Speed · wing').inputValue()!=='10')throw Error('Reset did not restore source');
  for(const [symbol,variant] of [['0','zero']]) {
   const drawn=await page.evaluate(async()=>{
-   const recorded=[],original=CanvasRenderingContext2D.prototype.fillText;
-   CanvasRenderingContext2D.prototype.fillText=function(text,...args){recorded.push(text);return original.call(this,text,...args);};
-   try{await renderCard(unitAt(0),'blue');}finally{CanvasRenderingContext2D.prototype.fillText=original;}
-   return recorded.slice(-6);
+   const results=[],original=CanvasRenderingContext2D.prototype.fillText;
+   for(const ranged of ['-','0/0','0/24','4/0','3*/18']){
+    const recorded=[];
+    CanvasRenderingContext2D.prototype.fillText=function(text,...args){recorded.push(text);return original.call(this,text,...args);};
+    try{await renderCard({...unitAt(0),Ranged:ranged},'blue');}finally{CanvasRenderingContext2D.prototype.fillText=original;}
+    results.push(recorded.slice(-4));
+   }
+   return results;
   });
-  if(JSON.stringify(drawn)!==JSON.stringify(['5','0','6',symbol,symbol,'5']))throw Error('Empty stats changed valid stats: '+drawn);
+  const expected=['-/-','-/-','-/24','4/-','3*/18'].map(ranged=>['5/0','6',ranged,'5']);
+  if(JSON.stringify(drawn)!==JSON.stringify(expected))throw Error('Incorrect Shooting or Range display: '+JSON.stringify(drawn));
+  const marked=await page.evaluate(async()=>{
+   const results=[],original=CanvasRenderingContext2D.prototype.fillText;
+   for(const [footprint,speed,def,drill] of [['SN','14','3','3'],['SN','14','3*','3'],['SW','7*','4*','4'],['SW','7*','4','4']]){
+    const drawn=[];
+    CanvasRenderingContext2D.prototype.fillText=function(text,...args){drawn.push(text);return original.call(this,text,...args);};
+    try{await renderCard({...unitAt(0),Footprint:footprint,Speed:speed,Def:def,Drill:drill},'blue');}finally{CanvasRenderingContext2D.prototype.fillText=original;}
+    results.push([drawn.at(-4),drawn.at(-1)]);
+   }
+   return results;
+  });
+  if(JSON.stringify(marked)!==JSON.stringify([['14/3','3'],['14/3','3*'],['7*/4','4*'],['7*/4','4']]))throw Error('Incorrect Pace or Defence asterisks: '+JSON.stringify(marked));
   const [variantDownload]=await Promise.all([page.waitForEvent('download'),page.getByRole('button',{name:'Export all · ZIP'}).click()]);
   if(!variantDownload.suggestedFilename().includes(variant))throw Error('Export filename is missing variant');
   await variantDownload.saveAs(path.join(__dirname,'test-output',variantDownload.suggestedFilename()));

@@ -37,6 +37,7 @@ const SeizeAI = (() => {
         split: 3,           // opening attacks that get every dice outcome searched separately
         draftSmart: 1,      // 0 = original stats-only draft, random terrain, fixed deployment
         draftTerrain: 1.0,  // weight of the top terrain tile when choosing a unit
+        deployRoom: 0.3,    // deployment: cost of standing too close to a friend to pivot freely (0 = pack units flush)
         passMargin: 0.02
     };
     const LEVELS = { easy: { temperature: 0.35, depth: 1, probe: false, beam: 1, turnDepth: 1 }, normal: { temperature: 0.08, depth: 2, probe: true, beam: 3, turnDepth: 2 },
@@ -85,10 +86,13 @@ const SeizeAI = (() => {
     function pairThreat(s, att, def, W, fresh, cache) {
         const key = att.id + '>' + def.id + (fresh ? 'f' : '');
         if (cache.has(key)) return cache.get(key);
-        const g = pairGeometry(s, att, def, cache), unmarked = fresh || !def.activated ? 1 : 0;
+        const g = pairGeometry(s, att, def, cache), unmarked = E.unmarkedStrikeDice(s, !fresh && def.activated);
         let best = 0;
-        if (g.melee !== null) best = attackValue(s, def, att.melee + unmarked + g.melee, targetNumber(att, def, false), W);
-        if (g.shoot !== null) best = Math.max(best, attackValue(s, def, att.shoot + g.shoot, targetNumber(att, def, true), W));
+        // V3: a unit with E.SPENT_STRAIN or more strain can't attack at all.
+        if (!(E.v3Rules(s) && att.strain >= E.SPENT_STRAIN)) {
+            if (g.melee !== null) best = attackValue(s, def, att.melee + unmarked + g.melee, targetNumber(att, def, false), W);
+            if (g.shoot !== null) best = Math.max(best, attackValue(s, def, att.shoot + g.shoot, targetNumber(att, def, true), W));
+        }
         cache.set(key, best);
         return best;
     }
@@ -97,22 +101,37 @@ const SeizeAI = (() => {
         const lk = att.id + '>' + def.id, hit = cache.pairs.get(lk);
         if (hit) return hit;
         const ca = centre(att), cd = centre(def), d = dist(ca, cd), contact = cache.contacts.get(att.id);
-        const high = cache.high.get(att.id) - cache.high.get(def.id), g = { melee: null, shoot: null };
+        // V3 has no combat modifiers, so height and flanks add nothing there.
+        const v3 = E.v3Rules(s), high = v3 ? 0 : cache.high.get(att.id) - cache.high.get(def.id), g = { melee: null, shoot: null };
         if (contact.length) {
-            // Already fighting: it can strike what it touches (and nothing else worth modelling).
-            if (contact.includes(def.id)) g.melee = high;
+            // Already fighting: it can strike what it touches (in V3, only what touches its front).
+            if (contact.includes(def.id) && (!v3 || E.canStrikeAt(s, att, def))) g.melee = high;
         } else {
             const gap = d - att.h / 2 - Math.min(def.w, def.h) / 2;
             const turn = Math.abs(norm180(bearing(ca, cd) - att.angle));
             const lane = Math.atan2(att.w / 2 + Math.max(def.w, def.h) / 2, Math.max(1, d)) * 180 / Math.PI;
-            if (att.melee > 0 && gap <= att.pace * PX && turn <= 90 * att.mobility + lane && !pathBlocked(s, att, def)) {
-                const f = G.forwardOf(def), front = { x: cd.x + f.x * def.h / 2, y: cd.y + f.y * def.h / 2 };
-                g.melee = ((ca.x - front.x) * f.x + (ca.y - front.y) * f.y < -def.h * 0.25 ? 1 : 0) + high;
+            let canCharge = false;
+            if (att.melee > 0) {
+                if (s.rules === 'reform-variant') {
+                    if (!cache.charges.has(att.id)) {
+                        const limit = E.moveLimit(s, att, { moved: 0 }, false);
+                        cache.charges.set(att.id, limit.charge?.targets || []);
+                    }
+                    canCharge = cache.charges.get(att.id).includes(def.id);
+                } else {
+                    canCharge = gap <= att.pace * PX && turn <= 90 * att.mobility + lane && !pathBlocked(s, att, def);
+                }
             }
-            if (att.shoot > 0 && d - att.h / 2 - Math.max(def.w, def.h) / 2 <= att.range * PX && !cache.contacts.get(def.id).length && turn <= 90 * att.mobility + 25) {
-                const facing = att.mobility > 0 ? { ...att, angle: bearing(ca, cd) } : att;
+            if (canCharge) {
+                const f = G.forwardOf(def), front = { x: cd.x + f.x * def.h / 2, y: cd.y + f.y * def.h / 2 };
+                g.melee = (!v3 && (ca.x - front.x) * f.x + (ca.y - front.y) * f.y < -def.h * 0.25 ? 1 : 0) + high;   // flank-threat weight held at 1 although the rule is now +2: at 2 the AI over-fears flanks and passes up good charges (tested 2026-11-19)
+            }
+            const reform = E.reformRules(s);
+            if (att.shoot > 0 && d - att.h / 2 - Math.max(def.w, def.h) / 2 <= att.range * PX && !cache.contacts.get(def.id).length && (reform || turn <= 90 * att.mobility + 25)) {
+                const facing = att.mobility > 0 && !reform ? { ...att, angle: bearing(ca, cd) } : att;
                 const probe = facing === att ? s : { ...s, units: s.units.map(u => (u.id === att.id ? facing : u)) };
-                if (clearShot(s, probe, att, facing, def, cache)) g.shoot = high;
+                const cover = clearShot(s, probe, att, facing, def, cache);
+                if (cover !== false) g.shoot = high - cover;
             }
         }
         cache.pairs.set(lk, g);
@@ -129,7 +148,8 @@ const SeizeAI = (() => {
         let key = `${facing.angle}|${cache.unitKey.get(att.id)}|${cache.unitKey.get(def.id)}`;
         for (const o of s.units) if (o.owner && o.id !== att.id && o.id !== def.id && pointSegDist(centre(o), ca, cd) < G.reach(o) + rad) key += '|' + cache.unitKey.get(o.id);
         let clear = cache.shots.get(key);
-        if (clear === undefined) { clear = !E.shotError(probe, facing, def); cache.shots.set(key, clear); }
+        // false when there's no shot; otherwise the dice lost to the sight line (always 0 now: V3 dropped cover).
+        if (clear === undefined) { const check = E.shotCheck(probe, facing, def); clear = check.reason ? false : 0; cache.shots.set(key, clear); }
         return clear;
     }
     function pointSegDist(p, a, b) {
@@ -153,11 +173,11 @@ const SeizeAI = (() => {
      * changes no decision; cleared when it grows large.
      */
     const geoCache = new Map(), shotCache = new Map();
-    const unitKeyOf = u => `${u.id}${u.owner}${u.x},${u.y},${u.angle},${u.w},${u.h},${u.melee},${u.shoot},${u.range},${u.pace},${u.mobility}`;
+    const unitKeyOf = u => `${u.id}${u.owner}${u.x},${u.y},${u.angle},${u.w},${u.h},${u.melee},${u.shoot},${u.range},${u.pace},${Boolean(u.paceStar)},${u.mobility},${u.strain >= E.SPENT_STRAIN ? 'spent' : ''}`;   // V3: 5+ strain can't shoot or charge
     function makeCache(s) {
         if (geoCache.size > 20000) geoCache.clear();
         if (shotCache.size > 50) shotCache.clear();
-        let terrain = '';
+        let terrain = (s.rules || 'classic') + ';';
         for (const t of s.terrain) terrain += `${t.type}${t.x},${t.y},${t.w};`;
         const unitKey = new Map();
         let geo = terrain;
@@ -168,14 +188,14 @@ const SeizeAI = (() => {
             if (!shotCache.has(terrain)) shotCache.set(terrain, new Map());
             const shots = shotCache.get(terrain);
             if (shots.size > 200000) shots.clear();
-            g = { contacts: new Map(), high: new Map(), pairs: new Map(), unitKey, shots };
+            g = { contacts: new Map(), high: new Map(), pairs: new Map(), charges: new Map(), unitKey, shots };
             // Contact is symmetric: test each pair of opposing units once (the lists are only searched, so order doesn't matter).
             const live = s.units.filter(u => u.owner);
             for (const u of live) { g.contacts.set(u.id, []); g.high.set(u.id, E.inTrait(s, u, 'elevated') ? 1 : 0); }
             for (const u of live) for (const v of live) if (u.owner === 'p1' && v.owner === 'p2' && G.touching(u, v)) { g.contacts.get(u.id).push(v.id); g.contacts.get(v.id).push(u.id); }
             geoCache.set(geo, g);
         }
-        cache.contacts = g.contacts; cache.high = g.high; cache.pairs = g.pairs; cache.unitKey = g.unitKey; cache.shots = g.shots;
+        cache.contacts = g.contacts; cache.high = g.high; cache.pairs = g.pairs; cache.charges = g.charges; cache.unitKey = g.unitKey; cache.shots = g.shots;
         return cache;
     }
 
@@ -224,7 +244,8 @@ const SeizeAI = (() => {
         const plans = [], start = tryApply(s, { type: 'activate', unitId: u.id });
         if (!start) return plans;
         const first = [{ type: 'activate', unitId: u.id }];
-        const add = (name, actions, state, pending = null) => { if (pending || !attacksOnly) plans.push({ name, unitId: u.id, actions, state, pending }); };
+        // A plan can't stop partway through a run of pivots that overlaps something (V3).
+        const add = (name, actions, state, pending = null) => { if (state.activation?.overlap) return; if (pending || !attacksOnly) plans.push({ name, unitId: u.id, actions, state, pending }); };
         const enemies = army(s, other(me)), cu = centre(u);
         add('hold', first, start);
 
@@ -235,8 +256,10 @@ const SeizeAI = (() => {
 
         // Facings worth considering: as it stands, at each enemy (centre and both sides), and directly away.
         const turns = [0];
-        const consider = angle => { const d = norm180(angle - u.angle); if (Math.abs(d) > 2 && Math.abs(d) <= 90 * u.mobility && !turns.some(t => Math.abs(t - d) < 6)) turns.push(d); };
-        if (!here.inContact && u.mobility > 0) {
+        const pivotOK = u.mobility > 0 && here.pivot.remaining > 0;
+        const reformOK = Boolean(here.reform && here.reform.remaining > 0), maxTurn = reformOK ? 180 : 90 * u.mobility;
+        const consider = angle => { const d = norm180(angle - u.angle); if (Math.abs(d) > 2 && Math.abs(d) <= maxTurn && !turns.some(t => Math.abs(t - d) < 6)) turns.push(d); };
+        if (pivotOK || reformOK) {
             const byRange = enemies.slice().sort((a, b) => dist(cu, centre(a)) - dist(cu, centre(b)));
             for (const e of byRange.slice(0, 5)) {
                 const ce = centre(e), right = { x: Math.cos(e.angle * Math.PI / 180), y: Math.sin(e.angle * Math.PI / 180) }, f = G.forwardOf(e);
@@ -255,6 +278,12 @@ const SeizeAI = (() => {
         };
 
         for (const turn of turns) {
+            if (reformOK && Math.abs(turn) > 90 * u.mobility) {
+                // Too far for this unit's pivots: Reform, which is its whole action.
+                const step = { type: 'pivot', degrees: turn, reform: true }, next = tryApply(start, step);
+                if (next) add('reform', [...first, step], next);
+                continue;
+            }
             let st = start, acts = first.slice(), ok = true;
             for (const step of pivotChunks(turn)) { const next = tryApply(st, { type: 'pivot', degrees: step }); if (!next) { ok = false; break; } st = next; acts.push({ type: 'pivot', degrees: step }); }
             if (!ok || !st.activation) continue;
@@ -262,7 +291,9 @@ const SeizeAI = (() => {
             if (!o.canAct) continue;
             if (turn !== 0) add('face', acts, st);
             for (const t of o.shoot) if (t.ok) add('shoot', acts, st, { type: 'shoot', targetId: t.id, dist: t.preview.dist, flank: flankOf(t) });
-            if (!o.actionFree) continue;
+            // In Reform games a pivot starts a Move that can still be continued.
+            const moveStarted = o.reform && o.activation.action === 'move' && o.activation.moved === 0;
+            if (!o.actionFree && !moveStarted) continue;
             const moves = [];
             if (o.forward.max > 0.3) for (const f of attacksOnly ? (o.forward.charge ? [1] : []) : o.forward.charge ? [1, 0.6, 0.3] : [1, 0.75, 0.5, 0.25]) moves.push({ inches: f === 1 ? o.forward.max : o.forward.max * f, backwards: false, charge: f === 1 && Boolean(o.forward.charge) });
             if (!attacksOnly && turn === 0 && o.backward.max > 0.3) for (const f of [1, 0.5]) moves.push({ inches: f === 1 ? o.backward.max : o.backward.max * f, backwards: true });
@@ -293,6 +324,7 @@ const SeizeAI = (() => {
         const p = plan.pending;
         if (!p) { const end = finish(plan.state); return { value: evaluate(end, me, W), typical: end }; }
         if (p.type === 'rally') {
+            if (E.v3Rules(plan.state)) { const end = finish(E.apply(plan.state, { type: 'rally' })); return { value: evaluate(end, me, W), typical: end }; }   // V3: always 1 strain, no roll
             let value = 0, typical = null;
             for (const die of [1, 3, 5]) {   // d6 halved, rounded up: 1, 2 or 3 strain, equally likely
                 const end = finish(E.apply(plan.state, { type: 'rally', forcedDie: die }));
@@ -539,6 +571,7 @@ const SeizeAI = (() => {
     function outcomesOf(plan, minP = 0.004) {
         const pd = plan.pending;
         if (!pd) return [{ p: 1, state: finish(plan.state) }];
+        if (pd.type === 'rally' && E.v3Rules(plan.state)) return [{ p: 1, state: finish(E.apply(plan.state, { type: 'rally' })) }];
         if (pd.type === 'rally') return [1, 3, 5].map(die => ({ p: 1 / 3, state: finish(E.apply(plan.state, { type: 'rally', forcedDie: die })) }));
         const target = plan.state.units.find(u => u.id === pd.targetId), need = ROUT - target.strain, out = [];
         let routP = 0, dropped = 0;
@@ -709,7 +742,7 @@ const SeizeAI = (() => {
             const row = [];
             for (let b = 1; b <= theirs.length; b++) {
                 const mt = a === b ? holder : (a < b ? me : en);
-                // The Master Tactician strikes first, against unmarked units, and keeps the last move to escape or exploit.
+                // The Master Tactician can strike first and keeps the last move to escape or exploit.
                 const mineV = take(mineG, a) * (mt === me ? 1.15 : 0.9), theirV = take(theirG, b) * (mt === en ? 1.15 : 0.9);
                 row.push(mineV - theirV);
             }
@@ -741,7 +774,9 @@ const SeizeAI = (() => {
      * cover matters to whoever is being out-shot; a blocked wing suits the side with fewer fast units.
      */
     function terrainWorth(s, me, type, c) {
-        const T = E.TERRAIN[type]; if (!T) return 0;
+        let T = E.TERRAIN[type]; if (!T) return 0;
+        // V3: a hill gives no dice, only its view over units, and it slows units entering it.
+        const v3 = E.v3Rules(s); if (v3 && T.elevated) T = { ...T, slowing: true };
         const en = other(me), depth = s.height - 2 * ZONE;
         const yRel = clamp((me === 'p1' ? s.height - ZONE - c.y : c.y - ZONE) / depth, 0, 1), near = 1 - 2 * yRel;   // +1 by my zone, -1 by theirs
         const xRel = Math.abs(c.x - s.width / 2) / (s.width / 2);
@@ -749,7 +784,7 @@ const SeizeAI = (() => {
         const shootEdge = clamp((sum(en, u => (isShooter(u) ? u.shoot : 0)) - sum(me, u => (isShooter(u) ? u.shoot : 0))) / 6, -1, 1);
         const fastEdge = clamp((sum(en, u => (isFast(u) ? 1 : 0)) - sum(me, u => (isFast(u) ? 1 : 0))) / 2, -1, 1);
         let v = 0;
-        if (T.elevated) v += 0.6 * near + (sum(me, u => (isShooter(u) ? 1 : 0)) ? 0.15 * Math.max(0, near) : 0);
+        if (T.elevated) v += (v3 ? 0.2 : 0.6) * near + (sum(me, u => (isShooter(u) ? 1 : 0)) ? 0.15 * Math.max(0, near) : 0);
         if (T.impassable) v += -0.3 * near * (1 - 0.5 * xRel) + 0.25 * fastEdge * xRel;
         if (T.concealing) v += 0.35 * shootEdge * (1 - 0.5 * Math.abs(near));
         if (T.slowing) v += -0.2 * near;
@@ -761,21 +796,27 @@ const SeizeAI = (() => {
         for (const spot of E.terrainSpots(s)) {
             let v = terrainWorth(s, me, type, spot);
             // Obstacles are worth a little more squarely in front of units the enemy has already deployed.
-            if (E.TERRAIN[type].impassable || E.TERRAIN[type].slowing) for (const e of enemies) if (Math.abs(centre(e).x - spot.x) < e.w) v += 0.08;
+            if (E.TERRAIN[type].impassable || E.TERRAIN[type].slowing || (E.v3Rules(s) && E.TERRAIN[type].elevated)) for (const e of enemies) if (Math.abs(centre(e).x - spot.x) < e.w) v += 0.08;
             if (!best || v > best.v) best = { spot, v };
         }
         return best;
     }
-    function deployScore(s, me, u, a, random) {
+    /** Distance from a point to the nearest part of a unit's rectangle (0 inside it). */
+    function rectDist(p, u) {
+        const o = centre(u), a = (u.angle || 0) * Math.PI / 180, dx = p.x - o.x, dy = p.y - o.y;
+        const lx = Math.abs(dx * Math.cos(a) + dy * Math.sin(a)) - u.w / 2, ly = Math.abs(-dx * Math.sin(a) + dy * Math.cos(a)) - u.h / 2;
+        return Math.hypot(Math.max(0, lx), Math.max(0, ly));
+    }
+    function deployScore(s, me, u, a, random, W) {
         const en = other(me), probe = { ...u, x: a.x, y: a.y, angle: a.angle }, c = centre(probe);
         const xRel = Math.abs(c.x - s.width / 2) / (s.width / 2), shooter = isShooter(u);
         let v = isFast(u) ? 0.5 * xRel : 0.25 * (1 - xRel);
         // The lane ahead: what stands between this spot and the enemy.
         for (const t of s.terrain) {
-            const ct = centre(t), T = E.TERRAIN[t.type];
+            const ct = centre(t), T = E.v3Rules(s) && E.TERRAIN[t.type].elevated ? { ...E.TERRAIN[t.type], slowing: true } : E.TERRAIN[t.type];
             if (Math.abs(ct.x - c.x) > t.w / 2 + u.w / 2) continue;
             const ahead = clamp(Math.abs(ct.y - c.y) / PX / 24, 0, 1), close = 1 - ahead;
-            if (T.elevated) v += (ahead < 0.45 ? 0.4 : 0) * close + (shooter && ahead < 0.45 ? 0.3 : 0);
+            if (T.elevated) v += (ahead < 0.45 ? (E.v3Rules(s) ? 0.1 : 0.4) : 0) * close + (shooter && ahead < 0.45 ? 0.3 : 0);
             if (T.impassable && !shooter) v -= 0.5 * close;
             if (T.slowing && !u.paceStar && !shooter) v -= 0.25 * close;
             if (T.concealing && shooter) v -= 0.5 * close;
@@ -788,6 +829,12 @@ const SeizeAI = (() => {
         // Stay in touch with the rest of the army.
         const friends = army(s, me);
         if (friends.length) v -= 0.03 * Math.max(0, Math.min(...friends.map(f => dist(c, centre(f)))) / PX - 8);
+        // ...but leave room to turn: a unit wedged against a friend or the side edge can't pivot until it moves away.
+        if (W.deployRoom) for (const f of [null, ...friends]) {
+            const short = f ? Math.max(G.reach(probe) - rectDist(c, f), G.reach(f) - rectDist(centre(f), probe)) + 0.5
+                : G.reach(probe) + 0.5 - Math.min(c.x, s.width - c.x);   // the side edges
+            if (short > 0) v -= W.deployRoom * (0.3 + Math.min(short / PX, 1.5));
+        }
         return v + random() * 0.05;
     }
     function chooseDraft(s, me, random, W) {
@@ -809,7 +856,7 @@ const SeizeAI = (() => {
         }
         const u = s.units.find(x => x.id === d.picked), options = E.legalActions(s).filter(a => a.type === 'deploy');
         let best = null;
-        for (const a of options) { const v = deployScore(s, me, u, a, random); if (!best || v > best.v) best = { a, v }; }
+        for (const a of options) { const v = deployScore(s, me, u, a, random, W); if (!best || v > best.v) best = { a, v }; }
         return { actions: [best.a], note: `deploy ${u.name} (${best.v.toFixed(2)})` };
     }
     /** The first draft logic: stats only, random terrain, fast units on the wings. Kept for comparison (draftSmart: 0). */

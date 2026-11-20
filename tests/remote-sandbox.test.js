@@ -165,31 +165,6 @@ test('remote-sandbox: room code hideable panel tuck state transitions', () => {
     assert.equal(bannerClasses.has('is-tucked'), false);
 });
 
-test('remote-sandbox: unit hover popup disabled, interactive selection shows compact wound controls', () => {
-    let tooltipVisible = false;
-    let tooltipInteractive = false;
-    let tooltipMarkup = '';
-
-    const showUnitTooltipMock = (unitEl, interactive = false) => {
-        if (!interactive || !unitEl) return;
-        tooltipVisible = true;
-        tooltipInteractive = true;
-        tooltipMarkup = '<div class="unit-popup-controls"><button data-wound-step="-1">-</button><button data-wound-step="1">+</button></div>';
-    };
-
-    // Hover (interactive = false)
-    showUnitTooltipMock({ id: 'unit-1' }, false);
-    assert.equal(tooltipVisible, false, 'Hover should not display floating tooltip on table');
-
-    // Selection (interactive = true)
-    showUnitTooltipMock({ id: 'unit-1' }, true);
-    assert.equal(tooltipVisible, true);
-    assert.equal(tooltipInteractive, true);
-    assert.match(tooltipMarkup, /data-wound-step="-1"/);
-    assert.match(tooltipMarkup, /data-wound-step="1"/);
-    assert.doesNotMatch(tooltipMarkup, /stats-card/, 'Should not include obstructive stats markup in popup');
-});
-
 test('remote-sandbox: command staging splits into Your commands and Opponent commands', () => {
     const tokens = [
         { id: 'cmd-p1-0', player: 'p1', num: 1, status: 'tray' },
