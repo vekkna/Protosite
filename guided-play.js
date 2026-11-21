@@ -829,16 +829,19 @@ const GuidedPlay = (() => {
     function drawChargeFaces(group, pose) {
         group.replaceChildren();
         if (!E.v4Rules(game) || !(pose.melee > 0)) return 0;
-        const G = E.geometry, c = G.centre(pose), reach = pose.pace * PX + G.reach(pose);
+        const G = E.geometry, c = G.centre(pose), reach = pose.pace * PX + pose.h / 2;
         let frontOnly = 0;
         for (const v of game.units) {
             if (!v.owner || v.routed || v.owner === pose.owner) continue;
             const vc = G.centre(v);
-            if (Math.hypot(vc.x - c.x, vc.y - c.y) > reach + G.reach(v)) continue;
+            if (Math.hypot(vc.x - c.x, vc.y - c.y) > reach + G.reach(pose) + G.reach(v)) continue;
             const [a, b] = G.rect(v), len = Math.hypot(b.x - a.x, b.y - a.y) || 1;
-            const d = { x: (b.x - a.x) / len, y: (b.y - a.y) / len }, ext = 1200;
+            const d = { x: (b.x - a.x) / len, y: (b.y - a.y) / len };
+            // Extend the front line only as far as this unit could reach: where it crosses the charge-reach circle.
+            const ox = a.x - c.x, oy = a.y - c.y, half = d.x * ox + d.y * oy, disc = half * half - (ox * ox + oy * oy - reach * reach);
+            const root = disc > 0 ? Math.sqrt(disc) : 0, from = Math.min(0, -half - root), to = Math.max(len, -half + root);
             const only = E.chargeFrontOnly(game, pose, v);
-            svgMark(group, 'line', { x1: a.x - d.x * ext, y1: a.y - d.y * ext, x2: b.x + d.x * ext, y2: b.y + d.y * ext,
+            svgMark(group, 'line', { x1: a.x + d.x * from, y1: a.y + d.y * from, x2: a.x + d.x * to, y2: a.y + d.y * to,
                 class: `gp-front-line ${only ? 'gp-front-line-only' : 'gp-front-line-open'}` });
             if (only) {
                 svgMark(group, 'line', { x1: a.x, y1: a.y, x2: b.x, y2: b.y, class: 'gp-front-only-edge' });
@@ -846,6 +849,31 @@ const GuidedPlay = (() => {
             }
         }
         return frontOnly;
+    }
+
+    /**
+     * A unit that can turn may charge or shoot in any direction, so its reach is a circle about its centre: Pace (charge)
+     * or range (shooting, measured from the front edge) plus half the card's depth. Units that can never turn
+     * (Drill 0 without Reform) keep only their straight-ahead lane and the shooting arc.
+     */
+    const turnsFreely = u => u.mobility > 0 || E.reformAction(game);
+    /** app.js asks this before drawing its forward shooting arc: units that can turn get a circle instead. */
+    function drawsReach(el) {
+        const u = game && game.phase !== 'draft' && el?.dataset ? unit(el.dataset.unitId) : null;
+        return Boolean(u?.owner && turnsFreely(u));
+    }
+    function drawReachCircles(svg, u, enemy) {
+        if (!turnsFreely(u)) return;
+        let group = document.getElementById('gp-reach-circles');
+        if (!group) {
+            // A nested svg the size of the board, so long ranges are clipped at the board's edge.
+            group = document.createElementNS('http://www.w3.org/2000/svg', 'svg'); group.id = 'gp-reach-circles';
+            group.setAttribute('width', game.width); group.setAttribute('height', game.height); group.setAttribute('overflow', 'hidden');
+            svg.insertBefore(group, svg.firstChild);
+        }
+        const c = E.geometry.centre(u), side = enemy ? ' gp-reach-enemy' : '';
+        if (u.melee > 0 && u.pace > 0) svgMark(group, 'circle', { cx: c.x, cy: c.y, r: u.pace * PX + u.h / 2, class: `gp-reach gp-reach-charge${side}` });
+        if (u.shoot > 0 && u.range > 0) svgMark(group, 'circle', { cx: c.x, cy: c.y, r: u.range * PX + u.h / 2, class: `gp-reach gp-reach-shoot${side}` });
     }
 
     function drawOverlay() {
@@ -872,6 +900,7 @@ const GuidedPlay = (() => {
         for (const el of inspected) {
             const u = unit(el.dataset.unitId); if (!u?.owner || !game || game.phase === 'draft') continue;
             if (el.classList.contains('is-dragging')) continue;
+            drawReachCircles(svg, u, Boolean(viewer && u.owner !== viewer));
             if (orderFor(u.id) && orderFor(u.id) !== 'move') continue;
             const reach = previewFor(u.id).reach ??= BattleUX.movementPreview(game, u.id, true);
             if (el === selectedPiece && u.activated && game.activation?.unitId !== u.id && controls(u.owner)) {
@@ -1252,7 +1281,7 @@ const GuidedPlay = (() => {
     });
 
     return {
-        render, ensure, reset, snapshot, restore, note, incoming, canDrag, constrainDrag, dropPiece, constrainRotation, dropRotation, rotate, tap,
+        render, ensure, reset, snapshot, restore, note, incoming, canDrag, drawsReach, constrainDrag, dropPiece, constrainRotation, dropRotation, rotate, tap,
         canUndo, isDeployPiece, aiPlayer: () => aiPlayer,
         deploy, positionForDeployment, pass, bid, reveal, attack, endActivation, nextReady, movePieceTo, visiblePose,
         setAI, aiNote: () => aiNote, setRules, rules: () => rulesChoice, activeRules: () => game ? E.normalizeRules(game.rules) : rulesChoice,

@@ -44,6 +44,11 @@
 .guided-board .selection-range.movement-range { display: none; }
 
 #gp-overlay { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 4; overflow: visible; }
+#gp-overlay .gp-reach { fill: none; stroke-width: 2; stroke-dasharray: 10 7; }
+#gp-overlay .gp-reach-charge { stroke: #ffe29acc; }
+#gp-overlay .gp-reach-shoot { stroke: #78cdffcc; }
+#gp-overlay .gp-reach-enemy.gp-reach-charge { stroke: #ffb48acc; }
+#gp-overlay .gp-reach-enemy.gp-reach-shoot { stroke: #ff9770cc; }
 #gp-overlay .gp-front-line { stroke-width: 2; stroke-dasharray: 8 6; fill: none; }
 #gp-overlay .gp-front-line-open { stroke: #b8f0c088; }
 #gp-overlay .gp-front-line-only { stroke: #ffc25acc; }

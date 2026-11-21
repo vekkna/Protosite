@@ -3722,7 +3722,9 @@ function renderUnitSelectionRanges(unit) {
         selectionRangeElements.push(element);
         return element;
     };
-    if (parseFloat(shoot) > 0 && shootingRange > 0) {
+    // Guided play draws a full range circle for units that can turn.
+    const reachCircle = typeof GuidedPlay !== 'undefined' && GuidedPlay.drawsReach?.(unit);
+    if (parseFloat(shoot) > 0 && shootingRange > 0 && !reachCircle) {
         const arc = addOverlay('shooting-range');
         const radius = inchesToPx(shootingRange);
         arc.style.width = `${radius * 2}px`;
