@@ -114,6 +114,16 @@ body { height: 100dvh; min-height: 0; padding-block: env(safe-area-inset-top) en
     padding: 4px; border: 1px solid #647267; border-radius: 4px; background: var(--field-panel);
 }
 #ruler-controls[hidden] { display: none; }
+#board-undo {
+    position: absolute; left: 8px; bottom: 8px; z-index: 2; display: flex; align-items: center; gap: 6px;
+    min-height: 36px; padding: 6px 14px; border: 1px solid #647267; border-radius: 4px;
+    background: #344643; color: #fff1d8; font: 600 14px/1 system-ui, sans-serif; box-shadow: 0 2px 8px #0006; cursor: pointer;
+}
+#board-undo::before { content: '↶'; font-size: 18px; line-height: 1; }
+#board-undo[hidden] { display: none; }
+#board-undo:not(:disabled):hover { background: #425046; }
+#board-undo:disabled { opacity: .45; cursor: default; }
+@media (any-pointer: coarse) { #board-undo { min-height: 44px; padding: 8px 16px; } }
 #ruler-controls button {
     padding: 5px 8px; min-height: 28px; background: #344643; color: #fff1d8;
     border: 1px solid #647267; border-radius: 3px; box-shadow: none; font: 600 12px 'Segoe UI', sans-serif;

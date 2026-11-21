@@ -345,7 +345,7 @@ In the browser: a Rules toggle (Classic / Reform) on the landing page sets the
 rules for new games and is remembered in localStorage (`seize-the-day-rules`);
 a game keeps the rules it was created with (they are in its state, so saves
 and online games carry them). When Reform is available, choose it and drag a
-unit corner to Reform. A direct corner drag pivots within the ordinary limit,
+unit's ↻ handle to Reform (corners until 2026-11-21). A direct handle drag pivots within the ordinary limit,
 or Reforms beyond it when legal. The drag label indicates when a turn starts
 a Move or uses the action to Reform.
 
@@ -427,6 +427,9 @@ its own helper in engine.js, all exported: `v4Rules`, `reformAction`, `rallyAllo
   `resolveAttack` pass `explodingSixes(s)`.
 - A Pace asterisk does nothing (designer, 2026-11-21). The sheet dropped Light Infantry's
   asterisk the same day.
+- Pivots never rule out a charge, but a charger with no part behind the line extending the
+  target's front edge can only charge its front (designer, 2026-11-21, later). `behindFrontLine`,
+  `chargeFrontOnly`; judged where the charging move starts. Guided play draws the lines.
 - Strike, and a charge's contact, may be against any touching enemy (designer,
   2026-11-21). `canStrikeAt` keeps the front-only test for `'v3'` only.
 - Shaken: a unit can't strike (not even a charge's free strike) while an enemy's front edge
@@ -447,6 +450,14 @@ doesn't yet aim to shake enemies on purpose. Tests: `tests/v4-rules.test.js`.
 
 Run log
 -------
+
+- 2026-11-21 (later): play UI. Pivot with a ↻ handle behind the selected unit (corner grips
+  removed; the whole card drags to move). Undo moved to the battlefield's bottom-left
+  (`#board-undo`, `renderBoardUndo`, `positionBoardUndo`). The player's own moves no longer
+  animate; the AI's animate faster with shorter pauses (`pieceMotionDuration`, `runAI`).
+  V4 charge rule changed (see "Rules variant: V4"). AI not changed or measured for it:
+  its plans are engine-checked, but `pairGeometry`'s rough charge estimate ignores the
+  front-only limit.
 
 - 2026-11-21: V4 rules added (above). Stats sheet synced: Light Infantry Speed 7 (asterisk
   gone), Drill 6; Light Cavalry Drill 4. `FALLBACK_DEFAULT_UNITS` copied.

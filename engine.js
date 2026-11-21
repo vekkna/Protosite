@@ -450,7 +450,7 @@ const SeizeEngine = (() => {
         }
         if (budget <= 1e-6) return { max: 0, reason: stop === 'slow' ? 'Slowing terrain limits this Move to 4 inches.' : 'No movement left.', charge: null, stop, blocker, slowAt };
         const v = { x: f.x * sign * budget * PX, y: f.y * sign * budget * PX };
-        let px = budget * PX, charge = null;
+        let px = budget * PX, charge = null, frontOnly = null;
         if (stop !== 'slow') blocker = null;
         const block = (d, why, obstacle) => {
             if (d !== null && d < px) { px = Math.max(0, d); stop = why; charge = null; blocker = obstacle; }
@@ -466,8 +466,9 @@ const SeizeEngine = (() => {
         for (const t of s.terrain) if (trait(t, 'impassable') && !far(t)) block(sweep(me, disc(t), v), 'terrain', t);
         // Reform Variant: any pivot this activation, even before moving, rules out a charge.
         // V3 (like Reform): pivots before moving keep the charge; a pivot after starting to move loses it.
+        // V4: pivots never rule out a charge.
         const reformVariant = s.rules === 'reform-variant';
-        const canCharge = !backwards && (reformVariant ? !act.pivots : !act.pivotedInMove) && !spent(s, u);
+        const canCharge = !backwards && (v4Rules(s) || (reformVariant ? !act.pivots : !act.pivotedInMove)) && !spent(s, u);
         const crossings = friendlyPassage(s) && u.paceStar ? [] : null;
         for (const o of live(s)) {
             if (o.id === u.id || far(o)) continue;
@@ -487,8 +488,12 @@ const SeizeEngine = (() => {
         }
         if (charge) {
             const at = { ...u, x: u.x + f.x * px, y: u.y + f.y * px };
-            charge.targets = live(s).filter(o => o.owner !== u.owner && !stuck.includes(o) && canStrikeAt(s, at, o)).map(o => o.id);
-            if (!charge.targets.length) { charge = null; stop = 'enemy'; px = Math.max(0, px - STANDOFF); }
+            const touched = live(s).filter(o => o.owner !== u.owner && !stuck.includes(o) && canStrikeAt(s, at, o));
+            charge.targets = touched.filter(o => !chargeFrontOnly(s, u, o) || touchesFront(o, at)).map(o => o.id);
+            if (!charge.targets.length) {
+                if (touched.length) frontOnly = touched[0];
+                charge = null; stop = 'enemy'; px = Math.max(0, px - STANDOFF);
+            }
             else charge.distance = px / PX;
         }
         // Combine overlapping intervals so a destination between two friendlies
@@ -505,6 +510,8 @@ const SeizeEngine = (() => {
         if (stop === 'enemy' && !canCharge) {
             if (backwards) reason = 'Only a forward Move can charge.';
             else reason = reformVariant ? 'A unit that pivots can’t charge this activation.' : 'A unit can’t charge after pivoting during a Move.';
+        } else if (frontOnly && stop === 'enemy') {
+            reason = `No part of this unit is behind ${frontOnly.name}’s front line, so it can only charge its front.`;
         } else if (blocked) {
             reason = `Not enough room to clear ${blocked.unit.name}.`;
         } else if (stop === 'unit' && stuck.includes(blocker)) {
@@ -711,6 +718,15 @@ const SeizeEngine = (() => {
         const p = rect(a), e = rect(enemy), f = forwardOf(a);
         return touchingPolys([p[0], p[1]], e) && e.some(q => dot(sub(q, p[0]), f) > TOUCH);
     }
+    /**
+     * V4: a charger with no part behind the line extending the target's front edge may only charge that front.
+     * Judged where the charging move starts. A corner exactly on the line isn't behind it.
+     */
+    function behindFrontLine(u, target) {
+        const t = rect(target), f = forwardOf(target);
+        return rect(u).some(q => dot(sub(q, t[0]), f) < -TOUCH);
+    }
+    const chargeFrontOnly = (s, u, target) => v4Rules(s) && !behindFrontLine(u, target);
     // V3: a unit can only strike (and so only charge) enemies touching its front. V4: any enemy it touches.
     const canStrikeAt = (s, u, v) => touching(u, v) && (s.rules !== 'v3' || touchesFront(u, v));
     /** V4: enemy y's front edge (corners included) touches the flank of unit x. */
@@ -1050,7 +1066,7 @@ const SeizeEngine = (() => {
     return {
         PX, TERRAIN, ROUT_STRAIN, FLANK_DICE, SPENT_STRAIN, createGame, normalizeRules, reformRules, v3Rules, v4Rules, reformAction, rallyAllowed, hillsSlow, explodingSixes, ignoresSlowing, spent, shaken, unmarkedStrikeDice, pivotAllowed, nearestPivot, pivotOverlap, pivotEndError, overlapAt, apply, legalActions, unitOptions, attackPreview, activePlayer, parseStats,
         observe, optionsAsIf, strainDist, clone, inTrait, enemiesTouching: (s, u) => enemiesTouching(s, u),
-        terrainSpots, terrainPlacementError, deployError, tileAt, outflanked, touchesFront, canStrikeAt, shotError, shotCheck, firingArc, firingArcError, moveLimit, crossingAt, pivotLimit, movementAfterPivot,
+        terrainSpots, terrainPlacementError, deployError, tileAt, outflanked, touchesFront, canStrikeAt, behindFrontLine, chargeFrontOnly, shotError, shotCheck, firingArc, firingArcError, moveLimit, crossingAt, pivotLimit, movementAfterPivot,
         geometry: { rect, disc, satGap, polyDist, sweep, forwardOf, centre, touching, inFeature, reach },
         other, label
     };

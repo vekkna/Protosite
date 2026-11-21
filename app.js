@@ -2653,13 +2653,13 @@ function createUnitDOM(name, color, x, y, angle, wounds, stats = null, activated
     appendMarker();
     appendRotationHandle(div);
     if (!USE_PIVOT_RING) {
-        for (const corner of ['nw', 'ne', 'se', 'sw']) {
-            const grip = document.createElement('span');
-            grip.className = `pivot-corner pivot-${corner}`;
-            grip.setAttribute('aria-hidden', 'true');
-            grip.title = 'Drag to pivot';
-            div.appendChild(grip);
-        }
+        // Battle pivots: a handle behind the unit. Drag it around the unit to turn; drag the unit itself to move.
+        const handle = document.createElement('span');
+        handle.className = 'pivot-corner pivot-handle';
+        handle.setAttribute('aria-hidden', 'true');
+        handle.title = 'Drag to pivot';
+        handle.appendChild(document.createElement('span')).className = 'pivot-handle-dot';
+        div.appendChild(handle);
         const grip = document.createElement('button');
         grip.type = 'button';
         grip.className = 'pivot-corner deployment-pivot';
@@ -4540,6 +4540,19 @@ function fitTableToScreen() {
     const rotateTransform = !isHost ? ' rotate(180deg)' : '';
     table.style.transform = `scale(${currentScale})${rotateTransform}`;
     if (table.style.setProperty) table.style.setProperty('--deployment-grip-size', `${Math.max(34, Math.min(78, 30 / currentScale))}px`);
+    positionBoardUndo();
+}
+
+/** Keep the Undo button inside the battlefield's bottom-left corner as the board scales. */
+function positionBoardUndo() {
+    const button = document.getElementById('board-undo'), container = document.getElementById('table-container');
+    if (!button || !container?.getBoundingClientRect || !table.getBoundingClientRect) return;
+    const board = table.getBoundingClientRect(), box = container.getBoundingClientRect();
+    if (!board.width) return;
+    // Just under the board's bottom-left corner when there is room, so it never covers a unit; otherwise inside it.
+    const below = box.bottom - board.bottom, height = button.offsetHeight || 40;
+    button.style.left = `${Math.max(8, board.left - box.left)}px`;
+    button.style.bottom = below >= height + 12 ? `${below - height - 6}px` : `${Math.max(8, below + 10)}px`;
 }
 
 function setupSidebarResize() {

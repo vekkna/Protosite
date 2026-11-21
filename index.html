@@ -266,6 +266,7 @@
                     <g id="board-pings" aria-hidden="true"></g>
                 </svg>
             </div>
+            <button type="button" id="board-undo" title="Undo the last reversible step (Z)" aria-keyshortcuts="Z" hidden>Undo</button>
             <div id="ruler-controls" role="group" aria-label="Measurements" hidden>
                 <button type="button" id="pin-ruler" onclick="pinRuler()" disabled>Pin ruler</button>
                 <button type="button" id="pin-ruler-follow" onclick="pinRuler(true)" disabled>Pin to units</button>
@@ -303,7 +304,7 @@
                             <li>Choose a command bid and lock it when ready. Both bids are revealed together. The lower bidder acts first and last.</li>
                             <li>Your highlighted units can be commanded. A unit's first order spends a command.</li>
                             <li>Drag along a unit’s movement outline to preview its destination. Release to move. A red outline marks a charge.</li>
-                            <li>Drag a unit’s corner to pivot. Choose Reform first to spend the action on a turn of any size allowed by the surrounding space.</li>
+                            <li>Select a unit and drag the ↻ handle behind it to pivot; drag the unit itself to move. Choose Reform first to spend the action on a turn of any size allowed by the surrounding space.</li>
                             <li>While dragging a ranged unit, its firing arc follows the preview. Gold outlines show clear sightlines. Dashed outlines show blocked targets. Click a blocked target to see the reason.</li>
                             <li>Select an outlined enemy to see the odds. Select it again to shoot or strike.</li>
                             <li>With the battlefield focused, use Up/Down to move and Left/Right to turn. Hold Shift for smaller steps. Use Enter or Space on a focused enemy to target it.</li>

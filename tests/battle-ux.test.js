@@ -132,7 +132,7 @@ function client(s, { ai = null } = {}) {
         frames.clear();
         callbacks.forEach(callback => callback(time));
     };
-    return { context, gp: context.GP, get, buttons: () => get('guided-play').querySelectorAll('button'), table, keydown, frameAt };
+    return { context, gp: context.GP, get, buttons: () => [...get('guided-play').querySelectorAll('button'), get('board-undo')].filter(b => b.textContent && !(b.id === 'board-undo' && b.hidden)), table, keydown, frameAt };
 }
 
 test('connected deployment keeps legal changes reversible until its single confirmation hands off play', () => {
@@ -267,26 +267,27 @@ test('open ground and empty decks clearly announce the skipped terrain step thro
     }
 });
 
-test('units animate to their committed pose once, take the short pivot and respect reduced motion', () => {
+test('the player’s own moves land at once; the computer’s animate and take the short pivot', () => {
     const h = client(battle([U('A', 'p1', 400, 400, { angle: 350 }), U('B', 'p2', 750, 40)]));
     const piece = h.table.children.find(el => el.dataset.unitId === 'A');
-    h.gp.movePieceTo(piece, 500, 420, 10);
+    h.gp.movePieceTo(piece, 450, 410, 0);
+    assert.equal(piece.style.left, '450px');
+    assert.ok(!piece.fieldMotion, 'no animation for the player');
+    assert.equal(piece.style.transform, 'rotate(0deg)');
+    h.gp.movePieceTo(piece, 400, 400, 350);
+    h.gp.movePieceTo(piece, 500, 420, 10, { opponent: true });
     assert.equal(piece.style.left, '500px');
     const motion = piece.fieldMotion;
     assert.equal(piece.style.transform, 'translate(-100px, -20px) rotate(350deg)');
     h.frameAt(0);
-    h.frameAt(600);
+    h.frameAt(500);
     const midway = h.gp.visiblePose(piece);
     assert.ok(midway.x > 400 && midway.x < 500);
     assert.ok(midway.angle > 350 && midway.angle < 370);
-    h.gp.movePieceTo(piece, 500, 420, 10);
+    h.gp.movePieceTo(piece, 500, 420, 10, { opponent: true });
     assert.equal(piece.fieldMotion, motion);
     h.frameAt(2000);
     assert.equal(piece.style.transform, 'rotate(10deg)');
-    assert.equal(piece.fieldMotion, null);
-    h.context.window.matchMedia = () => ({ matches: true });
-    h.gp.movePieceTo(piece, 450, 430, 20);
-    assert.equal(piece.style.left, '450px');
     assert.equal(piece.fieldMotion, null);
 });
 
@@ -302,13 +303,13 @@ test('an enemy advance slides from the old position even in reduced-motion mode'
         assert.equal(enemy.style.top, '250px');
         assert.equal(h.gp.visiblePose(enemy).y, 350);
         h.frameAt(0);
-        h.frameAt(reduced ? 600 : 1100);
+        h.frameAt(375);
         assert.equal(h.gp.visiblePose(enemy).y, 300);
         assert.equal(enemy.style.transform, 'translate(0px, 50px) rotate(0deg)');
         h.gp.render();
         assert.equal(h.gp.visiblePose(enemy).y, 300);
         assert.equal(enemy.fieldMotion, motion);
-        h.frameAt(reduced ? 1200 : 2200);
+        h.frameAt(2200);
         await motion.finished;
         assert.equal(h.gp.visiblePose(enemy).y, 250);
         assert.equal(enemy.style.transform, 'rotate(0deg)');

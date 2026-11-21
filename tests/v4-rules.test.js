@@ -137,3 +137,28 @@ test('V4: the AI plays whole games without errors', () => {
         assert.ok(r.routed.p1 + r.routed.p2 > 0, `seed ${seed}: nothing routed`);
     }
 });
+
+test('V4: pivoting during a Move keeps the charge (V3 loses it)', () => {
+    const units = [U('a', 'p1', 370, 400), U('e', 'p2', 370, 300, { angle: 180 })];
+    const steps = [activate('a'), { type: 'move', inches: 1 }, { type: 'pivot', degrees: 5 }];
+    const v4 = E.unitOptions(run(battle(units), ...steps), 'a').forward;
+    assert.ok(v4.charge && v4.charge.targets.includes('e'), 'V4 charges after a mid-move pivot');
+    assert.equal(E.unitOptions(run(battle(units, 'v3'), ...steps), 'a').forward.charge, null, 'V3 still loses it');
+});
+
+test('V4: with no part behind the target’s front line, a unit can only charge its front', () => {
+    // e faces right (front edge at x = 520). a starts wholly ahead of that line and would hit e's top flank.
+    const target = U('e', 'p2', 470, 280, { angle: 90 });
+    const ahead = U('a', 'p1', 530, 90, { angle: 205, pace: 8 });
+    let s = run(battle([ahead, target]), activate('a'));
+    assert.equal(E.chargeFrontOnly(s, s.units[0], s.units[1]), true);
+    const lim = E.unitOptions(s, 'a').forward;
+    assert.equal(lim.charge, null);
+    assert.match(lim.reason, /can only charge its front/);
+    assert.ok(E.unitOptions(run(battle([ahead, target], 'v3'), activate('a')), 'a').forward.charge, 'V3 has no such limit');
+    // Starting with a corner behind the line, the flank charge is allowed.
+    const behind = U('a', 'p1', 455, 190, { angle: 180, pace: 8 });
+    s = run(battle([behind, target]), activate('a'));
+    assert.equal(E.behindFrontLine(s.units[0], s.units[1]), true);
+    assert.ok(E.unitOptions(s, 'a').forward.charge?.targets.includes('e'));
+});

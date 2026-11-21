@@ -57,13 +57,16 @@ Movement planning and feedback
 
 Select a unit on the field or in the roster. **N** cycles through fresh units.
 The available order buttons highlight what you can do on the battlefield.
-Drag the unit to move or a corner to turn. Choose **Reform** before turning to
+Drag the unit to move. To turn, select it and drag the ↻ handle behind it (it
+moves in front when the unit's rear is at the board edge). Choose **Reform** before turning to
 spend the action on a Reform. Select an outlined enemy twice to preview and
 confirm an attack. **Undo** or **Z** reverses moves and pivots before a roll,
 phase change or an online turn handoff.
 
-Movement outlines show how far the unit can advance or withdraw. Dragging
-previews the destination, and the unit slides there on release. Drag a corner
+**Undo** sits at the battlefield's bottom-left corner (just under it when there
+is room). Movement outlines show how far the unit can advance or withdraw. Dragging
+previews the destination, and the unit lands there at once on release; only the
+computer's moves are animated. Drag the ↻ handle
 to pivot and see the movement corridor update with the facing. The ruler snaps to
 rotated card edges and reads to 0.01 inch. Unit profiles are in the sidebar. Hover
 over terrain to read its rules.
@@ -98,6 +101,13 @@ Rules interpretations worth checking
   - 6s roll no bonus dice (`explodingSixes`; `strainDist(pool, tn, explode)`);
   - a Pace asterisk does nothing (`ignoresSlowing`; designer ruling 2026-11-21, and the
     sheet has since dropped Light Infantry's asterisk);
+  - Pivots never rule out a charge (designer, 2026-11-21, later): `canCharge` in `moveLimit`
+    ignores `pivotedInMove` for V4. But a charger with no part behind the line extending
+    the target's front edge can only charge that front (`behindFrontLine`, `chargeFrontOnly`;
+    judged where the charging move starts, after any pivots; a corner on the line isn't
+    behind it — my reading). A charge that would meet only flanks it may not charge stops
+    short, with a reason. Guided play draws each nearby enemy's extended front line
+    (dashed) and a gold front edge where only the front can be charged (`drawChargeFaces`).
   - Strike (and charge contact) may be against any touching enemy, front or flank
     (designer ruling 2026-11-21; `canStrikeAt` keeps V3's front-only test for `'v3'` only);
   - Shaken (`shaken`, `shakenSet`): a unit can't strike while an enemy's front edge

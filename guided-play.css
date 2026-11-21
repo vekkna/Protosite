@@ -44,6 +44,12 @@
 .guided-board .selection-range.movement-range { display: none; }
 
 #gp-overlay { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 4; overflow: visible; }
+#gp-overlay .gp-front-line { stroke-width: 2; stroke-dasharray: 8 6; fill: none; }
+#gp-overlay .gp-front-line-open { stroke: #b8f0c088; }
+#gp-overlay .gp-front-line-only { stroke: #ffc25acc; }
+#gp-overlay .gp-front-only-edge { stroke: #ffc25a; stroke-width: 6; stroke-linecap: round; filter: drop-shadow(0 0 3px #000); }
+#guided-play .gp-front-only-key::before { content: ''; display: inline-block; width: 14px; height: 4px; margin-right: 6px;
+    vertical-align: middle; background: #ffc25a; border-radius: 2px; }
 #gp-overlay .gp-next-charge-lane { fill: #7fcbff26; stroke: #a4ddff; stroke-width: 3; }
 #guided-play .gp-next-charge-key::before { content: ''; display: inline-block; width: 10px; height: 10px;
     margin-inline-end: 6px; border: 2px solid #a4ddff; background: #7fcbff26; vertical-align: -.08em; }
@@ -75,20 +81,30 @@
     display: none; position: absolute; width: min(24%, 25px); height: min(45%, 25px);
     color: #ffe1a0; z-index: 17; cursor: grab;
 }
-.unit.gp-can-pivot:is(:hover, .is-selected):not(.ghost, .is-dragging, .is-remote-moving) .pivot-corner:not(.deployment-pivot) { display: block; }
-.pivot-corner::after {
-    content: ''; position: absolute; inset: 0; width: 45%; height: 45%;
-    border: 0 solid currentColor; filter: drop-shadow(0 0 1px #202419);
+.unit.gp-can-pivot:is(:hover, .is-selected, .is-rotating):not(.ghost, .is-dragging, .is-remote-moving) .pivot-corner:not(.deployment-pivot) { display: block; }
+/* The pivot handle sits behind the unit's rear edge: a short stalk ending in a dot. */
+.unit .pivot-handle {
+    --dot: var(--deployment-grip-size, 34px);
+    top: 100%; left: 50%; width: var(--dot); height: calc(var(--dot) * 1.45); transform: translateX(-50%);
+    touch-action: none;
 }
-.pivot-nw, .pivot-ne { top: 0; }
-.pivot-sw, .pivot-se { bottom: 0; }
-.pivot-nw, .pivot-sw { left: 0; }
-.pivot-ne, .pivot-se { right: 0; }
-:is(.pivot-nw, .pivot-ne)::after { border-top-width: 3px; }
-:is(.pivot-sw, .pivot-se)::after { top: auto; border-bottom-width: 3px; }
-:is(.pivot-nw, .pivot-sw)::after { border-left-width: 3px; }
-:is(.pivot-ne, .pivot-se)::after { left: auto; border-right-width: 3px; }
-.pivot-corner:hover { color: white; }
+.unit .pivot-handle::before {
+    content: ''; position: absolute; left: 50%; top: 0; width: 4px; height: calc(var(--dot) * .5); transform: translateX(-50%);
+    background: #ffe1a0; box-shadow: 0 0 2px #202419;
+}
+.unit.gp-pivot-front .pivot-handle { top: auto; bottom: 100%; }
+.unit.gp-pivot-front .pivot-handle::before { top: auto; bottom: 0; }
+.unit.gp-pivot-front .pivot-handle-dot { bottom: auto; top: 0; }
+.unit .pivot-handle-dot {
+    position: absolute; left: 0; bottom: 0; width: var(--dot); height: var(--dot); box-sizing: border-box;
+    border: 2px solid #273b35; border-radius: 50%; background: #ffe1a0; box-shadow: 0 1px 4px #0009;
+}
+.unit .pivot-handle-dot::after {
+    content: '↻'; position: absolute; inset: 0; display: grid; place-items: center;
+    color: #273b35; font: 700 calc(var(--dot) * .62)/1 'Segoe UI Symbol', sans-serif;
+}
+.unit .pivot-handle:hover .pivot-handle-dot, .unit.is-rotating .pivot-handle-dot { background: #fff2c7; }
+.unit.is-selected, .unit.is-rotating { z-index: 30; }
 .unit .deployment-pivot {
     inset: auto auto 100% 50%; transform: translateX(-50%);
     width: var(--deployment-grip-size, 34px); height: var(--deployment-grip-size, 34px); min-height: 0; min-width: 0;

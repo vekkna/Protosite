@@ -1,11 +1,12 @@
 /*
  * Game client: connects the headless rules engine (engine.js) to the tabletop renderer (app.js).
  * The engine state is the single source of truth; the board DOM is redrawn from it after every action.
- * Players act directly on the board: drag a unit to move, drag a corner to pivot, click an enemy to attack.
+ * Players act directly on the board: drag a unit to move, drag the ↻ handle behind a selected unit to pivot, click an enemy to attack.
  */
 const GuidedPlay = (() => {
     const E = SeizeEngine, PX = E.PX;
     let game = null, darkPlayer = null, message = '', privateBids = {}, revealSent = false;
+    let chargeFacesShown = 0;
     let pendingTarget = null, shownSeq = null, dragCtx = null, rotCtx = null, tokenSig = '', deckSig = '';
     let aiPlayer = null, aiLevel = 'normal', aiRun = 0, aiBusy = false, aiWorker = null, aiNote = '';
     // A game in progress keeps the rules it was created with (they live in its state).
@@ -15,7 +16,7 @@ const GuidedPlay = (() => {
         reform: 'Pivot during a Move. Spend an action to Reform and change facing.',
         'reform-variant': 'Any pivot prevents a charge. Units with a Move asterisk can pass through friendly units if they can clear them.',
         v3: 'Reform, plus Rally (remove one strain, even in contact). Pivot before moving and still charge. Pivots can turn through units, terrain and the edge but must end clear. Shoot if a clear line reaches the centre of a target edge facing the shooter. No dice modifiers; strike only enemies at your front; hills slow units entering them; units with 5+ strain can’t attack.',
-        v4: 'V3 without Reform, Rally, the 5-strain limit or hill slowing. No bonus dice for 6s; a Pace asterisk does nothing. Strike any touching enemy, but a unit is Shaken, and can’t strike, while an enemy’s front touches its flank (unless that enemy is Shaken itself).'
+        v4: 'V3 without Reform, Rally, the 5-strain limit or hill slowing. No bonus dice for 6s; a Pace asterisk does nothing. Pivoting doesn’t stop a charge, but a unit with no part behind the target’s front line can only charge its front. Strike any touching enemy, but a unit is Shaken, and can’t strike, while an enemy’s front touches its flank (unless that enemy is Shaken itself).'
     };
     let rulesChoice = (() => { try { return E.normalizeRules(localStorage.getItem(RULES_KEY)); } catch (e) { return 'classic'; } })();
     function setRules(v) {
@@ -275,7 +276,7 @@ const GuidedPlay = (() => {
         if (aiBusy || !aiToMove()) return;
         aiBusy = true; aiAction = ''; render(); const run = aiRun;
         try {
-            await pause(game.phase === 'command' ? 500 : 250);
+            await pause(game.phase === 'command' ? 250 : 150);
             if (run !== aiRun || !aiToMove()) return;
             const choice = await askAI(game);
             if (run !== aiRun || !aiToMove()) return;
@@ -285,13 +286,13 @@ const GuidedPlay = (() => {
                 if (a.type === 'bid') { privateBids[aiPlayer] = a.value; biddingState[aiPlayer] = { value: a.value, ready: true }; if (biddingState[other(aiPlayer)].ready) reveal(); else saveGame(true); break; }
                 if (a.type === 'endActivation' && !game.activation) continue;
                 aiAction = BattleUX.actionText(game, a); render();
-                await pause(a.type === 'activate' ? 450 : 350);
+                await pause(a.type === 'activate' ? 200 : 150);
                 if (run !== aiRun) break;
                 const movesPiece = ['move', 'pivot', 'deploy'].includes(a.type);
                 const piece = movesPiece ? findEl(a.unitId || game.activation?.unitId || game.draft?.picked) : null;
                 if (!act(a, { opponent: true })) break;
                 if (movesPiece) await piece?.fieldMotion?.finished;
-                await pause(movesPiece ? 450 : a.type === 'shoot' || a.type === 'strike' ? 1500 : 850);
+                await pause(movesPiece ? 150 : a.type === 'shoot' || a.type === 'strike' ? 1000 : 400);
             }
         } finally { if (run === aiRun) { aiBusy = false; aiAction = ''; render(); } }
     }
@@ -451,6 +452,7 @@ const GuidedPlay = (() => {
             }
         }
         if (blocker) drawObstruction(obstruction, blocker, { ...pose, angle: startAngle + delta });
+        if (E.v4Rules(game)) drawChargeFaces(liveOverlay('gp-charge-faces'), { ...pose, angle: startAngle + settled });
         // With pivots to spare, the turn may end overlapping: the next pivot must then finish clear.
         const passing = !overlap && E.v3Rules(game) && E.overlapAt(game, pose, startAngle + delta);
         const reason = overlap ? `Can’t stop overlapping ${obstacleName(blocker)}` : passing ? `Overlapping ${obstacleName(passing)}: pivot again to finish clear` : blocker ? `Stops at ${obstacleName(blocker)}`
@@ -483,7 +485,7 @@ const GuidedPlay = (() => {
             positionUnit({ ...game.draft.position, angle: deploymentAngle() + delta });
             return;
         }
-        if (game.phase === 'command') note('Drag a unit’s corner to turn it.');
+        if (game.phase === 'command') note('Drag the ↻ handle behind the unit to turn it.');
     }
     /** A click on a piece. Returns true when the click was an order rather than a selection. */
     function tap(el) {
@@ -515,9 +517,9 @@ const GuidedPlay = (() => {
 
     const visiblePose = el => el.fieldMotion?.pose || piecePose(el);
 
-    function pieceMotionDuration(distance, turn, opponent) {
-        if (opponent) return Math.min(4200, Math.max(750, distance / PX * 440, Math.abs(turn) * 13));
-        return Math.min(2200, Math.max(420, distance / PX * 220, Math.abs(turn) * 8));
+    // Only the computer's moves are animated; the player's own moves land at once.
+    function pieceMotionDuration(distance, turn) {
+        return Math.min(1600, Math.max(300, distance / PX * 150, Math.abs(turn) * 5));
     }
 
     // Inline coordinates are the authoritative destination for saving, hit testing and orders.
@@ -532,11 +534,11 @@ const GuidedPlay = (() => {
         const reduced = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
         const startAngle = reduced ? angle : from.angle;
         const turn = ((angle - startAngle) % 360 + 540) % 360 - 180;
-        if (!Number.isFinite(distance) || (distance < .1 && Math.abs(turn) < .1) || (reduced && !opponent)) return;
+        if (!Number.isFinite(distance) || (distance < .1 && Math.abs(turn) < .1) || !opponent) return;
 
         // Travel still conveys the opponent's order in reduced-motion mode. Use a short, unrotated slide there.
-        const normalDuration = pieceMotionDuration(distance, turn, opponent);
-        const duration = reduced ? Math.min(normalDuration, 1200) : normalDuration;
+        const normalDuration = pieceMotionDuration(distance, turn);
+        const duration = reduced ? Math.min(normalDuration, 800) : normalDuration;
         let frame, startTime, complete;
         const motion = { pose: from, finish, finished: new Promise(resolve => { complete = resolve; }) };
         function finish() {
@@ -592,6 +594,13 @@ const GuidedPlay = (() => {
                     return Math.min(x, y, g.width - x, g.height - y);
                 };
                 el.classList.toggle('gp-deploy-grip-back', room(1) < 22 && room(-1) > room(1));
+            }
+            if (g.phase === 'command' && u.owner) {
+                // The pivot handle sits behind the unit, or in front when the rear is at the board edge.
+                const grip = parseFloat(table.style.getPropertyValue?.('--deployment-grip-size')) || 34;
+                const f = E.geometry.forwardOf(u), c = E.geometry.centre(u), back = u.h / 2 + grip * 1.5;
+                const x = c.x - f.x * back, y = c.y - f.y * back;
+                el.classList.toggle('gp-pivot-front', x < 0 || y < 0 || x > g.width || y > g.height);
             }
             el.classList.toggle('guided-ready', g.phase === 'command' && !g.activation && u.owner === E.activePlayer(g) && !u.activated && g.commands[u.owner] > 0 && controls(u.owner));
             el.dataset.armySkin = u.owner ? (u.owner === darkPlayer ? 'dark' : 'light') : 'undrafted';
@@ -813,6 +822,32 @@ const GuidedPlay = (() => {
         }
     }
 
+    /**
+     * V4: a charger with no part behind the line extending an enemy's front edge can only charge that front.
+     * For each enemy in reach, draw that line; where only the front can be charged, highlight the front edge.
+     */
+    function drawChargeFaces(group, pose) {
+        group.replaceChildren();
+        if (!E.v4Rules(game) || !(pose.melee > 0)) return 0;
+        const G = E.geometry, c = G.centre(pose), reach = pose.pace * PX + G.reach(pose);
+        let frontOnly = 0;
+        for (const v of game.units) {
+            if (!v.owner || v.routed || v.owner === pose.owner) continue;
+            const vc = G.centre(v);
+            if (Math.hypot(vc.x - c.x, vc.y - c.y) > reach + G.reach(v)) continue;
+            const [a, b] = G.rect(v), len = Math.hypot(b.x - a.x, b.y - a.y) || 1;
+            const d = { x: (b.x - a.x) / len, y: (b.y - a.y) / len }, ext = 1200;
+            const only = E.chargeFrontOnly(game, pose, v);
+            svgMark(group, 'line', { x1: a.x - d.x * ext, y1: a.y - d.y * ext, x2: b.x + d.x * ext, y2: b.y + d.y * ext,
+                class: `gp-front-line ${only ? 'gp-front-line-only' : 'gp-front-line-open'}` });
+            if (only) {
+                svgMark(group, 'line', { x1: a.x, y1: a.y, x2: b.x, y2: b.y, class: 'gp-front-only-edge' });
+                frontOnly += 1;
+            }
+        }
+        return frontOnly;
+    }
+
     function drawOverlay() {
         const svg = overlay(); svg.replaceChildren();
         table.querySelectorAll('.gp-label:not(#gp-drag-label)').forEach(el => el.remove());
@@ -862,6 +897,10 @@ const GuidedPlay = (() => {
         } else if (order === 'shoot') {
             drawMovementLanes(liveOverlay('gp-command-movement', svg), u, { forward: o.forward });
         }
+        if (!order || order === 'move') {
+            const canMove = o.forward.charge || o.forward.max > .01 || availableTurn(o.pivot);
+            chargeFacesShown = canMove && !o.activation.charged ? drawChargeFaces(liveOverlay('gp-charge-faces', svg), u) : 0;
+        } else chargeFacesShown = 0;
         if (dragging) return o;
         const G = E.geometry;
         if (!canPivot && (o.pivot.leftBlocker || o.pivot.rightBlocker)) {
@@ -937,7 +976,7 @@ const GuidedPlay = (() => {
         if (!id) return 'Choose a unit to command';
         const order = orderFor(id);
         if (order) return {
-            move: 'Drag the unit to move', pivot: 'Drag a unit corner to pivot', reform: 'Drag a unit corner to Reform',
+            move: 'Drag the unit to move', pivot: 'Drag the ↻ handle behind the unit to pivot', reform: 'Drag the ↻ handle behind the unit to Reform',
             shoot: 'Select an outlined enemy to shoot', strike: 'Select a touching enemy to strike'
         }[order];
         return g.activation?.action && g.activation.unitId === id ? 'Complete this activation' : `Give ${unit(id).name} an order`;
@@ -976,10 +1015,23 @@ const GuidedPlay = (() => {
         pendingTarget = null; message = ''; selectPiece(findEl(fresh[(i + 1) % fresh.length].id));
     }
 
+    /** The Undo button in the battlefield's bottom-left corner. */
+    function renderBoardUndo(g) {
+        const b = document.getElementById('board-undo'); if (!b) return;
+        let show = false;
+        if (g.phase === 'draft') show = g.units.length > 0 && controls(g.draft.picker) && g.draft.step !== 'pick';
+        else if (g.phase === 'command') show = controls(E.activePlayer(g)) || canUndo();
+        b.textContent = 'Undo';
+        b.hidden = !show;
+        b.disabled = !canUndo();
+        b.onclick = () => undo();
+        if (show && typeof positionBoardUndo === 'function') positionBoardUndo();
+    }
     function render() {
         const panel = document.getElementById('guided-play'); if (!panel) return;
         const previousFocus = panel.contains?.(document.activeElement) ? document.activeElement : null;
         const g = ensure(); panel.replaceChildren();
+        renderBoardUndo(g);
         document.getElementById('container').classList.toggle('is-draft', g.phase === 'draft');
         if (!g.units.length && g.phase === 'draft') {
             document.getElementById('field-phase').textContent = 'Multiplayer';
@@ -1033,8 +1085,6 @@ const GuidedPlay = (() => {
                 const quick = button('Auto-draft both sides', autoDraft, Boolean(position), 'Finish deployment and go to initiative bidding', 'btn-grey gp-deploy-primary', actions);
                 quick.hidden = Boolean(position);
             }
-            const undoStep = button('Undo', () => undo(), !mine || !canUndo(), 'Undo the last deployment change (Z)', 'btn-grey', actions);
-            undoStep.hidden = !mine || step === 'pick';
         } else if (g.phase === 'bidding') {
             add('p', 'Bid = how many units you can command this round. The lower bid becomes Master Tactician and acts first and last.', 'gp-sub');
             const shared = !onlineTable() && !aiPlayer;
@@ -1078,14 +1128,15 @@ const GuidedPlay = (() => {
                         control.setAttribute('aria-pressed', String(pressed));
                     };
                     if (o.forward.charge || o.forward.max > .01 || o.backward.max > .01) order('Move', 'move', 'Drag the unit to advance, withdraw or charge');
-                    if (o.pivot.usesAction && availableTurn(o.pivot)) order('Extra Pivot', 'pivot', 'Drag a unit corner to use Extra Pivot');
-                    if (availableTurn(o.reform)) order('Reform', 'reform', 'Drag a unit corner. Reform uses the action.');
+                    if (o.pivot.usesAction && availableTurn(o.pivot)) order('Extra Pivot', 'pivot', 'Drag the ↻ handle to use Extra Pivot');
+                    if (availableTurn(o.reform)) order('Reform', 'reform', 'Drag the ↻ handle. Reform uses the action.');
                     if (o.shoot.some(t => t.ok)) order('Shoot', 'shoot', 'Select an enemy on the battlefield');
                     if (o.strike.some(t => t.ok)) order('Strike', 'strike', 'Select a touching enemy on the battlefield');
                     if (o.canRally) button('Rally', rally, false, o.rules === 'v3' ? 'Remove one strain' : 'Roll to remove d6 ÷ 2 strain, rounded up', 'btn-grey', orders);
                     if (!orders.children.length) orders.remove();
                     if (o.shaken) add('p', 'Shaken: an enemy’s front is touching this unit’s flank, so it can’t strike.', 'gp-sub');
                     if (document.getElementById('gp-next-charge')) add('p', 'Next-turn charge reach', 'gp-next-charge-key');
+                    if (chargeFacesShown) add('p', 'Gold edge: no part of this unit is behind that enemy’s front line (dashed), so it can only charge its front.', 'gp-front-only-key');
                     if (o.activation.overlap) add('p', 'Keep pivoting: the unit can’t finish overlapping another unit, impassable terrain or the edge.');
                     if (o.activated) button('End activation', endActivation, Boolean(o.activation.overlap), o.activation.overlap ? 'Pivot clear first' : '', 'btn-blue gp-end');
                 } else if (o?.reason) add('p', o.reason);
@@ -1105,8 +1156,7 @@ const GuidedPlay = (() => {
                     add('summary', passLabel, '', warning);
                     button('Confirm pass', pass, false, '', 'btn-grey', warning);
                 } else button(passLabel, pass, false, 'Pass to the next command window', 'btn-grey', r);
-                button('Undo', () => undo(), !canUndo(), 'Undo the last reversible step (Z)', 'btn-grey', r);
-            } else if (canUndo()) button('Undo', () => undo(), false, 'Undo before the opponent acts (Z)', 'btn-grey');
+            }
         } else if (g.phase === 'finished') {
             add('h3', `${who(g.winner) === 'You' ? 'You win' : `${who(g.winner)} wins`} the battle`);
             add('p', `${g.routed[other(g.winner)]} of ${g.starting[other(g.winner)]} enemy units routed.`);
