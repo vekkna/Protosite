@@ -869,7 +869,9 @@ const GuidedPlay = (() => {
     }
     function drawReachCircles(svg, u, enemy) {
         // Your own units keep their movement boxes and forward arc; circles show what an enemy could reach.
-        if (!enemy || !turnsFreely(u)) return;
+        // Every enemy shows its charge reach as a circle. Shooting is a circle only for an enemy that can turn;
+        // one that can't keeps its forward arc (drawn by app.js).
+        if (!enemy) return;
         let group = document.getElementById('gp-reach-circles');
         if (!group) {
             // A nested svg the size of the board, so long ranges are clipped at the board's edge.
@@ -879,7 +881,7 @@ const GuidedPlay = (() => {
         }
         const c = E.geometry.centre(u), side = enemy ? ' gp-reach-enemy' : '';
         if (u.melee > 0 && u.pace > 0) svgMark(group, 'circle', { cx: c.x, cy: c.y, r: u.pace * PX + u.h / 2, class: `gp-reach gp-reach-charge${side}` });
-        if (u.shoot > 0 && u.range > 0) svgMark(group, 'circle', { cx: c.x, cy: c.y, r: u.range * PX + u.h / 2, class: `gp-reach gp-reach-shoot${side}` });
+        if (u.shoot > 0 && u.range > 0 && turnsFreely(u)) svgMark(group, 'circle', { cx: c.x, cy: c.y, r: u.range * PX + u.h / 2, class: `gp-reach gp-reach-shoot${side}` });
     }
 
     function drawOverlay() {
@@ -912,7 +914,7 @@ const GuidedPlay = (() => {
             if (el === selectedPiece && u.activated && game.activation?.unitId !== u.id && controls(u.owner)) {
                 drawMovementLanes(svg, u, BattleUX.freshMovement(game, u), 'gp-future-move');
             } else if (viewer && u.owner !== viewer) {
-                if (!turnsFreely(u)) drawMovementLanes(svg, u, E.optionsAsIf(game, u.id), 'gp-enemy-lane');
+                // Enemies show reach circles (drawReachCircles) instead of lane boxes.
             }
             else if (u.id !== id || !o?.canAct) {
                 const forward = reach.rays.find(r => r.degrees === 0)?.limit;

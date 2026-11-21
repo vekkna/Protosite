@@ -773,7 +773,7 @@ test('an inspected enemy keeps its charge reach circle during its own turn', () 
     assert.equal(h.gp.aiPlayer(), 'p2');
 });
 
-test('an enemy that can turn shows reach circles instead of corridors; one that can’t keeps its corridors', () => {
+test('enemies show reach circles instead of corridors; my own units keep their corridors', () => {
     const s = battle([U('A', 'p1', 400, 400, { shoot: 0 }), U('B', 'p2', 400, 250, { angle: 180 })]);
     const h = client(s, { ai: 'p2' });
     assert.equal(h.table.querySelectorAll('.gp-lane').length, 2);
@@ -791,16 +791,14 @@ test('an enemy that can turn shows reach circles instead of corridors; one that 
     h.gp.render();
     assert.equal(h.table.querySelectorAll('.gp-reach').length, 0);
     assert.ok(h.table.querySelectorAll('.gp-lane').length > 0);
-    // An enemy that can never turn (Drill 0, no Reform) keeps its forward and backward corridors.
+    // An enemy that can never turn (Drill 0, no Reform) still shows its charge reach as a circle, but no shooting circle.
     const stuck = battle([U('A', 'p1', 400, 400, { shoot: 0 }), U('B', 'p2', 400, 250, { angle: 180, mobility: 0 })]);
     const k = client(stuck, { ai: 'p2' });
     k.context.selectedPiece = k.table.children.find(el => el.dataset.unitId === 'B');
     k.gp.render();
-    const enemyLanes = k.table.querySelectorAll('.gp-enemy-lane');
-    assert.equal(enemyLanes.length, 2);
-    assert.ok(enemyLanes.some(lane => lane.classList.contains('gp-charge')));
-    assert.ok(enemyLanes.some(lane => lane.classList.contains('gp-back')));
-    assert.equal(k.table.querySelectorAll('.gp-reach').length, 0);
+    assert.equal(k.table.querySelectorAll('.gp-enemy-lane').length, 0);
+    assert.equal(k.table.querySelectorAll('.gp-reach-charge').length, 1);
+    assert.equal(k.table.querySelectorAll('.gp-reach-shoot').length, 0);
 });
 
 test('network banner updates keep the solo player label free of hosting terminology', () => {

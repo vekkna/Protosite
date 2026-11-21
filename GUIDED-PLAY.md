@@ -73,12 +73,13 @@ over terrain to read its rules.
 The left sidebar shows the next action. The battle log on the right shows enemy
 orders and previous results.
 Shooting tracers, impact rings and strain text show attack resolution on the board.
-An inspected enemy unit that can turn (Drill above 0, or any unit where Reform exists)
-shows dashed circles about its centre instead of its lane boxes: charge reach (Pace plus half the card's depth) and
-shooting reach (range plus half the card's depth, since range is measured from the front
-edge), clipped at the board edge (`drawReachCircles`; app.js then skips its forward
-shooting arc, `GuidedPlay.drawsReach`). Units that can't turn keep the straight lane and
-the forward arc, and your own units always keep their boxes and arc. The V4 front lines
+An inspected enemy unit shows dashed circles about its centre instead of its lane boxes:
+charge reach (Pace plus half the card's depth) for every enemy, and shooting reach (range
+plus half the card's depth, since range is measured from the front edge) for an enemy that
+can turn (Drill above 0, or any unit where Reform exists). They are clipped at the board
+edge (`drawReachCircles`; app.js then skips its forward shooting arc, `GuidedPlay.drawsReach`).
+A shooter that can't turn keeps its forward arc. Your own units always keep their boxes and
+arc. The V4 front lines
 stop where they leave the charger's reach.
 Select an enemy unit to inspect its firing range, movement corridors and charge
 targets during either player's turn. Unit names use smaller labels with
