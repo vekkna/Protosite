@@ -5,7 +5,7 @@ Read this first if you are picking the project up. `GUIDED-PLAY.md` has the
 architecture and the rules interpretations; this file has the current state,
 how to measure things, what has been tried, and what to do next.
 
-Last updated: 2026-11-17. Branch `codex/rules-guided-play`. The rules-engine /
+Last updated: 2026-11-21 (V4 rules added; see "Rules variant: V4"). Branch `codex/rules-guided-play`. The rules-engine /
 AI / guided-play work is committed; the card-maker and PDF work is not.
 
 What exists
@@ -74,6 +74,7 @@ change can be measured against it:
     tools/baselines/ai-v5.js   + round play-out at hard level (playOut / roundValue)
     tools/baselines/ai-v6.js   v5 + the exact speed-ups; the AI before the Reform rules variant
     tools/baselines/ai-v7.js   v6 + Reform / Reform Variant / V3 support; the AI before V3 tuning
+    tools/baselines/ai-v8.js   the V3-tuned AI as committed (ad3886b); the AI before V4 support
 
 Rules:
 
@@ -411,8 +412,44 @@ Per unit (normal, ~180 fielded each, win% SE about 4): Heavy Cavalry 40 -> 46%
 of classic activations (21% for Mounted Archers). Caveat: the AI's weights were
 tuned under classic rules.
 
+Rules variant: V4 (2026-11-21)
+------------------------------
+
+`rules: 'v4'`, from the new Google Doc (first line of `rules url.txt`; the V3 doc is the
+second line). Rules page: `game-rules-v4.html` (its own file, not overrides in
+`game-rules.html`; boxed notes give the app's readings). Landing-page button "V4".
+V4 is V3 with these differences. `v3Rules(s)` is true for V4 too. Each difference has
+its own helper in engine.js, all exported: `v4Rules`, `reformAction`, `rallyAllowed`,
+`hillsSlow`, `explodingSixes`, `ignoresSlowing`, `spent`, `shaken`.
+
+- No Reform, no Rally, no 5-strain attack limit, hills don't slow.
+- No bonus dice for 6s: `strainDist(pool, tn, explode)`; `attackPreview` and
+  `resolveAttack` pass `explodingSixes(s)`.
+- A Pace asterisk does nothing (designer, 2026-11-21). The sheet dropped Light Infantry's
+  asterisk the same day.
+- Strike, and a charge's contact, may be against any touching enemy (designer,
+  2026-11-21). `canStrikeAt` keeps the front-only test for `'v3'` only.
+- Shaken: a unit can't strike (not even a charge's free strike) while an enemy's front edge
+  touches its flank and that enemy isn't Shaken itself. The test is
+  `touchesFront(enemy, unit) && touchesFlank(unit, enemy)`. `shakenSet` settles it from the
+  outside in. Units left in a loop of mutual flanking all count as Shaken; that's my reading,
+  not confirmed. `unitOptions` returns `shaken`, and the orders panel shows a note.
+- "Turn to face" (an MT unit pivoting out of and back into contact) is not modelled
+  (designer, 2026-11-21).
+- Kept from earlier versions although the V4 text doesn't say it: the target must be
+  wholly in front of the shooter.
+
+AI: v8 frozen first, then small changes so the AI reads V4 correctly. `pairGeometry` counts
+no contact strike by a Shaken unit. Shooter facing estimates use `reformAction`, not
+`reformRules`. Attack values use `explodingSixes`. Terrain and deployment treat hills as
+slowing only in V3, and Pace asterisks only outside V4. Nothing is tuned for V4, and the AI
+doesn't yet aim to shake enemies on purpose. Tests: `tests/v4-rules.test.js`.
+
 Run log
 -------
+
+- 2026-11-21: V4 rules added (above). Stats sheet synced: Light Infantry Speed 7 (asterisk
+  gone), Drill 6; Light Cavalry Drill 4. `FALLBACK_DEFAULT_UNITS` copied.
 
 - 2026-11-20 (latest+1): V3 charges now follow Reform: a pivot before travelling keeps
   the charge, a pivot after starting to move loses it (`reformVariant` in `moveLimit` is

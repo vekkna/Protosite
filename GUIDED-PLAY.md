@@ -88,14 +88,34 @@ Rules interpretations worth checking
   Shooting needs one clear line from the shooter's front-edge centre to the centre of a target edge that faces the shooter (the target blocks too); no cover modifier.
   Rally removes 1 strain (allowed while touching an enemy); a pivot before moving keeps the charge, one after starting to move loses it; a unit with 5+ strain can't attack (no Shoot, Strike or charge).
   No combat modifiers (no outflanking or height dice); a unit can only strike (or charge) enemies touching its front; hills slow units entering them, but not a unit that starts its Move on one.
-- Turning during a Move into slowing terrain counts as entering it (both rule sets).
+- Rules variant `rules: 'v4'` (added 2026-11-21; text in `game-rules-v4.html`, from the
+  Google Doc in `rules url.txt`). Built on V3, so `v3Rules(s)` is true for it too: same
+  pivoting through obstacles, sight line and lack of dice modifiers; MT units may
+  begin a Manoeuvre in contact with a pivot. Differences, each behind an engine helper:
+  - no Reform (`reformAction`) and no Rally (`rallyAllowed`), so a Mobility 0 unit can never turn;
+  - no 5-strain limit on attacking (`spent` is V3-only);
+  - hills don't slow (`hillsSlow` is V3-only);
+  - 6s roll no bonus dice (`explodingSixes`; `strainDist(pool, tn, explode)`);
+  - a Pace asterisk does nothing (`ignoresSlowing`; designer ruling 2026-11-21, and the
+    sheet has since dropped Light Infantry's asterisk);
+  - Strike (and charge contact) may be against any touching enemy, front or flank
+    (designer ruling 2026-11-21; `canStrikeAt` keeps V3's front-only test for `'v3'` only);
+  - Shaken (`shaken`, `shakenSet`): a unit can't strike while an enemy's front edge
+    (corners included) touches its flank and that enemy isn't Shaken. Settled from the
+    outside in; units left in a loop of mutual flanking all count as Shaken (my reading,
+    not yet confirmed by the designer). `unitOptions(...).shaken` drives a panel note.
+  - "Turn to face" (an MT unit pivoting out of and back into contact) is not modelled:
+    designer ruling 2026-11-21. Only a charge brings a unit into contact.
+  - The shooting "whole target in front of the shooter" check is kept from earlier
+    versions though the V4 text doesn't mention it.
+- Turning during a Move into slowing terrain counts as entering it (all rule sets).
 
 - Concealing terrain blocks any sight line passing through it, so a unit
   standing in a forest can neither shoot nor be shot (the rules' "shooting out
   of forest" example is still a TODO).
 - "Loose formation" (Defence asterisk) is used for the shooting target number
   of 6; the older "Mobility 3 or more" wording in the stat list is ignored.
-- Slowing terrain is ignored by units with a Pace asterisk.
+- Slowing terrain is ignored by units with a Pace asterisk (not in V4).
 - A unit may slide past a touching friend, but cannot pivot while within half a
   pixel of another unit, impassable terrain or the edge.
 - A non-charging move stops 1 px (0.05 inch) short of an enemy.

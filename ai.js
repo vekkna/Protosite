@@ -72,7 +72,7 @@ const SeizeAI = (() => {
         return W.strain + W.routed - strainScore(u.strain, W) + routProgress(k + 1, need, W) - routProgress(k, need, W) + (k + 1 >= need ? W.winBonus : 0);
     }
     function attackValue(s, target, pool, tn, W) {
-        const d = E.strainDist(Math.max(1, pool), tn);
+        const d = E.strainDist(Math.max(1, pool), tn, E.explodingSixes(s));
         let v = 0;
         for (let j = 1; j < d.length; j++) if (d[j] > 1e-4) v += d[j] * lossFrom(s, target, j, W);
         return v;
@@ -89,7 +89,7 @@ const SeizeAI = (() => {
         const g = pairGeometry(s, att, def, cache), unmarked = E.unmarkedStrikeDice(s, !fresh && def.activated);
         let best = 0;
         // V3: a unit with E.SPENT_STRAIN or more strain can't attack at all.
-        if (!(E.v3Rules(s) && att.strain >= E.SPENT_STRAIN)) {
+        if (!E.spent(s, att)) {
             if (g.melee !== null) best = attackValue(s, def, att.melee + unmarked + g.melee, targetNumber(att, def, false), W);
             if (g.shoot !== null) best = Math.max(best, attackValue(s, def, att.shoot + g.shoot, targetNumber(att, def, true), W));
         }
@@ -104,8 +104,8 @@ const SeizeAI = (() => {
         // V3 has no combat modifiers, so height and flanks add nothing there.
         const v3 = E.v3Rules(s), high = v3 ? 0 : cache.high.get(att.id) - cache.high.get(def.id), g = { melee: null, shoot: null };
         if (contact.length) {
-            // Already fighting: it can strike what it touches (in V3, only what touches its front).
-            if (contact.includes(def.id) && (!v3 || E.canStrikeAt(s, att, def))) g.melee = high;
+            // Already fighting: it can strike what it touches (in V3, only what touches its front; in V4, not while Shaken).
+            if (contact.includes(def.id) && E.canStrikeAt(s, att, def) && !E.shaken(s, att)) g.melee = high;
         } else {
             const gap = d - att.h / 2 - Math.min(def.w, def.h) / 2;
             const turn = Math.abs(norm180(bearing(ca, cd) - att.angle));
@@ -126,7 +126,7 @@ const SeizeAI = (() => {
                 const f = G.forwardOf(def), front = { x: cd.x + f.x * def.h / 2, y: cd.y + f.y * def.h / 2 };
                 g.melee = (!v3 && (ca.x - front.x) * f.x + (ca.y - front.y) * f.y < -def.h * 0.25 ? 1 : 0) + high;   // flank-threat weight held at 1 although the rule is now +2: at 2 the AI over-fears flanks and passes up good charges (tested 2026-11-19)
             }
-            const reform = E.reformRules(s);
+            const reform = E.reformAction(s);
             if (att.shoot > 0 && d - att.h / 2 - Math.max(def.w, def.h) / 2 <= att.range * PX && !cache.contacts.get(def.id).length && (reform || turn <= 90 * att.mobility + 25)) {
                 const facing = att.mobility > 0 && !reform ? { ...att, angle: bearing(ca, cd) } : att;
                 const probe = facing === att ? s : { ...s, units: s.units.map(u => (u.id === att.id ? facing : u)) };
@@ -776,7 +776,7 @@ const SeizeAI = (() => {
     function terrainWorth(s, me, type, c) {
         let T = E.TERRAIN[type]; if (!T) return 0;
         // V3: a hill gives no dice, only its view over units, and it slows units entering it.
-        const v3 = E.v3Rules(s); if (v3 && T.elevated) T = { ...T, slowing: true };
+        const v3 = E.v3Rules(s); if (E.hillsSlow(s) && T.elevated) T = { ...T, slowing: true };
         const en = other(me), depth = s.height - 2 * ZONE;
         const yRel = clamp((me === 'p1' ? s.height - ZONE - c.y : c.y - ZONE) / depth, 0, 1), near = 1 - 2 * yRel;   // +1 by my zone, -1 by theirs
         const xRel = Math.abs(c.x - s.width / 2) / (s.width / 2);
@@ -796,7 +796,7 @@ const SeizeAI = (() => {
         for (const spot of E.terrainSpots(s)) {
             let v = terrainWorth(s, me, type, spot);
             // Obstacles are worth a little more squarely in front of units the enemy has already deployed.
-            if (E.TERRAIN[type].impassable || E.TERRAIN[type].slowing || (E.v3Rules(s) && E.TERRAIN[type].elevated)) for (const e of enemies) if (Math.abs(centre(e).x - spot.x) < e.w) v += 0.08;
+            if (E.TERRAIN[type].impassable || E.TERRAIN[type].slowing || (E.hillsSlow(s) && E.TERRAIN[type].elevated)) for (const e of enemies) if (Math.abs(centre(e).x - spot.x) < e.w) v += 0.08;
             if (!best || v > best.v) best = { spot, v };
         }
         return best;
@@ -813,12 +813,12 @@ const SeizeAI = (() => {
         let v = isFast(u) ? 0.5 * xRel : 0.25 * (1 - xRel);
         // The lane ahead: what stands between this spot and the enemy.
         for (const t of s.terrain) {
-            const ct = centre(t), T = E.v3Rules(s) && E.TERRAIN[t.type].elevated ? { ...E.TERRAIN[t.type], slowing: true } : E.TERRAIN[t.type];
+            const ct = centre(t), T = E.hillsSlow(s) && E.TERRAIN[t.type].elevated ? { ...E.TERRAIN[t.type], slowing: true } : E.TERRAIN[t.type];
             if (Math.abs(ct.x - c.x) > t.w / 2 + u.w / 2) continue;
             const ahead = clamp(Math.abs(ct.y - c.y) / PX / 24, 0, 1), close = 1 - ahead;
             if (T.elevated) v += (ahead < 0.45 ? (E.v3Rules(s) ? 0.1 : 0.4) : 0) * close + (shooter && ahead < 0.45 ? 0.3 : 0);
             if (T.impassable && !shooter) v -= 0.5 * close;
-            if (T.slowing && !u.paceStar && !shooter) v -= 0.25 * close;
+            if (T.slowing && !E.ignoresSlowing(s, u) && !shooter) v -= 0.25 * close;
             if (T.concealing && shooter) v -= 0.5 * close;
         }
         // Match-ups against enemy units already on the table, weighted by how nearly opposite they are.

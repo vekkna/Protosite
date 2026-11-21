@@ -7,8 +7,8 @@ Halberds,6,1,2*,-,4,,SW,1
 Spears,6,1,1,-,6,,SW,2
 Cavalry,12,1,3,-,4,,SN,2
 Lancers,11,2,2*,-,4,,SN,1
-Light Infantry,7*,4,3,-,4*,,SW,3
-Light Cavalry,14,3,2,-,3*,,SN,2
+Light Infantry,7,6,3,-,4*,,SW,3
+Light Cavalry,14,4,2,-,3*,,SN,2
 Archers,6,1,1,3/18,3,,SW,3
 Crossbows,5,0,1,2*/14,3,,SW,1
 Mounted Archers,12,3,1,3/12,3*,,SN,2

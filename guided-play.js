@@ -14,7 +14,8 @@ const GuidedPlay = (() => {
         classic: 'Rally to remove strain. Pivot before or after an action.',
         reform: 'Pivot during a Move. Spend an action to Reform and change facing.',
         'reform-variant': 'Any pivot prevents a charge. Units with a Move asterisk can pass through friendly units if they can clear them.',
-        v3: 'Reform, plus Rally (remove one strain, even in contact). Pivot before moving and still charge. Pivots can turn through units, terrain and the edge but must end clear. Shoot if a clear line reaches the centre of a target edge facing the shooter. No dice modifiers; strike only enemies at your front; hills slow units entering them; units with 5+ strain can’t attack.'
+        v3: 'Reform, plus Rally (remove one strain, even in contact). Pivot before moving and still charge. Pivots can turn through units, terrain and the edge but must end clear. Shoot if a clear line reaches the centre of a target edge facing the shooter. No dice modifiers; strike only enemies at your front; hills slow units entering them; units with 5+ strain can’t attack.',
+        v4: 'V3 without Reform, Rally, the 5-strain limit or hill slowing. No bonus dice for 6s; a Pace asterisk does nothing. Strike any touching enemy, but a unit is Shaken, and can’t strike, while an enemy’s front touches its flank (unless that enemy is Shaken itself).'
     };
     let rulesChoice = (() => { try { return E.normalizeRules(localStorage.getItem(RULES_KEY)); } catch (e) { return 'classic'; } })();
     function setRules(v) {
@@ -1083,6 +1084,7 @@ const GuidedPlay = (() => {
                     if (o.strike.some(t => t.ok)) order('Strike', 'strike', 'Select a touching enemy on the battlefield');
                     if (o.canRally) button('Rally', rally, false, o.rules === 'v3' ? 'Remove one strain' : 'Roll to remove d6 ÷ 2 strain, rounded up', 'btn-grey', orders);
                     if (!orders.children.length) orders.remove();
+                    if (o.shaken) add('p', 'Shaken: an enemy’s front is touching this unit’s flank, so it can’t strike.', 'gp-sub');
                     if (document.getElementById('gp-next-charge')) add('p', 'Next-turn charge reach', 'gp-next-charge-key');
                     if (o.activation.overlap) add('p', 'Keep pivoting: the unit can’t finish overlapping another unit, impassable terrain or the edge.');
                     if (o.activated) button('End activation', endActivation, Boolean(o.activation.overlap), o.activation.overlap ? 'Pivot clear first' : '', 'btn-blue gp-end');

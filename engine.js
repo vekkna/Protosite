@@ -162,7 +162,7 @@ const SeizeEngine = (() => {
     // The hills a unit stood on when its Move began (its current hills if the Move hasn't begun).
     const hillsOf = (s, u) => s.terrain.filter(t => trait(t, 'elevated') && inFeature(u, t)).map(t => t.id);
     const startHills = (s, u, act) => (act && act.startHills) || hillsOf(s, u);
-    const slows = (s, t, hills) => trait(t, 'slowing') || (v3Rules(s) && trait(t, 'elevated') && !hills.includes(t.id));
+    const slows = (s, t, hills) => trait(t, 'slowing') || (hillsSlow(s) && trait(t, 'elevated') && !hills.includes(t.id));
     const inSlowing = (s, u, hills) => s.terrain.some(t => slows(s, t, hills) && inFeature(u, t));
     const inFeature = (u, t) => centreGap(u, t) < 0 && overlapping(rect(u), disc(t));
     const inTrait = (s, u, name) => s.terrain.some(t => trait(t, name) && inFeature(u, t));
@@ -207,7 +207,7 @@ const SeizeEngine = (() => {
                 .filter(k => spec[k] !== undefined).map(k => [k, spec[k]])) };
     }
     // 'skirmishers' was V3's name for its first day.
-    const normalizeRules = rules => rules === 'skirmishers' ? 'v3' : ['reform', 'reform-variant', 'v3'].includes(rules) ? rules : 'classic';
+    const normalizeRules = rules => rules === 'skirmishers' ? 'v3' : ['reform', 'reform-variant', 'v3', 'v4'].includes(rules) ? rules : 'classic';
 
     /**
      * options: { units:[spec], terrain:[{id,type,x,y,w,h}], terrainDeck:[type|'x'], firstPick:'p1'|'p2',
@@ -401,12 +401,22 @@ const SeizeEngine = (() => {
     const newActivation = (unitId) => ({ unitId, action: null, pivots: 0, moved: 0, dir: null, pivotedInMove: false,
         slowed: false, charged: false, freeStrike: false, startHigh: null, overlap: false });
     const pivotAllowance = (u, act) => u.mobility + (act.action === 'extraPivot' ? 1 : 0);
-    const reformRules = s => s.rules === 'reform' || s.rules === 'reform-variant' || s.rules === 'v3';
+    // Reform and everything after it: pivots belong to a Move.
+    const reformRules = s => s.rules === 'reform' || s.rules === 'reform-variant' || s.rules === 'v3' || s.rules === 'v4';
     // V3 (built on Reform): pivots may sweep through units, impassable terrain and the edge, but
     // may not stop overlapping. Unlike the Reform Variant, no unit may move through friendly units.
-    const v3Rules = s => s.rules === 'v3';
+    // V4 keeps all of that, V3's sight line and its lack of dice modifiers, so v3Rules is true for both.
+    const v3Rules = s => s.rules === 'v3' || s.rules === 'v4';
+    // V4 (built on V3): no Reform or Rally, no 5-strain limit, hills don't slow, no bonus dice for 6s,
+    // a Pace asterisk does nothing, any touching enemy can be struck, and Shaken units can't strike.
+    const v4Rules = s => s.rules === 'v4';
+    const reformAction = s => reformRules(s) && !v4Rules(s);
+    const rallyAllowed = s => !reformRules(s) || s.rules === 'v3';
+    const hillsSlow = s => s.rules === 'v3';
+    const explodingSixes = s => !v4Rules(s);
+    const ignoresSlowing = (s, u) => Boolean(u.paceStar) && !v4Rules(s);
     const unmarkedStrikeDice = (s, marked) => !marked && !v3Rules(s) ? 1 : 0;
-    const spent = (s, u) => v3Rules(s) && u.strain >= SPENT_STRAIN;
+    const spent = (s, u) => s.rules === 'v3' && u.strain >= SPENT_STRAIN;
     const SPENT_TEXT = `A unit with ${SPENT_STRAIN} or more strain can’t attack.`;
     const friendlyPassage = s => s.rules === 'reform-variant';
     const crossingAt = (crossings, inches) => crossings?.find(c => inches > c.from + 1e-7 && inches < c.to - 1e-7);
@@ -424,7 +434,7 @@ const SeizeEngine = (() => {
         let budget = (backwards ? u.pace / 2 : u.pace) - act.moved, stop = 'pace', blocker = null;
         // Slowing terrain caps the whole Move at 4 inches once the unit is in it.
         let slowAt = Infinity;
-        if (!u.paceStar) {
+        if (!ignoresSlowing(s, u)) {
             const hills = startHills(s, u, act);
             const occupied = act.slowed ? null : s.terrain.find(t => slows(s, t, hills) && inFeature(u, t));
             if (act.slowed || occupied) { slowAt = 0; blocker = occupied; }
@@ -509,7 +519,7 @@ const SeizeEngine = (() => {
     /** Largest legal pivot (degrees) anticlockwise and clockwise. */
     function pivotLimit(s, u, act, reform = false) {
         const lim = pivotScan(s, u, act, reform);
-        if (reform || !lim.remaining || u.paceStar || act.moved <= SLOW_IN + 1e-6) return lim;
+        if (reform || !lim.remaining || ignoresSlowing(s, u) || act.moved <= SLOW_IN + 1e-6) return lim;
         const hills = startHills(s, u, act);
         if (!s.terrain.some(t => slows(s, t, hills) && centreGap(u, t) < 1)) return lim;
         // Already moved more than 4": the turn must stop before the card would overlap slowing terrain.
@@ -535,7 +545,7 @@ const SeizeEngine = (() => {
         let remaining, usesAction, maxDeg = 90;
         if (reform) {
             // Reform: the activation's action, one turn of any size.
-            if (!reformRules(s)) return none('Reform is not in these rules.');
+            if (!reformAction(s)) return none('Reform is not in these rules.');
             if (act.action) return none('This unit has already used its action.');
             remaining = 1; usesAction = true; maxDeg = 180;
         } else if (reformRules(s)) {
@@ -701,20 +711,44 @@ const SeizeEngine = (() => {
         const p = rect(a), e = rect(enemy), f = forwardOf(a);
         return touchingPolys([p[0], p[1]], e) && e.some(q => dot(sub(q, p[0]), f) > TOUCH);
     }
-    // V3: a unit can only strike (and so only charge) enemies touching its front.
-    const canStrikeAt = (s, u, v) => touching(u, v) && (!v3Rules(s) || touchesFront(u, v));
+    // V3: a unit can only strike (and so only charge) enemies touching its front. V4: any enemy it touches.
+    const canStrikeAt = (s, u, v) => touching(u, v) && (s.rules !== 'v3' || touchesFront(u, v));
+    /** V4: enemy y's front edge (corners included) touches the flank of unit x. */
+    const flanksWithFront = (y, x) => touchesFront(y, x) && touchesFlank(x, y);
+    /**
+     * V4: a unit is Shaken while an enemy's front edge touches its flank and that enemy is not itself Shaken.
+     * Settled from the outside in: a unit with no enemy front on its flank isn't Shaken; one flanked by an enemy
+     * known not to be Shaken is; one whose flankers are all Shaken isn't. Units still undecided are in loops of
+     * units flanking one another: each of those counts as Shaken (designer's ruling pending; see GUIDED-PLAY.md).
+     */
+    function shakenSet(s) {
+        const flankers = new Map();
+        for (const x of live(s)) { const list = enemiesTouching(s, x).filter(y => flanksWithFront(y, x)).map(y => y.id); flankers.set(x.id, list); }
+        const known = new Map();
+        for (let changed = true; changed;) {
+            changed = false;
+            for (const [id, list] of flankers) {
+                if (known.has(id)) continue;
+                if (list.some(f => known.get(f) === false)) { known.set(id, true); changed = true; }
+                else if (list.every(f => known.get(f) === true)) { known.set(id, false); changed = true; }
+            }
+        }
+        return new Set([...flankers.keys()].filter(id => known.get(id) !== false));
+    }
+    const shaken = (s, u) => v4Rules(s) && enemiesTouching(s, u).some(y => flanksWithFront(y, u)) && shakenSet(s).has(u.id);
+    const SHAKEN_TEXT = 'This unit is Shaken: an enemy’s front is touching its flank, so it can’t strike.';
     function outflanked(s, a) {
         return enemiesTouching(s, a).some(e => touchesFlank(a, e) && !live(s).some(o => o.owner === a.owner && o.id !== a.id && touching(o, e)));
     }
 
     const distCache = new Map();
-    /** Exact probabilities of causing 0, 1, 2... strain with `pool` dice needing `tn`+ (6s roll a bonus die). */
-    function strainDist(pool, tn) {
-        const key = pool * 10 + tn;
+    /** Exact probabilities of causing 0, 1, 2... strain with `pool` dice needing `tn`+ (with `explode`, each 6 rolls a bonus die; not in V4). */
+    function strainDist(pool, tn, explode = true) {
+        const key = (pool * 10 + tn) * (explode ? 1 : -1);
         if (distCache.has(key)) return distCache.get(key);
-        const hit = (7 - tn) / 6, one = [(tn - 1) / 6, (6 - tn) / 6 + (1 - hit) / 6, hit / 6];
+        const hit = (7 - tn) / 6, one = explode ? [(tn - 1) / 6, (6 - tn) / 6 + (1 - hit) / 6, hit / 6] : [1 - hit, hit];
         let dist = [1];
-        for (let i = 0; i < pool; i++) { const next = Array(dist.length + 2).fill(0); dist.forEach((p, k) => one.forEach((q, j) => { next[k + j] += p * q; })); dist = next; }
+        for (let i = 0; i < pool; i++) { const next = Array(dist.length + one.length - 1).fill(0); dist.forEach((p, k) => one.forEach((q, j) => { next[k + j] += p * q; })); dist = next; }
         distCache.set(key, dist);
         return dist;
     }
@@ -737,7 +771,7 @@ const SeizeEngine = (() => {
         if (shooting && v.defenceStar) { tn = 6; tnNote = 'Loose formation'; }
         tn = Math.max(2, Math.min(6, tn));
         // Exact strain distribution: each die scores 0, 1, or (on a 6) 1 plus a bonus die.
-        const dist = strainDist(pool, tn);
+        const dist = strainDist(pool, tn, explodingSixes(s));
         const need = ROUT_STRAIN - v.strain;
         return { kind, base, pool, mods, tn, tnNote, dist, expected: dist.reduce((n, p, k) => n + p * k, 0),
             routChance: dist.reduce((n, p, k) => n + (k >= need ? p : 0), 0), need };
@@ -766,13 +800,14 @@ const SeizeEngine = (() => {
             return { id: v.id, ok: !check.reason, ...check, preview: check.reason ? null : attackPreview(s, u.id, v.id, kind, kind === 'strike' && act.freeStrike ? act.startHigh : null) };
         });
         const canShoot = actionFree && u.shoot > 0 && !contact.length && !spent(s, u);
-        const canStrike = (actionFree || act.freeStrike) && contact.length > 0 && !spent(s, u);
+        const canStrike = (actionFree || act.freeStrike) && contact.length > 0 && !spent(s, u) && !shaken(s, u);
         return {
             canAct: true, reason: '', activated: Boolean(s.activation), activation: act,
             forward: moveLimit(s, u, act, false), backward: moveLimit(s, u, act, true), pivot: pivotLimit(s, u, act),
-            reform: reformRules(s) ? pivotLimit(s, u, act, true) : null, rules: s.rules || 'classic',
+            reform: reformAction(s) ? pivotLimit(s, u, act, true) : null, rules: s.rules || 'classic',
             shoot: canShoot ? targetsFor('shoot') : [], strike: canStrike ? targetsFor('strike').filter(t => t.ok) : [],
-            freeStrike: act.freeStrike, canRally: actionFree && u.strain > 0 && (!reformRules(s) || v3Rules(s)), actionFree, inContact: contact.length > 0
+            freeStrike: act.freeStrike, canRally: actionFree && u.strain > 0 && rallyAllowed(s), actionFree, inContact: contact.length > 0,
+            shaken: contact.length > 0 && shaken(s, u)
         };
     }
 
@@ -790,7 +825,7 @@ const SeizeEngine = (() => {
     }
     function resolveAttack(s, u, v, kind, act, forced) {
         const pre = attackPreview(s, u.id, v.id, kind, kind === 'strike' && act.freeStrike ? act.startHigh : null);
-        const rolls = forced === undefined ? Array.from({ length: pre.pool }, () => rollDie(s)) : [], bonus = rolls.filter(n => n === 6).map(() => rollDie(s));
+        const rolls = forced === undefined ? Array.from({ length: pre.pool }, () => rollDie(s)) : [], bonus = explodingSixes(s) ? rolls.filter(n => n === 6).map(() => rollDie(s)) : [];
         const strain = forced === undefined ? [...rolls, ...bonus].filter(n => n >= pre.tn).length : forced;
         const mods = pre.mods.map(m => `${m.dice > 0 ? '+' : '−'}1 ${m.label.toLowerCase()}`).join(', ');
         log(s, `${u.name} ${kind === 'shoot' ? 'shoots' : 'strikes'} ${v.name}: ${pre.pool} dice${mods ? ` (${mods})` : ''}, needing ${pre.tn}+${pre.tnNote ? ` (${pre.tnNote})` : ''}. Rolled ${rolls.join(' ')}${bonus.length ? ` + bonus ${bonus.join(' ')}` : ''} → ${strain} strain.`);
@@ -834,7 +869,7 @@ const SeizeEngine = (() => {
         if (!reform) act.pivots += 1;
         if (act.action === 'move' && v3Rules(s) && !act.startHills) act.startHills = hillsOf(s, u);
         // A turn during a Move can sweep through slowing terrain before it reaches its final facing.
-        if (act.action === 'move' && !u.paceStar && !act.slowed && act.moved <= SLOW_IN + 1e-6) {
+        if (act.action === 'move' && !ignoresSlowing(s, u) && !act.slowed && act.moved <= SLOW_IN + 1e-6) {
             const hills = startHills(s, u, act);
             for (let k = 1; k <= 6; k++) if (inSlowing(s, { ...u, angle: u.angle + deg * k / 6 }, hills)) { act.slowed = true; break; }
         }
@@ -885,10 +920,10 @@ const SeizeEngine = (() => {
             if (crossingAt(limit.crossings, dist)) fail('The unit must finish its move clear of friendly units.');
             if (act.startHigh === null) act.startHigh = inTrait(s, u, 'elevated');
             if (v3Rules(s) && !act.startHills) act.startHills = hillsOf(s, u);
-            if (!u.paceStar && dist * PX > limit.slowAt * PX - 1e-6) act.slowed = true;
+            if (!ignoresSlowing(s, u) && dist * PX > limit.slowAt * PX - 1e-6) act.slowed = true;
             u.x += f.x * sign * dist * PX; u.y += f.y * sign * dist * PX;
             act.action = 'move'; act.dir = backwards ? 'back' : 'fwd'; act.moved += dist;
-            if (!u.paceStar && inSlowing(s, u, startHills(s, u, act))) act.slowed = true;
+            if (!ignoresSlowing(s, u) && inSlowing(s, u, startHills(s, u, act))) act.slowed = true;
             emit(s, { type: 'move', unitId: u.id });
             if (!charging) log(s, `${label(u.owner)} · ${u.name} ${backwards ? 'withdraws' : 'advances'} ${dist.toFixed(2)}″ (${act.moved.toFixed(2)}″ moved).`);
             if (charging) {
@@ -922,14 +957,15 @@ const SeizeEngine = (() => {
             if (!v || v.owner === u.owner || !touching(u, v)) fail('Strike an enemy this unit is touching.');
             if (!canStrikeAt(s, u, v)) fail('A unit can only strike an enemy touching its front.');
             if (spent(s, u)) fail(SPENT_TEXT);
+            if (shaken(s, u)) fail(SHAKEN_TEXT);
             if (!act.action) act.action = 'strike';
             resolveAttack(s, u, v, 'strike', act, a.forcedStrain); act.freeStrike = false;
         } else if (a.type === 'rally') {
             if (act.action) fail('This unit has already used its action.');
-            if (reformRules(s) && !v3Rules(s)) fail('There is no Rally action in these rules.');
+            if (!rallyAllowed(s)) fail('There is no Rally action in these rules.');
             if (u.strain < 1) fail('This unit has no strain to remove.');
             // V3: no roll; rallying removes one strain, even in contact with an enemy.
-            const die = v3Rules(s) ? null : a.forcedDie === undefined ? rollDie(s) : a.forcedDie, removed = die === null ? 1 : Math.min(u.strain, Math.ceil(die / 2));
+            const die = s.rules === 'v3' ? null : a.forcedDie === undefined ? rollDie(s) : a.forcedDie, removed = die === null ? 1 : Math.min(u.strain, Math.ceil(die / 2));
             u.strain -= removed; act.action = 'rally';
             log(s, die === null ? `${u.name} rallies, removing 1 strain.` : `${u.name} rallies: rolled ${die}, removes ${removed} strain.`);
             emit(s, { type: 'rally', unitId: u.id, die, removed, owner: u.owner, x: u.x + u.w / 2, y: u.y + u.h / 2 });
@@ -1012,7 +1048,7 @@ const SeizeEngine = (() => {
     }
 
     return {
-        PX, TERRAIN, ROUT_STRAIN, FLANK_DICE, SPENT_STRAIN, createGame, normalizeRules, reformRules, v3Rules, unmarkedStrikeDice, pivotAllowed, nearestPivot, pivotOverlap, pivotEndError, overlapAt, apply, legalActions, unitOptions, attackPreview, activePlayer, parseStats,
+        PX, TERRAIN, ROUT_STRAIN, FLANK_DICE, SPENT_STRAIN, createGame, normalizeRules, reformRules, v3Rules, v4Rules, reformAction, rallyAllowed, hillsSlow, explodingSixes, ignoresSlowing, spent, shaken, unmarkedStrikeDice, pivotAllowed, nearestPivot, pivotOverlap, pivotEndError, overlapAt, apply, legalActions, unitOptions, attackPreview, activePlayer, parseStats,
         observe, optionsAsIf, strainDist, clone, inTrait, enemiesTouching: (s, u) => enemiesTouching(s, u),
         terrainSpots, terrainPlacementError, deployError, tileAt, outflanked, touchesFront, canStrikeAt, shotError, shotCheck, firingArc, firingArcError, moveLimit, crossingAt, pivotLimit, movementAfterPivot,
         geometry: { rect, disc, satGap, polyDist, sweep, forwardOf, centre, touching, inFeature, reach },
