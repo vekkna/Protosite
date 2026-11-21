@@ -435,10 +435,10 @@ its own helper in engine.js, all exported: `v4Rules`, `reformAction`, `rallyAllo
 - Strike, and a charge's contact, may be against any touching enemy (designer,
   2026-11-21). `canStrikeAt` keeps the front-only test for `'v3'` only.
 - Shaken: a unit can't strike (not even a charge's free strike) while an enemy's front edge
-  touches its flank and that enemy isn't Shaken itself. The test is
-  `touchesFront(enemy, unit) && touchesFlank(unit, enemy)`. `shakenSet` settles it from the
-  outside in. Units left in a loop of mutual flanking all count as Shaken; that's my reading,
-  not confirmed. `unitOptions` returns `shaken`, and the orders panel shows a note.
+  touches its flank and that enemy isn't touching another unit of the Shaken unit's side (any
+  contact; designer, 2026-11-21, replacing "unless that enemy is Shaken itself"). The flank
+  test is `touchesFront(enemy, unit) && touchesFlank(unit, enemy)`. `unitOptions` returns
+  `shaken`, and the orders panel shows a note. The AI measured as v10 used the old rule.
 - "Turn to face" (an MT unit pivoting out of and back into contact) is not modelled
   (designer, 2026-11-21).
 - Kept from earlier versions although the V4 text doesn't say it: the target must be
@@ -470,6 +470,10 @@ the engine keeps only the last action's events).
 
 Run log
 -------
+
+- 2026-11-21 (later): V4 Shaken changed by the designer: the flanker only has to be touched
+  by another of your units (not itself Shaken) to stop shaking. `shakenSet` removed. The AI
+  reads Shaken through `E.shaken`, so it follows the new rule; not re-measured.
 
 - 2026-11-21 (V4 AI): `tools/v4-probe.js`, hard, V4, 80 games each (10x8 or 5x16 in parallel).
   v9 v v9, seeds 20001-20040: 24-24, 32 unfinished, mean 20.4 rounds; 10 of 157 charges

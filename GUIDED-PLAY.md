@@ -117,10 +117,11 @@ Rules interpretations worth checking
     (dashed) and a gold front edge where only the front can be charged (`drawChargeFaces`).
   - Strike (and charge contact) may be against any touching enemy, front or flank
     (designer ruling 2026-11-21; `canStrikeAt` keeps V3's front-only test for `'v3'` only);
-  - Shaken (`shaken`, `shakenSet`): a unit can't strike while an enemy's front edge
-    (corners included) touches its flank and that enemy isn't Shaken. Settled from the
-    outside in; units left in a loop of mutual flanking all count as Shaken (my reading,
-    not yet confirmed by the designer). `unitOptions(...).shaken` drives a panel note.
+  - Shaken (`shaken`): a unit can't strike while an enemy's front edge (corners included)
+    touches its flank and that enemy isn't touching another unit of the Shaken unit's side
+    (any contact: front, flank or rear). Designer, 2026-11-21; it replaced "unless that
+    enemy is Shaken itself", so there are no chains or loops to settle any more.
+    `unitOptions(...).shaken` drives a panel note.
   - "Turn to face" (an MT unit pivoting out of and back into contact) is not modelled:
     designer ruling 2026-11-21. Only a charge brings a unit into contact.
   - The shooting "whole target in front of the shooter" check is kept from earlier

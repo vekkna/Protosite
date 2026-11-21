@@ -1,5 +1,6 @@
 // V4 rules: V3 without Reform, Rally, the 5-strain limit, hill slowing, bonus dice for 6s or the Pace asterisk;
-// any touching enemy can be struck; a unit is Shaken (can't strike) while an unshaken enemy's front touches its flank.
+// any touching enemy can be struck; a unit is Shaken (can't strike) while an enemy's front touches its flank and that
+// enemy touches no other unit of its side.
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const E = require('../engine');
@@ -105,6 +106,16 @@ test('V4: a unit with an enemy front on its flank is Shaken and can’t strike',
     assert.deepEqual(E.unitOptions(theirs, 'e').strike.map(t => t.id), ['a']);
     // V3 has no Shaken rule (a still can't strike e there, as e touches only a's flank).
     assert.equal(E.unitOptions(run(battle([a, e], 'v3'), activate('a')), 'a').shaken, false);
+});
+
+test('V4: a flanker that another of my units touches, in any way, no longer shakes its target', () => {
+    // B (e) flanks A (a); C (c) faces away, its rear against B's rear: only touching, not flanking.
+    const a = U('a', 'p1', 400, 400), b = U('e', 'p2', 450, 400, { angle: -90 }), c = U('c', 'p1', 490, 400, { angle: 90 });
+    const s = run(battle([a, b, c]), activate('a'));
+    assert.ok(E.geometry.touching(s.units[1], s.units[2]), 'C touches B');
+    assert.equal(E.unitOptions(s, 'a').shaken, false);
+    assert.deepEqual(E.unitOptions(s, 'a').strike.map(t => t.id), ['e']);
+    assert.equal(E.shaken(s, s.units.find(u => u.id === 'e')), false, 'C’s front isn’t on B’s flank, so B isn’t Shaken');
 });
 
 test('V4: a flanker that is itself flanked no longer shakes its target (the rules’ A, B, C example)', () => {

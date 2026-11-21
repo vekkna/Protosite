@@ -732,26 +732,12 @@ const SeizeEngine = (() => {
     /** V4: enemy y's front edge (corners included) touches the flank of unit x. */
     const flanksWithFront = (y, x) => touchesFront(y, x) && touchesFlank(x, y);
     /**
-     * V4: a unit is Shaken while an enemy's front edge touches its flank and that enemy is not itself Shaken.
-     * Settled from the outside in: a unit with no enemy front on its flank isn't Shaken; one flanked by an enemy
-     * known not to be Shaken is; one whose flankers are all Shaken isn't. Units still undecided are in loops of
-     * units flanking one another: each of those counts as Shaken (designer's ruling pending; see GUIDED-PLAY.md).
+     * V4: a unit is Shaken while an enemy's front edge touches its flank and that enemy is not touching another unit of
+     * the Shaken unit's side (any contact counts: front, flank or rear). Designer, 2026-11-21 (replaces "unless that enemy
+     * is Shaken itself").
      */
-    function shakenSet(s) {
-        const flankers = new Map();
-        for (const x of live(s)) { const list = enemiesTouching(s, x).filter(y => flanksWithFront(y, x)).map(y => y.id); flankers.set(x.id, list); }
-        const known = new Map();
-        for (let changed = true; changed;) {
-            changed = false;
-            for (const [id, list] of flankers) {
-                if (known.has(id)) continue;
-                if (list.some(f => known.get(f) === false)) { known.set(id, true); changed = true; }
-                else if (list.every(f => known.get(f) === true)) { known.set(id, false); changed = true; }
-            }
-        }
-        return new Set([...flankers.keys()].filter(id => known.get(id) !== false));
-    }
-    const shaken = (s, u) => v4Rules(s) && enemiesTouching(s, u).some(y => flanksWithFront(y, u)) && shakenSet(s).has(u.id);
+    const shaken = (s, u) => v4Rules(s) && enemiesTouching(s, u).some(y => flanksWithFront(y, u)
+        && !live(s).some(o => o.owner === u.owner && o.id !== u.id && touching(o, y)));
     const SHAKEN_TEXT = 'This unit is Shaken: an enemy’s front is touching its flank, so it can’t strike.';
     function outflanked(s, a) {
         return enemiesTouching(s, a).some(e => touchesFlank(a, e) && !live(s).some(o => o.owner === a.owner && o.id !== a.id && touching(o, e)));
