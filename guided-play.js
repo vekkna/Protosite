@@ -856,14 +856,20 @@ const GuidedPlay = (() => {
      * or range (shooting, measured from the front edge) plus half the card's depth. Units that can never turn
      * (Drill 0 without Reform) keep only their straight-ahead lane and the shooting arc.
      */
+    /** The side whose point of view the board is drawn from (in shared-screen play, the side acting). */
+    function viewerKey() {
+        const acting = game?.phase === 'command' ? E.activePlayer(game) : null;
+        return aiPlayer ? other(aiPlayer) : onlineTable() ? getLocalBidPlayerKey() : acting || getLocalBidPlayerKey();
+    }
     const turnsFreely = u => u.mobility > 0 || E.reformAction(game);
-    /** app.js asks this before drawing its forward shooting arc: units that can turn get a circle instead. */
+    /** app.js asks this before drawing its forward shooting arc: enemy units that can turn get a circle instead. */
     function drawsReach(el) {
         const u = game && game.phase !== 'draft' && el?.dataset ? unit(el.dataset.unitId) : null;
-        return Boolean(u?.owner && turnsFreely(u));
+        return Boolean(u?.owner && u.owner !== viewerKey() && turnsFreely(u));
     }
     function drawReachCircles(svg, u, enemy) {
-        if (!turnsFreely(u)) return;
+        // Your own units keep their movement boxes and forward arc; circles show what an enemy could reach.
+        if (!enemy || !turnsFreely(u)) return;
         let group = document.getElementById('gp-reach-circles');
         if (!group) {
             // A nested svg the size of the board, so long ranges are clipped at the board's edge.
@@ -880,7 +886,7 @@ const GuidedPlay = (() => {
         const svg = overlay(); svg.replaceChildren();
         table.querySelectorAll('.gp-label:not(#gp-drag-label)').forEach(el => el.remove());
         const actingPlayer = game?.phase === 'command' ? E.activePlayer(game) : null;
-        const viewer = aiPlayer ? other(aiPlayer) : onlineTable() ? getLocalBidPlayerKey() : actingPlayer || getLocalBidPlayerKey();
+        const viewer = viewerKey();
         const id = actingPlayer && controls(actingPlayer) ? currentUnitId() : null;
         const o = id ? optionsFor(id) : null;
         const elements = new Map();
@@ -905,7 +911,9 @@ const GuidedPlay = (() => {
             const reach = previewFor(u.id).reach ??= BattleUX.movementPreview(game, u.id, true);
             if (el === selectedPiece && u.activated && game.activation?.unitId !== u.id && controls(u.owner)) {
                 drawMovementLanes(svg, u, BattleUX.freshMovement(game, u), 'gp-future-move');
-            } else if (viewer && u.owner !== viewer) drawMovementLanes(svg, u, E.optionsAsIf(game, u.id), 'gp-enemy-lane');
+            } else if (viewer && u.owner !== viewer) {
+                if (!turnsFreely(u)) drawMovementLanes(svg, u, E.optionsAsIf(game, u.id), 'gp-enemy-lane');
+            }
             else if (u.id !== id || !o?.canAct) {
                 const forward = reach.rays.find(r => r.degrees === 0)?.limit;
                 drawMovementLanes(svg, u, { forward });

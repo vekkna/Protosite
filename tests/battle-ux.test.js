@@ -762,18 +762,18 @@ test('identical labels fit identically regardless of hidden layout, rotation and
     assert.ok(parseFloat(labels[0].style.fontSize) >= 7.5 && parseFloat(labels[0].style.fontSize) <= 10);
 });
 
-test('an inspected enemy keeps its charge corridor during its own turn', () => {
+test('an inspected enemy keeps its charge reach circle during its own turn', () => {
     const s = battle([U('A', 'p1', 400, 400), U('B', 'p2', 400, 250, { angle: 180 })]);
     s.master = 'p2';
     const h = client(s, { ai: 'p2' });
     h.context.selectedPiece = h.table.children.find(el => el.dataset.unitId === 'B');
     h.gp.render();
     assert.equal(h.get('field-turn').textContent, 'Enemy turn');
-    assert.ok(h.table.querySelectorAll('.gp-enemy-lane').some(lane => lane.classList.contains('gp-charge')));
+    assert.equal(h.table.querySelectorAll('.gp-reach-charge').length, 1);
     assert.equal(h.gp.aiPlayer(), 'p2');
 });
 
-test('inspecting an enemy displays its forward and backward corridors and charge targets', () => {
+test('an enemy that can turn shows reach circles instead of corridors; one that can’t keeps its corridors', () => {
     const s = battle([U('A', 'p1', 400, 400, { shoot: 0 }), U('B', 'p2', 400, 250, { angle: 180 })]);
     const h = client(s, { ai: 'p2' });
     assert.equal(h.table.querySelectorAll('.gp-lane').length, 2);
@@ -782,11 +782,25 @@ test('inspecting an enemy displays its forward and backward corridors and charge
     h.context.selectedPiece = h.table.children.find(el => el.dataset.unitId === 'B');
     h.gp.render();
     assert.equal(h.table.querySelectorAll('.gp-charge-envelope').length, 0);
-    const enemyLanes = h.table.querySelectorAll('.gp-enemy-lane');
+    assert.equal(h.table.querySelectorAll('.gp-enemy-lane').length, 0);
+    assert.equal(h.table.querySelectorAll('.gp-reach-charge').length, 1);
+    assert.equal(h.table.querySelectorAll('.gp-reach-shoot').length, 1, 'B shoots, so it has a shooting circle too');
+    assert.deepEqual(h.table.querySelectorAll('.gp-charge-target').map(el => el.dataset.unitId), ['A']);
+    // My own selected unit keeps its boxes and gets no circle.
+    h.context.selectedPiece = h.table.children.find(el => el.dataset.unitId === 'A');
+    h.gp.render();
+    assert.equal(h.table.querySelectorAll('.gp-reach').length, 0);
+    assert.ok(h.table.querySelectorAll('.gp-lane').length > 0);
+    // An enemy that can never turn (Drill 0, no Reform) keeps its forward and backward corridors.
+    const stuck = battle([U('A', 'p1', 400, 400, { shoot: 0 }), U('B', 'p2', 400, 250, { angle: 180, mobility: 0 })]);
+    const k = client(stuck, { ai: 'p2' });
+    k.context.selectedPiece = k.table.children.find(el => el.dataset.unitId === 'B');
+    k.gp.render();
+    const enemyLanes = k.table.querySelectorAll('.gp-enemy-lane');
     assert.equal(enemyLanes.length, 2);
     assert.ok(enemyLanes.some(lane => lane.classList.contains('gp-charge')));
     assert.ok(enemyLanes.some(lane => lane.classList.contains('gp-back')));
-    assert.deepEqual(h.table.querySelectorAll('.gp-charge-target').map(el => el.dataset.unitId), ['A']);
+    assert.equal(k.table.querySelectorAll('.gp-reach').length, 0);
 });
 
 test('network banner updates keep the solo player label free of hosting terminology', () => {
