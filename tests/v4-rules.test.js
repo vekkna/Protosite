@@ -162,3 +162,26 @@ test('V4: with no part behind the target’s front line, a unit can only charge 
     assert.equal(E.behindFrontLine(s.units[0], s.units[1]), true);
     assert.ok(E.unitOptions(s, 'a').forward.charge?.targets.includes('e'));
 });
+
+test('V4 AI: plans a charge of under 0.3 inch (v9 never charged from that close)', () => {
+    const AI = require('../ai'), v9 = require('../tools/baselines/ai-v9');
+    // a's front edge is 0.2" below e's front edge; e faces a.
+    const s = battle([U('a', 'p1', 400, 400), U('e', 'p2', 400, 356, { angle: 180 }), U('x', 'p2', 800, 40)]);
+    const a = s.units.find(u => u.id === 'a');
+    const lim = E.unitOptions(E.apply(s, activate('a')), 'a').forward;
+    assert.ok(lim.charge && lim.max < 0.3, `a close charge is on offer (${lim.max})`);
+    assert.ok(AI.plansFor(s, a, 'p1').some(p => p.name === 'charge'));
+    assert.ok(!v9.plansFor(s, a, 'p1').some(p => p.name === 'charge'));
+});
+
+test('V4 AI: plans advance, pivot, then charge', () => {
+    const AI = require('../ai');
+    const s = battle([U('a', 'p1', 300, 500, { pace: 10 }), U('e', 'p2', 380, 340, { angle: 0 }), U('x', 'p2', 800, 40)]);
+    const a = s.units.find(u => u.id === 'a');
+    const turnsMidMove = p => p.name === 'charge' && p.actions.findIndex(x => x.type === 'pivot') > p.actions.findIndex(x => x.type === 'move');
+    const plans = AI.plansFor(s, a, 'p1');
+    assert.ok(plans.some(turnsMidMove), 'a charge that pivots after starting to move');
+    AI.choose(s, 'p1', { level: 'easy', weights: { midCharge: 0 } });   // weights apply to plan generation from the next decision
+    assert.ok(!AI.plansFor(s, a, 'p1').some(turnsMidMove), 'midCharge=0 restores the v9 plans');
+    AI.choose(s, 'p1', { level: 'easy' });
+});

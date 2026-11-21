@@ -75,6 +75,8 @@ change can be measured against it:
     tools/baselines/ai-v6.js   v5 + the exact speed-ups; the AI before the Reform rules variant
     tools/baselines/ai-v7.js   v6 + Reform / Reform Variant / V3 support; the AI before V3 tuning
     tools/baselines/ai-v8.js   the V3-tuned AI as committed (ad3886b); the AI before V4 support
+    tools/baselines/ai-v9.js   v8 + reading V4 correctly (c66fefb/c953539); the AI before V4 tuning
+    tools/baselines/ai-v10.js  v9 + closeCharge + midCharge (V4 tuning, 2026-11-21)
 
 Rules:
 
@@ -445,11 +447,37 @@ its own helper in engine.js, all exported: `v4Rules`, `reformAction`, `rallyAllo
 AI: v8 frozen first, then small changes so the AI reads V4 correctly. `pairGeometry` counts
 no contact strike by a Shaken unit. Shooter facing estimates use `reformAction`, not
 `reformRules`. Attack values use `explodingSixes`. Terrain and deployment treat hills as
-slowing only in V3, and Pace asterisks only outside V4. Nothing is tuned for V4, and the AI
-doesn't yet aim to shake enemies on purpose. Tests: `tests/v4-rules.test.js`.
+slowing only in V3, and Pace asterisks only outside V4. Tests: `tests/v4-rules.test.js`.
+
+V4 tuning (2026-11-21, frozen as v10). Under V4, v9 against itself left 32 of 80 games
+unfinished at round 30: armies ended up a fraction of an inch apart and both passed for
+ever (V4 has no round limit and no bonus dice). Two causes, both fixed in `ai.js`:
+
+- `closeCharge` (all rule sets): `plansFor` only made forward moves when `forward.max > 0.3`,
+  so a charge of under 0.3" was never planned and units left that close never charged.
+  It now also plans a charge of any length. The classic positions suite is unchanged
+  (7/8, 5/6, the same two known failures as v9).
+- `midCharge` (V4 only): pivots no longer cost the charge, so `midMoveCharges` adds plans
+  that advance, pivot towards an enemy's centre, flanks or rear, then charge. This is
+  what produces flank charges that leave the target Shaken.
+- Tried and switched off (no measurable gain once the two above were in): `urgency` (a
+  side level or behind on routs discounts its own losses late in a battle) and
+  `stuckDraft` (draft penalty for Drill-0 units, which can never turn in V4).
+
+`tools/v4-probe.js` plays V4 games and counts charges, flank charges, mid-Move pivot charges,
+strikes, shots and Shaken units per side (it steps through each decision's actions because
+the engine keeps only the last action's events).
 
 Run log
 -------
+
+- 2026-11-21 (V4 AI): `tools/v4-probe.js`, hard, V4, 80 games each (10x8 or 5x16 in parallel).
+  v9 v v9, seeds 20001-20040: 24-24, 32 unfinished, mean 20.4 rounds; 10 of 157 charges
+  on a flank. New AI v v9, same seeds (closeCharge+midCharge+urgency 0.5): 48-22, 10
+  unfinished (69% +/-11); 98 flank charges v 30; its units Shaken 114 v 411 activation-ends.
+  Fresh seeds 20101-20140 v v9: all on 55-19 (6 unf.); closeCharge=0 40-25 (15);
+  midCharge=0 35-22 (23); urgency=0 56-20 (4); stuckDraft=0 56-16 (8). Kept closeCharge
+  and midCharge, switched urgency and stuckDraft off, froze v10. ~257 v 208 ms/decision.
 
 - 2026-11-21 (later): play UI. Pivot with a ↻ handle behind the selected unit (corner grips
   removed; the whole card drags to move). Undo moved to the battlefield's bottom-left

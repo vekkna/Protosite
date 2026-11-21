@@ -38,7 +38,13 @@ const SeizeAI = (() => {
         draftSmart: 1,      // 0 = original stats-only draft, random terrain, fixed deployment
         draftTerrain: 1.0,  // weight of the top terrain tile when choosing a unit
         deployRoom: 0.3,    // deployment: cost of standing too close to a friend to pivot freely (0 = pack units flush)
-        passMargin: 0.02
+        passMargin: 0.02,
+        midCharge: 1,       // V4: also plan advance, pivot, charge (a pivot mid-Move keeps the charge there); 0 = as v9
+        closeCharge: 1,     // 1 = also plan charges shorter than 0.3 inch (v9 and earlier skipped them, so units left that close never charged)
+        stuckDraft: 0,      // V4 draft: appeal lost by a unit that can never turn (Drill 0, no Reform). 0.5 measured no gain (2026-11-21), so off
+        urgency: 0,         // V4: how far a side that is level or behind on routs discounts its own losses late in a battle. 0.5 measured no gain once closeCharge/midCharge were in (2026-11-21), so off
+        urgencyFrom: 6,     // round from which urgency starts to build
+        urgencyRamp: 6      // rounds over which it reaches full strength
     };
     const LEVELS = { easy: { temperature: 0.35, depth: 1, probe: false, beam: 1, turnDepth: 1 }, normal: { temperature: 0.08, depth: 2, probe: true, beam: 3, turnDepth: 2 },
         hard: { temperature: 0, depth: 2, probe: true, playout: true, beam: 6, turnDepth: 4 } };
@@ -205,7 +211,8 @@ const SeizeAI = (() => {
         if (s.phase === 'finished') return { total: s.winner === me ? 1000 : -1000, theirs: 0 };
         const en = other(me), mine = army(s, me), theirs = army(s, en), cache = makeCache(s);
         const side = p => army(s, p).reduce((n, u) => n + strainScore(u.strain, W), 0) + s.routed[p] * (W.strain + W.routed) + routProgress(s.routed[p], Math.ceil(s.starting[p] / 2), W);
-        let v = side(en) - side(me), theirNow = 0, myNow = 0;
+        const keep = 1 - (urgency[me] || 0);
+        let v = side(en) - keep * side(me), theirNow = 0, myNow = 0;
         // Attacks that can still be made this round.
         if (s.phase === 'command') {
             const acting = E.activePlayer(s), left = { p1: 0, p2: 0 };
@@ -221,16 +228,29 @@ const SeizeAI = (() => {
         const guess = p => Math.min(3, army(s, p).length);
         v += Math.max(myNow, W.nextRound * threatTotal(s, mine, theirs, guess(me), W, true, cache));
         const theirThreat = Math.max(theirNow, W.nextRound * threatTotal(s, theirs, mine, guess(en), W, true, cache));
-        v -= theirThreat;
+        v -= keep * theirThreat;
         // Mild pull towards the enemy so that armies close instead of waiting for each other.
         if (theirs.length) {
             const pull = W.approach * (1 + Math.max(0, s.round - 1) / 5);
             for (const u of mine) { let near = Infinity; const c = centre(u); for (const o of theirs) near = Math.min(near, dist(c, centre(o))); v -= pull * near / PX; }
         }
-        return { total: v, theirs: theirThreat };
+        return { total: v, theirs: keep * theirThreat };
     }
 
     // ---------- plans ----------
+    let planW = DEFAULTS;   // the weights of the decision in progress, for plan generation (set in chooseFor)
+    /**
+     * V4 has no round limit and no bonus dice, so two cautious armies can face each other forever, each waiting for
+     * the other to charge first. A side that is level or behind on routs gains nothing by waiting, so late in a battle
+     * it values its own losses (strain, routs and the enemy's threats) for less. Fixed for the whole decision from the
+     * position it is taken in, so routing an enemy during the search doesn't change how the AI values its own losses.
+     */
+    let urgency = { p1: 0, p2: 0 };
+    function urgencyOf(s, p, W) {
+        if (!W.urgency || !E.v4Rules(s) || s.phase !== 'command') return 0;
+        const lag = s.routed[p] - s.routed[other(p)], late = Math.max(0, Math.min(1, (s.round - W.urgencyFrom) / W.urgencyRamp));
+        return W.urgency * late * (lag > 0 ? 1 : lag === 0 ? 0.5 : 0);
+    }
     function pivotChunks(delta) {
         const out = []; let rest = delta;
         while (Math.abs(rest) > 0.5) { const step = Math.max(-90, Math.min(90, rest)); out.push(step); rest -= step; }
@@ -295,7 +315,7 @@ const SeizeAI = (() => {
             const moveStarted = o.reform && o.activation.action === 'move' && o.activation.moved === 0;
             if (!o.actionFree && !moveStarted) continue;
             const moves = [];
-            if (o.forward.max > 0.3) for (const f of attacksOnly ? (o.forward.charge ? [1] : []) : o.forward.charge ? [1, 0.6, 0.3] : [1, 0.75, 0.5, 0.25]) moves.push({ inches: f === 1 ? o.forward.max : o.forward.max * f, backwards: false, charge: f === 1 && Boolean(o.forward.charge) });
+            if (o.forward.max > 0.3 || (planW.closeCharge && o.forward.charge)) for (const f of attacksOnly ? (o.forward.charge ? [1] : []) : o.forward.charge ? [1, 0.6, 0.3] : [1, 0.75, 0.5, 0.25]) moves.push({ inches: f === 1 ? o.forward.max : o.forward.max * f, backwards: false, charge: f === 1 && Boolean(o.forward.charge) });
             if (!attacksOnly && turn === 0 && o.backward.max > 0.3) for (const f of [1, 0.5]) moves.push({ inches: f === 1 ? o.backward.max : o.backward.max * f, backwards: true });
             for (const m of moves) {
                 const action = { type: 'move', inches: m.inches, backwards: m.backwards }, moved = tryApply(st, action);
@@ -306,6 +326,8 @@ const SeizeAI = (() => {
                     continue;
                 }
                 add(m.backwards ? 'withdraw' : 'advance', acts2, moved);
+                // V4: a pivot partway through a Move keeps the charge, so advance, turn onto a flank or rear, then charge.
+                if (planW.midCharge && !m.backwards && moved.activation && E.v4Rules(moved)) midMoveCharges(moved, acts2, add, flankOf, enemies);
                 // Optionally finish by turning to face the nearest enemy.
                 if (moved.activation) {
                     const d = nearestBearing(moved);
@@ -317,6 +339,35 @@ const SeizeAI = (() => {
             }
         }
         return plans;
+    }
+
+    /**
+     * V4: from a unit that has advanced (and may go on), pivot towards a nearby enemy's centre, flanks or rear and
+     * charge. Only charges that need the turn are added; one straight ahead is found by the ordinary moves.
+     */
+    function midMoveCharges(st, acts, add, flankOf, enemies) {
+        const id = st.activation.unitId, u = st.units.find(x => x.id === id), o = E.unitOptions(st, id);
+        if (!o.pivot || o.pivot.remaining <= 0 || o.forward.max <= 0.3) return;
+        const cu = centre(u), reach = o.forward.max * PX + G.reach(u), tried = [];
+        for (const e of enemies) {
+            const ce = centre(e);
+            if (dist(cu, ce) > reach + G.reach(e)) continue;
+            const right = { x: Math.cos(e.angle * Math.PI / 180), y: Math.sin(e.angle * Math.PI / 180) }, f = G.forwardOf(e);
+            const aims = [ce, { x: ce.x - f.x * e.h * 0.5, y: ce.y - f.y * e.h * 0.5 }];
+            for (const sign of [-1, 1]) aims.push({ x: ce.x + right.x * sign * e.w * 0.5, y: ce.y + right.y * sign * e.w * 0.5 });
+            for (const aim of aims) {
+                const d = norm180(bearing(cu, aim) - u.angle);
+                if (Math.abs(d) < 4 || Math.abs(d) > 90 || tried.some(t => Math.abs(t - d) < 5)) continue;
+                tried.push(d);
+                const step = { type: 'pivot', degrees: Math.round(d * 100) / 100 }, turned = tryApply(st, step);
+                if (!turned || !turned.activation || turned.activation.overlap) continue;
+                const lim = E.unitOptions(turned, id).forward;
+                if (!lim.charge) continue;
+                const go = { type: 'move', inches: lim.max, backwards: false }, charged = tryApply(turned, go);
+                if (!charged || !charged.activation || !charged.activation.freeStrike) continue;
+                for (const t of E.unitOptions(charged, id).strike) add('charge', [...acts, step, go], charged, { type: 'strike', targetId: t.id, dist: t.preview.dist, flank: flankOf(t) });
+            }
+        }
     }
 
     /** Expected value of a plan, averaging over its dice. Also returns the most typical resulting state. */
@@ -383,7 +434,7 @@ const SeizeAI = (() => {
         best.sort((a, b) => b - a);
         let total = 0;
         for (let i = 0; i < Math.min(k, best.length); i++) total += best[i] * Math.pow(0.85, i);
-        return weight * W.threatNow * total;
+        return (1 - (urgency[me] || 0)) * weight * W.threatNow * total;
     }
 
     function allPlans(s, me) {
@@ -757,8 +808,10 @@ const SeizeAI = (() => {
     }
 
     // ---------- draft ----------
-    function unitAppeal(u) {
-        return u.melee * (u.meleeAP ? 1.35 : 1) / 3 + (u.shoot || 0) * (u.shootAP ? 1.3 : 1) * Math.min(24, u.range || 0) / 24 + u.pace / 8 + u.mobility * 0.25
+    function unitAppeal(u, s, W) {
+        // V4 has no Reform, so a unit with no pivots faces the same way all battle.
+        const stuck = W && s && !E.reformAction(s) && E.v4Rules(s) && !(u.mobility > 0) ? W.stuckDraft : 0;
+        return -stuck + u.melee * (u.meleeAP ? 1.35 : 1) / 3 + (u.shoot || 0) * (u.shootAP ? 1.3 : 1) * Math.min(24, u.range || 0) / 24 + u.pace / 8 + u.mobility * 0.25
             + (7 - u.defence <= 2 ? 0.6 : 0) + (u.defenceStar ? 0.3 : 0) + (u.paceStar ? 0.2 : 0);
     }
     const ZONE = 6 * PX, clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
@@ -846,7 +899,7 @@ const SeizeAI = (() => {
                 const picked = tryApply(s, { type: 'pick', player: me, unitId: u.id });
                 const placed = picked && picked.draft.step === 'terrain' ? bestTerrainSpot(picked, me) : null;
                 const terrain = placed ? placed.v : 0;
-                return { u, terrain, v: unitAppeal(u) + W.draftTerrain * terrain + random() * 0.3 };
+                return { u, terrain, v: unitAppeal(u, s, W) + W.draftTerrain * terrain + random() * 0.3 };
             }).sort((a, b) => b.v - a.v);
             return { actions: [{ type: 'pick', player: me, unitId: scored[0].u.id }], note: `pick ${scored[0].u.name} (terrain ${scored[0].terrain.toFixed(2)})` };
         }
@@ -888,6 +941,8 @@ const SeizeAI = (() => {
     function chooseFor(state, player, options) {
         const s = state.hypothetical ? state : E.observe(state, player);
         const W = { ...DEFAULTS, ...(options.weights || {}) }, level = LEVELS[options.level] || LEVELS.normal, random = options.random || Math.random;
+        planW = W;
+        urgency = { p1: urgencyOf(s, 'p1', W), p2: urgencyOf(s, 'p2', W) };
         if (s.phase === 'draft') return s.draft.picker === player ? chooseDraft(s, player, random, W) : { actions: [], note: 'not my pick' };
         if (s.phase === 'bidding') return s.bids[player] === null ? chooseBid(s, player, W, level, random) : { actions: [], note: 'already bid' };
         if (s.phase === 'command') return E.activePlayer(s) === player ? (W.planner ? planTurn : chooseCommand)(s, player, W, level, random) : { actions: [], note: 'not my turn' };
