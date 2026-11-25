@@ -30,7 +30,7 @@
             </header>
             <div class="campaign-hero">
                 <div class="campaign-heading">
-                    <h1>Seize <em>the</em> Day</h1>
+                    <h1>Seize the Day</h1>
                     <p>Draft your army, bid for initiative, and rout half the opposing force to win.</p>
                 </div>
             </div>
@@ -232,6 +232,7 @@
                 <nav class="field-tools" aria-label="Battle view">
                     <button type="button" id="ruler-toggle" aria-label="Ruler" title="Ruler (or right-drag / middle-drag)" aria-pressed="false" aria-controls="ruler-controls" onclick="toggleRulerMode()"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m3 16 13-13 5 5L8 21zM7 12l2 2m1-5 2 2m1-5 2 2"/></svg></button>
                     <button type="button" id="ping-toggle" aria-label="Ping the battlefield" title="Ping the battlefield (P)" aria-pressed="false" aria-keyshortcuts="P" onclick="togglePingMode()"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="1"/><path d="M12 2v3m0 14v3M2 12h3m14 0h3"/></svg></button>
+                    <button type="button" id="log-toggle" aria-label="Hide battle log" title="Hide battle log (L)" aria-pressed="true" aria-controls="battle-log-panel" aria-keyshortcuts="L" onclick="toggleBattleLog()"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4h16v16H4zM15 4v16M17.5 8h0M17.5 12h0M17.5 16h0"/></svg></button>
                     <button type="button" id="controls-help-btn" aria-label="Controls and rules" title="Controls and rules" aria-haspopup="dialog" aria-controls="controls-modal" onclick="openControlsHelp()"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M9.5 9a2.6 2.6 0 1 1 4 2.2c-1.2.8-1.5 1.3-1.5 2.8m0 2.8v.2"/></svg></button>
                     <button type="button" id="exit-game-btn" aria-label="Main menu" title="Save and return to main menu" onclick="exitToLanding()"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 11 12 3l9 8M5 10v11h5v-7h4v7h5V10"/></svg></button>
                     <button type="button" id="fullscreen-btn" aria-label="Enter full screen" title="Enter full screen (F)" onclick="toggleFullscreen()"><svg viewBox="0 0 24 24" aria-hidden="true"><path class="expand-icon" d="M3 9V3h6m6 0h6v6m0 6v6h-6m-6 0H3v-6"/><path class="shrink-icon" d="M9 3v6H3m12-6v6h6m0 6h-6v6m-6 0v-6H3"/></svg></button>

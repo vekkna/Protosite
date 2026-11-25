@@ -736,3 +736,10 @@ Still open for the play-out:
   `plansFor`.
 3. Planner leaves in `planTurn` need the same play-out once it works.
 4. The suites are nearly saturated; add positions from real games.
+
+## Battle log toggle (2026-11-22)
+
+The field tools bar has a log button (`#log-toggle`, key L) that hides
+`#battle-log-panel`; `battleLogSpace()` then reads 0, so `fitTableToScreen`
+gives the freed width to the board (at 1024x768 it grows from 484 to 590 px
+tall). The choice is kept in localStorage (`seizeTheDay.battleLogHidden`).

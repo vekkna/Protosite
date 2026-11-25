@@ -3559,6 +3559,11 @@ window.addEventListener('keydown', (e) => {
     }
 
     if (!e.altKey && !e.shiftKey && e.key.toLowerCase() === 'z') { e.preventDefault(); undo(); return; }
+    if (!e.repeat && !e.altKey && !e.ctrlKey && !e.metaKey && e.key.toLowerCase() === 'l') {
+        e.preventDefault();
+        toggleBattleLog();
+        return;
+    }
     if (!e.repeat && !e.altKey && !e.ctrlKey && !e.metaKey && e.key.toLowerCase() === 'p') {
         e.preventDefault();
         togglePingMode();
@@ -4070,6 +4075,36 @@ function setPingMode(enabled) {
         button.setAttribute('aria-pressed', String(enabled));
         button.title = enabled ? 'Choose a spot to ping. Esc cancels.' : 'Ping the battlefield (P)';
     }
+}
+
+const BATTLE_LOG_HIDDEN_KEY = 'seizeTheDay.battleLogHidden';
+
+/** Show or hide the battle log; the battlefield takes the freed width. */
+function setBattleLogVisible(visible, remember = true) {
+    const panel = document.getElementById('battle-log-panel');
+    const button = document.getElementById('log-toggle');
+    if (!panel) return;
+    panel.hidden = !visible;
+    if (button) {
+        button.setAttribute('aria-pressed', String(visible));
+        button.ariaLabel = visible ? 'Hide battle log' : 'Show battle log';
+        button.title = button.ariaLabel + ' (L)';
+    }
+    if (remember) {
+        try { localStorage.setItem(BATTLE_LOG_HIDDEN_KEY, visible ? '0' : '1'); } catch (err) { /* Storage unavailable. */ }
+    }
+    fitTableToScreen();
+}
+
+function toggleBattleLog() {
+    const panel = document.getElementById('battle-log-panel');
+    if (panel) setBattleLogVisible(panel.hidden);
+}
+
+function restoreBattleLogVisibility() {
+    let hidden = false;
+    try { hidden = localStorage.getItem(BATTLE_LOG_HIDDEN_KEY) === '1'; } catch (err) { /* Storage unavailable. */ }
+    if (hidden) setBattleLogVisible(false, false);
 }
 
 function togglePingMode() {
@@ -4593,6 +4628,7 @@ function setupSidebarResize() {
     });
 }
 
+restoreBattleLogVisibility();
 window.addEventListener('resize', fitTableToScreen);
 // Fullscreen and panel changes can settle after the window resize event.
 if (typeof ResizeObserver !== 'undefined') {

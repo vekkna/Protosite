@@ -33,7 +33,6 @@ body { background: var(--field-dark); }
 }
 .campaign-heading { padding: clamp(22px, 3.5vw, 52px); max-width: 560px; }
 .campaign-hero h1 { color: #fff5da; font: 500 clamp(64px, 7.2vw, 108px)/.97 Georgia,serif; letter-spacing: -.065em; margin: 0 0 15px; }
-.campaign-hero h1 em { font-weight: 400; font-size: .82em; }
 .campaign-hero p { color: #f4f0e1; font-size: clamp(15px,1.3vw,19px); line-height: 1.45; max-width: 370px; margin: 0; }
 .setup-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; margin: 20px 0 0; }
 .setup-grid section { padding: clamp(18px,2.3vw,30px); border: 1px solid #485952; border-top: 2px solid #a48a56; background: #213234; }
@@ -83,7 +82,7 @@ body { height: 100dvh; min-height: 0; padding-block: env(safe-area-inset-top) en
 .field-tools { display: flex; flex: none; flex-wrap: wrap; align-items: center; gap: 4px; background: var(--field-panel); padding: 4px; border-radius: 3px; }
 .field-tools button { display: grid; place-items: center; min-width: 34px; height: 38px; padding: 6px; background: transparent; color: #f8efd9; border: 1px solid #647267; border-radius: 3px; box-shadow: none; }
 .field-tools button:hover { background: #344643; }
-.field-tools :is(#ruler-toggle, #ping-toggle)[aria-pressed="true"] { background: #425046; color: #fff1c9; border-color: var(--field-gold); }
+.field-tools :is(#ruler-toggle, #ping-toggle, #log-toggle)[aria-pressed="true"] { background: #425046; color: #fff1c9; border-color: var(--field-gold); }
 .field-tools svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 .shrink-icon, #fullscreen-btn[aria-pressed="true"] .expand-icon { display: none; }
 #fullscreen-btn[aria-pressed="true"] .shrink-icon { display: block; }
@@ -97,7 +96,7 @@ body { height: 100dvh; min-height: 0; padding-block: env(safe-area-inset-top) en
     overflow: hidden auto; scrollbar-gutter: stable; overflow-anchor: none;
 }
 #left-sidebar .field-tools {
-    display: grid; grid-template-columns: repeat(5, minmax(0, 1fr));
+    display: grid; grid-template-columns: repeat(6, minmax(0, 1fr));
 }
 #left-sidebar .field-tools button { min-width: 0; width: 100%; }
 #deployment-terrain-notice {
@@ -214,6 +213,7 @@ body { height: 100dvh; min-height: 0; padding-block: env(safe-area-inset-top) en
     min-height: 0; min-width: 0; padding: 10px 12px;
     color: #e2e7dc; background: var(--field-sidebar); border: 1px solid var(--field-line); border-radius: 3px;
 }
+#battle-log-panel[hidden] { display: none; }
 #battle-log-panel h3 { margin: 0; padding-bottom: 6px; color: var(--field-gold); font: 600 19px Georgia,serif; border-bottom: 1px solid #58675e; }
 #battle-log-entries { flex: 1; overflow-y: auto; min-height: 0; scrollbar-width: thin; }
 #battle-log-entries p { margin: 0; padding: 7px 2px; border-bottom: 1px solid #506056; font: 13px/1.4 'Segoe UI', sans-serif; overflow-wrap: anywhere; }
