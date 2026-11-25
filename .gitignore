@@ -1,3 +1,6 @@
 # Generated publish copies and archives (rebuilt from the project), and scratch renders
 sites/
 tmp/
+
+# Separate repo (vekkna/Battle-Outcomes-Site); tracking it as a gitlink broke the Pages build
+/Battle Outcomes Site/
