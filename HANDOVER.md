@@ -499,7 +499,8 @@ title for the doc was "Seize 11 Set Moves"; the rule set is called V5 (designer,
 readings are in GUIDED-PLAY.md. In short: V4's shooting, Shaken, dice and terrain (`v4Rules` is true for V5;
 V4-only movement now tests `v4Only`), hills slow units entering them again, and new movement (`v5Rules`): March
 (pivots only at the start or end, no contact with anything), Charge (edge picked by the start line, at most one
-pivot before moving, hinge flush, free strike at the target), Reform (any facing, only the end checked), Withdraw
+pivot before moving, hinge flush, slide along the edge until touching its centre (designer's addition, same day),
+free strike at the target), Reform (any facing, only the end checked), Withdraw
 (Master Tactician's engaged units: `faceAbout`, then a March without pivots), engaged units otherwise only Strike,
 and a strike on a flank needs 3s. Tests: `tests/v5-rules.test.js`.
 

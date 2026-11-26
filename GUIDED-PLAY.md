@@ -143,7 +143,10 @@ Rules interpretations worth checking
     target's centre) gives the only edge allowed; the contact point must be on it
     (`contactPoint`), then the charger hinges about that point until flush (`hingedTo`), with
     room checked during and after the turn (`roomError`: no touching friends, impassable
-    terrain or the edge, no overlapping anyone; other enemies may be touched). The move
+    terrain or the edge, no overlapping anyone; other enemies may be touched). Then, if its
+    front edge doesn't reach the centre of the target edge, it slides along the edge until it
+    touches it, or as far as it has room (`slideToCentre`; designer, 2026-11-26; not movement,
+    so slowing doesn't limit it). The move
     action puts the unit straight into the hinged pose. Free strike only at the target
     (`act.chargeTarget`). The client doesn't ask the player to declare the target: the
     first enemy the move would touch is the target.

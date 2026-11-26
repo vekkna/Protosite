@@ -671,9 +671,32 @@ const SeizeEngine = (() => {
             const pose = hingedTo(at, P, at.angle + turn);
             why = roomError(s, u, pose);
             for (let k = 1; k < 12 && !why && Math.abs(turn) > 1e-6; k++) why = roomError(s, u, hingedTo(at, P, at.angle + turn * k / 12));
-            if (!why) return { ok: true, pose, edge, turn, edges };
+            if (!why) return { ok: true, pose: slideToCentre(s, u, target, edge, pose), edge, turn, edges };
         }
         return { ok: false, edges, reason: `No room to line up flush against ${target.name}’s ${allowed}: ${why}.` };
+    }
+    /**
+     * V5 (designer, 2026-11-26): once flush, a charger whose front edge doesn't reach the centre of the target edge
+     * slides along that edge towards the centre until it touches it, or as far as it has room (roomError). Not movement,
+     * so slowing terrain doesn't limit it.
+     */
+    function slideToCentre(s, u, target, edge, pose) {
+        const t = rect(target), a = t[edge], b = t[(edge + 1) % 4], m = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+        const [f0, f1] = rect({ ...u, ...pose }), w = Math.hypot(f1.x - f0.x, f1.y - f0.y) || 1, dir = { x: (f1.x - f0.x) / w, y: (f1.y - f0.y) / w };
+        const along = dot(sub(m, f0), dir), need = along < 0 ? along : along > w ? along - w : 0;
+        if (Math.abs(need) < 1e-6) return pose;
+        const at = d => ({ ...pose, x: pose.x + dir.x * d, y: pose.y + dir.y * d });
+        if (!roomError(s, u, at(need))) {
+            // Clear at the end: check the way there too (small steps, so nothing thin is slid through).
+            let ok = true;
+            for (let k = 1; k < 40 && ok; k++) ok = !roomError(s, u, at(need * k / 40));
+            if (ok) return at(need);
+        }
+        // Blocked: go as far as there is room, to within 0.05 px.
+        let lo = 0, hi = Math.abs(need), sign = Math.sign(need);
+        for (let d = 0.5; d < hi; d += 0.5) if (roomError(s, u, at(sign * d))) { hi = d; break; } else lo = d;
+        while (hi - lo > 0.05) { const mid = (lo + hi) / 2; if (roomError(s, u, at(sign * mid))) hi = mid; else lo = mid; }
+        return at(sign * lo);
     }
     /** V5 Withdraw: why this unit can't face about now ('' if it can). */
     function faceAboutError(s, u, act) {

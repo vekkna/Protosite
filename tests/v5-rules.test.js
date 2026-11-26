@@ -92,8 +92,32 @@ test('V5: an angled charge hinges about the contact point until flush with the e
     const a = unit(s, 'a'), r = E.geometry.rect(a);
     assert.ok(Math.abs(norm(a.angle + 180) - 180) < 1e-6, `faces the front squarely (${a.angle})`);
     assert.ok(Math.abs(r[0].y - 340) < 1e-6 && Math.abs(r[1].y - 340) < 1e-6, 'front edge flush on e’s front edge');
-    assert.ok(Math.abs(r[0].x - 433.64) < 0.05, 'front-left corner kept where it met the edge');
+    assert.ok(Math.abs(r[0].x - 430) < 0.05, `then slides along the edge until it touches its centre (x 430): ${r[0].x}`);
     assert.ok(E.geometry.touching(a, unit(s, 'e')));
+});
+
+test('V5: a charger that meets only the end of the edge slides along it to touch the centre', () => {
+    // a overlaps e's front edge by 2 px at the far left; e's front edge runs x 400..460, centre 430.
+    let s = run(battle([U('a', 'p1', 342, 400), U('e', 'p2', 400, 300, { angle: 180 })]), activate('a'));
+    s = E.apply(s, { type: 'move', inches: E.unitOptions(s, 'a').forward.max });
+    const r = E.geometry.rect(unit(s, 'a'));
+    assert.ok(Math.abs(r[1].x - 430) < 0.05 && Math.abs(r[1].y - 340) < 1e-6, `front-right corner on the centre: ${r[1].x}, ${r[1].y}`);
+    assert.ok(E.geometry.touching(unit(s, 'a'), unit(s, 'e')));
+    // Already touching the centre: no slide.
+    let t = run(battle([U('a', 'p1', 380, 400), U('e', 'p2', 400, 300, { angle: 180 })]), activate('a'));
+    t = E.apply(t, { type: 'move', inches: E.unitOptions(t, 'a').forward.max });
+    assert.equal(unit(t, 'a').x, 380);
+});
+
+test('V5: the slide to the centre stops where a friend is in the way', () => {
+    const units = [U('a', 'p1', 342, 400), U('e', 'p2', 400, 300, { angle: 180 }), U('f', 'p1', 415, 345)];
+    let s = run(battle(units), activate('a'));
+    const lim = E.unitOptions(s, 'a').forward;
+    assert.ok(lim.charge, lim.reason);
+    s = E.apply(s, { type: 'move', inches: lim.max });
+    const a = unit(s, 'a');
+    assert.ok(a.x > 354 && a.x < 355, `slid only up to f (${a.x})`);
+    assert.ok(gap(s, 'a', 'f') > 0.02 && gap(s, 'a', 'f') < 0.1, 'stops just short of the friend');
 });
 
 test('V5: a flank charge strikes needing 3s', () => {
