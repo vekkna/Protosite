@@ -362,16 +362,18 @@ const SeizeAI = (() => {
                 }
             }
         }
-        // V5 Withdraw: an engaged unit of the Master Tactician may face about (perhaps to face a flanker), then March away.
-        if (planW.v5Aim && here.faceAbout && !attacksOnly) {
-            const about = tryApply(start, { type: 'faceAbout' }), acts = [...first, { type: 'faceAbout' }];
-            if (about) {
-                add('about', acts, about);
-                const o = about.activation && E.unitOptions(about, u.id);
-                if (o && o.canAct) for (const f of [1, 0.5]) if (o.forward.max > 0.3) {
-                    const action = { type: 'move', inches: o.forward.max * f, backwards: false }, moved = tryApply(about, action);
-                    if (moved) add('withdraw', [...acts, action], moved);
-                }
+        // V5 Withdraw: an engaged unit of the Master Tactician turns to face the enemy, then marches backwards out of contact.
+        if (planW.v5Aim && here.withdraw?.length && !attacksOnly) for (const id of here.withdraw) {
+            const step = { type: 'withdraw', targetId: id }, faced = tryApply(start, step), acts = [...first, step];
+            const o = faced?.activation && E.unitOptions(faced, u.id);
+            if (!o || !o.canAct) continue;
+            const lim = o.backward, tried = new Set();
+            for (const f of [1, 0.5, 0]) {
+                const inches = Math.round(Math.max(lim.min || 0, lim.max * f) * 1000) / 1000 + (f === 0 ? 0.01 : 0);
+                if (tried.has(inches) || inches > lim.max + 1e-6) continue;
+                tried.add(inches);
+                const action = { type: 'move', inches: Math.min(inches, lim.max), backwards: true }, moved = tryApply(faced, action);
+                if (moved) add('withdraw', [...acts, action], moved);
             }
         }
         return plans;

@@ -132,7 +132,13 @@ Rules interpretations worth checking
   terrain (`v4Rules(s)` is true for V5; V4-only movement rules test `v4Only`), hills slow units
   entering them again (`hillsSlow`), and new movement (`v5Rules`):
   - Engaged = touching any enemy. Engaged units may only Strike, or (Master Tactician only)
-    Withdraw: `faceAbout` action (turn 180°, optional), then a March without pivots.
+    Withdraw: the `withdraw` action (`targetId`: the enemy to face) turns the unit in place so
+    its edge touching that enemy becomes its front (0/90/180°; `withdrawPlan`, which also
+    refuses it without room to turn or to back out of contact), then a backwards March
+    without pivots that must end out of contact (`moveLimit(...).min`; `withdrawUnfinished` blocks
+    `endActivation` until it is). `unitOptions(...).withdrawWhy` gives the panel the reason when
+    an engaged Master Tactician unit can't Withdraw. Rules doc updated
+    2026-11-26; it replaced "optionally face the opposite direction, then March".
   - March = the existing `move`/`pivot` actions: pivots only before moving or after (a pivot
     after moving sets `pivotedInMove`, which ends moving); no extra pivot for not moving; no
     contact with anything, so moves stop `STANDOFF` short of units, impassable terrain and the
@@ -155,8 +161,8 @@ Rules interpretations worth checking
   - Flank attack: a strike on the target's flank (`touchesFlank(target, striker)`) needs 3s
     (`attackPreview`, note 'Flank attack').
   - Guided play: `drawChargeFaces` draws the start line to each enemy in reach and its
-    allowed edge in gold; the panel offers Face about and calls the move order Withdraw for
-    an engaged unit.
+    allowed edge in gold; the panel offers a Withdraw button per enemy it could face and
+    calls the move order Withdraw once it has turned.
 - Turning during a Move into slowing terrain counts as entering it (all rule sets).
 
 - Concealing terrain blocks any sight line passing through it, so a unit

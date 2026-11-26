@@ -1,7 +1,7 @@
 // V5 rules (rules doc 2026-11-26): V4's shooting, Shaken, dice and terrain, with hills slowing units that enter them,
 // and new movement: March (pivots only at the start or end, no contact), Charge (declared edge from the start line,
 // at most one pivot before moving, hinge flush, free strike at the target), Reform (any facing, only the end must be
-// clear), Withdraw (Master Tactician's engaged units: face about, then March without pivots), and flank attacks need 3s.
+// clear), Withdraw (Master Tactician's engaged units: turn to face the enemy, then March backwards out of contact), and flank attacks need 3s.
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const E = require('../engine');
@@ -170,27 +170,49 @@ test('V5: engaged units can only Strike; the Master Tactician’s may Withdraw i
     let o = E.unitOptions(theirs, 'a');
     assert.equal(o.forward.max, 0); assert.equal(o.backward.max, 0);
     assert.equal(o.pivot.remaining, 0); assert.equal(o.reform.remaining, 0);
-    assert.equal(o.faceAbout, false); assert.equal(o.strike.length, 1); assert.equal(o.engaged, true);
-    assert.throws(() => E.apply(theirs, { type: 'faceAbout' }), /Master Tactician/);
-    // As the Master Tactician: face about, then March away without pivots.
+    assert.deepEqual(o.withdraw, []); assert.equal(o.strike.length, 1); assert.equal(o.engaged, true);
+    assert.throws(() => E.apply(theirs, { type: 'withdraw', targetId: 'e' }), /Master Tactician/);
+    // As the Master Tactician: no move until it chooses Withdraw; then only backwards, without pivots, out of contact.
     let s = run(battle(units), activate('a'));
     o = E.unitOptions(s, 'a');
-    assert.equal(o.faceAbout, true); assert.ok(o.backward.max > 2.9);
-    s = E.apply(s, { type: 'faceAbout' });
-    assert.equal(unit(s, 'a').angle, 180);
+    assert.deepEqual(o.withdraw, ['e']); assert.equal(o.backward.max, 0, 'no March while engaged');
+    s = E.apply(s, { type: 'withdraw', targetId: 'e' });
+    assert.equal(unit(s, 'a').angle, 0, 'already facing e');
     o = E.unitOptions(s, 'a');
     assert.equal(o.strike.length, 0, 'withdrawing, so no strike');
     assert.equal(o.pivot.remaining, 0, 'no pivots in a Withdraw');
-    assert.ok(o.forward.max > 5.9, `marches away at full Pace (${o.forward.max})`);
-    s = E.apply(s, { type: 'move', inches: 6 });
-    assert.ok(gap(s, 'a', 'e') > 100);
+    assert.equal(o.forward.max, 0, 'only backwards');
+    assert.ok(Math.abs(o.backward.max - 3) < 1e-6 && o.backward.min > 0 && o.backward.min < 0.05, `half Pace back, at least out of contact (${o.backward.min})`);
+    assert.throws(() => E.apply(s, { type: 'move', inches: o.backward.min / 2, backwards: true }), /out of contact/);
+    assert.throws(() => E.apply(s, { type: 'endActivation' }), /Finish the Withdraw/);
+    assert.ok(!E.legalActions(s).some(a => a.type === 'endActivation'));
+    s = E.apply(s, { type: 'move', inches: 3, backwards: true });
+    assert.equal(unit(s, 'a').y, 460);
     assert.equal(s.activation, null);
 });
 
-test('V5: a Withdraw may also go straight backwards without facing about', () => {
-    const s = run(battle([U('a', 'p1', 400, 400), U('e', 'p2', 400, 360, { angle: 180 }), U('x', 'p2', 100, 100)]), activate('a'), { type: 'move', inches: 3, backwards: true });
-    assert.equal(unit(s, 'a').y, 460);
-    assert.equal(s.activation, null);
+test('V5: a Withdraw first turns the unit to face the enemy, its touching edge becoming its front', () => {
+    // e's front is on a's right flank: a turns 90° clockwise to face it, then backs away to the left.
+    const flank = [U('a', 'p1', 400, 400), U('e', 'p2', 450, 400, { angle: -90 }), U('x', 'p2', 100, 100)];
+    let s = run(battle(flank), activate('a'), { type: 'withdraw', targetId: 'e' });
+    assert.equal(unit(s, 'a').angle, 90);
+    assert.match(s.log[0], /turning 90° to face it/);
+    s = E.apply(s, { type: 'move', inches: E.unitOptions(s, 'a').backward.max, backwards: true });
+    assert.ok(unit(s, 'a').x < 360, 'moved left, away from e');
+    // An enemy on a's rear: a turns right round.
+    const rear = run(battle([U('a', 'p1', 400, 400), U('e', 'p2', 400, 440), U('x', 'p2', 100, 100)]), activate('a'), { type: 'withdraw', targetId: 'e' });
+    assert.equal(norm(unit(rear, 'a').angle), 180);
+});
+
+test('V5: no Withdraw without room to turn or to back out of contact', () => {
+    // A friend just above a: turned 90° to face e (on a's right), a is taller and would overlap it.
+    const noTurn = run(battle([U('a', 'p1', 400, 400), U('e', 'p2', 450, 400, { angle: -90 }), U('f', 'p1', 400, 339, { w: 60, h: 60 }), U('x', 'p2', 100, 100)]), activate('a'));
+    assert.deepEqual(E.unitOptions(noTurn, 'a').withdraw, []);
+    assert.match(E.unitOptions(noTurn, 'a').withdrawWhy, /No room to turn to face the enemy: it would overlap f/);
+    assert.throws(() => E.apply(noTurn, { type: 'withdraw', targetId: 'e' }), /No room to turn/);
+    // Its back against the battlefield's edge: it can turn but can't back away.
+    const s = battle([U('a', 'p1', 400, 680), U('e', 'p2', 400, 640, { angle: 180 }), U('x', 'p2', 100, 100)]);
+    assert.throws(() => E.apply(run(s, activate('a')), { type: 'withdraw', targetId: 'e' }), /out of contact/);
 });
 
 test('V5: hills slow units entering them, but not one that starts on the hill', () => {

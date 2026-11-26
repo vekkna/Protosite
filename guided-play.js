@@ -320,7 +320,7 @@ const GuidedPlay = (() => {
         unitAction(id, { type: kind, targetId });
     }
     function rally() { const id = currentUnitId(); if (id) unitAction(id, { type: 'rally' }); }
-    function faceAbout() { const id = currentUnitId(); if (id) unitAction(id, { type: 'faceAbout' }); }
+    function withdraw(targetId) { const id = currentUnitId(); if (id) unitAction(id, { type: 'withdraw', targetId }); }
     const availableTurn = limit => Boolean(limit?.remaining > 0 && (limit.left || limit.right));
     const orderFor = id => chosenOrder?.id === id ? chosenOrder.type : null;
     function attackChoices(options, order) {
@@ -1176,9 +1176,10 @@ const GuidedPlay = (() => {
                         control.setAttribute('aria-pressed', String(pressed));
                     };
                     const v5 = E.v5Rules(g);
-                    if (o.forward.charge || o.forward.max > .01 || o.backward.max > .01) order(v5 && o.engaged ? 'Withdraw' : 'Move', 'move',
-                        v5 ? (o.engaged ? 'Drag the unit away: a Withdraw is a March with no pivots' : 'Drag the unit to March, or straight into an enemy to charge') : 'Drag the unit to advance, withdraw or charge');
-                    if (o.faceAbout) button('Face about', faceAbout, false, 'Turn to face the opposite way, then Withdraw', 'btn-grey', orders);
+                    const withdrawing = v5 && o.activation.withdraw;
+                    if (o.forward.charge || o.forward.max > .01 || o.backward.max > .01) order(withdrawing ? 'Withdraw' : 'Move', 'move',
+                        v5 ? (withdrawing ? `Drag the unit backwards out of contact (at least ${(Math.ceil((o.backward.min || 0) * 100) / 100).toFixed(2)}″)` : 'Drag the unit to March, or straight into an enemy to charge') : 'Drag the unit to advance, withdraw or charge');
+                    for (const id of o.withdraw || []) button(o.withdraw.length > 1 ? `Withdraw from ${unit(id).name}` : 'Withdraw', () => withdraw(id), false, 'Turn to face the enemy, then drag the unit backwards out of contact', 'btn-grey', orders);
                     if (o.pivot.usesAction && availableTurn(o.pivot)) order('Extra Pivot', 'pivot', 'Drag the ↻ handle to use Extra Pivot');
                     if (availableTurn(o.reform)) order('Reform', 'reform', 'Drag the ↻ handle. Reform uses the action.');
                     if (o.shoot.some(t => t.ok)) order('Shoot', 'shoot', 'Select an enemy on the battlefield');
@@ -1189,9 +1190,10 @@ const GuidedPlay = (() => {
                     if (document.getElementById('gp-next-charge')) add('p', 'Next-turn charge reach', 'gp-next-charge-key');
                     if (chargeFacesShown) add('p', E.v5Rules(g) ? 'Gold edge: the only edge of that enemy this unit may charge (the dashed line from its front to the enemy’s centre crosses it). Charge with at most one pivot, before moving.'
                         : 'Gold edge: the dashed line from this unit’s front to that enemy’s centre crosses its front edge, so it can only charge its front.', 'gp-front-only-key');
-                    if (E.v5Rules(g) && o.engaged && !o.faceAbout && !o.strike.length && !o.activation.action) add('p', 'Engaged: only the Master Tactician’s units can Withdraw.', 'gp-sub');
+                    if (E.v5Rules(g) && o.withdrawWhy) add('p', `Can’t Withdraw: ${o.withdrawWhy}`, 'gp-sub');
+                    if (withdrawing) add('p', o.backward.min > 0 ? `Withdrawing: drag the unit backwards at least ${(Math.ceil(o.backward.min * 100) / 100).toFixed(2)}″, out of contact.` : 'Withdrawing: turning to face the enemy took this unit out of contact. Drag it backwards if you like, or end the activation.', 'gp-sub');
                     if (o.activation.overlap) add('p', 'Keep pivoting: the unit can’t finish overlapping another unit, impassable terrain or the edge.');
-                    if (o.activated) button('End activation', endActivation, Boolean(o.activation.overlap), o.activation.overlap ? 'Pivot clear first' : '', 'btn-blue gp-end');
+                    if (o.activated) { const unfinished = E.withdrawUnfinished(g); button('End activation', endActivation, Boolean(o.activation.overlap) || unfinished, o.activation.overlap ? 'Pivot clear first' : unfinished ? 'March backwards out of contact first' : '', 'btn-blue gp-end'); }
                 } else if (o?.reason) add('p', o.reason);
                 const left = g.commands[p], commandsLeft = `${left} ${left === 1 ? 'command' : 'commands'}`;
                 if (left > 0) {

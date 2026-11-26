@@ -501,14 +501,15 @@ V4-only movement now tests `v4Only`), hills slow units entering them again, and 
 (pivots only at the start or end, no contact with anything), Charge (edge picked by the start line, at most one
 pivot before moving, hinge flush, slide along the edge until touching its centre (designer's addition, same day),
 free strike at the target), Reform (any facing, only the end checked), Withdraw
-(Master Tactician's engaged units: `faceAbout`, then a March without pivots), engaged units otherwise only Strike,
+(Master Tactician's engaged units: turn in place to face the enemy, then March backwards out of contact; doc
+updated the same day, replacing an optional face-about), engaged units otherwise only Strike,
 and a strike on a flank needs 3s. Tests: `tests/v5-rules.test.js`.
 
 Open questions for the designer (sent with the V5 review, 2026-11-26): see the run log entry of that day.
 
 AI for V5 (2026-11-26): v12 frozen first. New weights, both on: `v5Aim` (plansFor aims charges at points along each
-enemy's one chargeable edge, offers a Reform where a pivot would touch something, and plans Withdraws: face about,
-then March away, or just face about) and `v5Threat` (pairGeometry: a charge allows one pivot whatever the Mobility,
+enemy's one chargeable edge, offers a Reform where a pivot would touch something, and plans Withdraws: face the enemy,
+then back out of contact by the least, half or the most it can) and `v5Threat` (pairGeometry: a charge allows one pivot whatever the Mobility,
 and a charge or strike on a flank uses a target number of 3). `midCharge` and the extra-pivot turns are V4-only now.
 `tools/v4-probe.js` takes `--rules=v5` and also counts Reforms and face-abouts.
 

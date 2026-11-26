@@ -27,7 +27,7 @@ function makePlayer(spec, seed) {
     };
 }
 
-function stats() { return { charges: 0, flankCharges: 0, pivotCharges: 0, strikes: 0, shots: 0, shakenTurns: 0, enemyShakenTurns: 0, activations: 0, reforms: 0, faceAbouts: 0 }; }
+function stats() { return { charges: 0, flankCharges: 0, pivotCharges: 0, strikes: 0, shots: 0, shakenTurns: 0, enemyShakenTurns: 0, activations: 0, reforms: 0, withdraws: 0 }; }
 const RULES = (process.argv.find(x => x.startsWith('--rules=')) || '--rules=v4').split('=')[1];   // v4 | v5
 
 function play(seed, specs, roster) {
@@ -41,7 +41,7 @@ function play(seed, specs, roster) {
         if (before.phase !== 'command') continue;
         const newLines = s.log.slice(0, Math.max(0, s.log.indexOf(before.log[0])));
         st[p].reforms += newLines.filter(l => l.includes(' reforms, ')).length;
-        st[p].faceAbouts += newLines.filter(l => l.includes(' faces about')).length;
+        st[p].withdraws += newLines.filter(l => l.includes(' withdraws from ')).length;
         for (const e of events) {
             if (e.type === 'charge') {
                 const me = st[p]; me.charges += 1;
