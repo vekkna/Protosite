@@ -39,6 +39,10 @@ const SeizeAI = (() => {
         draftTerrain: 1.0,  // weight of the top terrain tile when choosing a unit
         deployRoom: 0.3,    // deployment: cost of standing too close to a friend to pivot freely (0 = pack units flush)
         passMargin: 0.02,
+        v5Aim: 1,           // V5: also aim charges at points along the one edge each enemy may be charged on, and plan Withdraws; 0 = as v12
+        v5Threat: 1,        // V5: rough threat knows a charge allows one pivot and a flank strike needs 3s; 0 = as v12
+        pivotMove: 1,       // V4: after an opening pivot, go on to move or charge (v11 and earlier only did so where Reform existed); 0 = as v11
+        fixedShots: 1,      // V4: a shooter can't pivot and shoot in one activation, so threat counts only shots from its current facing; 0 = as v11
         midCharge: 1,       // V4: also plan advance, pivot, charge (a pivot mid-Move keeps the charge there); 0 = as v9
         closeCharge: 1,     // 1 = also plan charges shorter than 0.3 inch (v9 and earlier skipped them, so units left that close never charged)
         stuckDraft: 0,      // V4 draft: appeal lost by a unit that can never turn (Drill 0, no Reform). 0.5 measured no gain (2026-11-21), so off
@@ -96,7 +100,7 @@ const SeizeAI = (() => {
         let best = 0;
         // V3: a unit with E.SPENT_STRAIN or more strain can't attack at all.
         if (!E.spent(s, att)) {
-            if (g.melee !== null) best = attackValue(s, def, att.melee + unmarked + g.melee, targetNumber(att, def, false), W);
+            if (g.melee !== null) best = attackValue(s, def, att.melee + unmarked + g.melee, g.flank ? Math.min(3, targetNumber(att, def, false)) : targetNumber(att, def, false), W);
             if (g.shoot !== null) best = Math.max(best, attackValue(s, def, att.shoot + g.shoot, targetNumber(att, def, true), W));
         }
         cache.set(key, best);
@@ -108,10 +112,13 @@ const SeizeAI = (() => {
         if (hit) return hit;
         const ca = centre(att), cd = centre(def), d = dist(ca, cd), contact = cache.contacts.get(att.id);
         // V3 has no combat modifiers, so height and flanks add nothing there.
-        const v3 = E.v3Rules(s), high = v3 ? 0 : cache.high.get(att.id) - cache.high.get(def.id), g = { melee: null, shoot: null };
+        const v3 = E.v3Rules(s), high = v3 ? 0 : cache.high.get(att.id) - cache.high.get(def.id), g = { melee: null, shoot: null, flank: false };
+        const v5t = planW.v5Threat && E.v5Rules(s);
         if (contact.length) {
             // Already fighting: it can strike what it touches (in V3, only what touches its front; in V4, not while Shaken).
             if (contact.includes(def.id) && E.canStrikeAt(s, att, def) && !E.shaken(s, att)) g.melee = high;
+            // V5: striking a flank needs 3s.
+            if (g.melee !== null && v5t && E.touchesFlank(def, att)) g.flank = true;
         } else {
             const gap = d - att.h / 2 - Math.min(def.w, def.h) / 2;
             const turn = Math.abs(norm180(bearing(ca, cd) - att.angle));
@@ -125,16 +132,19 @@ const SeizeAI = (() => {
                     }
                     canCharge = cache.charges.get(att.id).includes(def.id);
                 } else {
-                    canCharge = gap <= att.pace * PX && turn <= 90 * att.mobility + lane && !pathBlocked(s, att, def);
+                    // V5: a charge allows one pivot, however high the Mobility.
+                    canCharge = gap <= att.pace * PX && turn <= 90 * (v5t ? Math.min(1, att.mobility) : att.mobility) + lane && !pathBlocked(s, att, def);
                 }
             }
             if (canCharge) {
                 const f = G.forwardOf(def), front = { x: cd.x + f.x * def.h / 2, y: cd.y + f.y * def.h / 2 };
-                g.melee = (!v3 && (ca.x - front.x) * f.x + (ca.y - front.y) * f.y < -def.h * 0.25 ? 1 : 0) + high;   // flank-threat weight held at 1 although the rule is now +2: at 2 the AI over-fears flanks and passes up good charges (tested 2026-11-19)
+                g.melee = (!v3 && (ca.x - front.x) * f.x + (ca.y - front.y) * f.y < -def.h * 0.25 ? 1 : 0) + high;
+                // V5: the start line picks the edge; anything but the front is a flank attack.
+                if (v5t && !E.chargeEdges(att, def).includes(0)) g.flank = true;   // flank-threat weight held at 1 although the rule is now +2: at 2 the AI over-fears flanks and passes up good charges (tested 2026-11-19)
             }
-            const reform = E.reformAction(s);
-            if (att.shoot > 0 && d - att.h / 2 - Math.max(def.w, def.h) / 2 <= att.range * PX && !cache.contacts.get(def.id).length && (reform || turn <= 90 * att.mobility + 25)) {
-                const facing = att.mobility > 0 && !reform ? { ...att, angle: bearing(ca, cd) } : att;
+            const reform = E.reformAction(s), fixed = planW.fixedShots && E.v4Rules(s);   // V4: pivots are a Manoeuvre, so no turning to shoot
+            if (att.shoot > 0 && d - att.h / 2 - Math.max(def.w, def.h) / 2 <= att.range * PX && !cache.contacts.get(def.id).length && (reform || fixed || turn <= 90 * att.mobility + 25)) {
+                const facing = att.mobility > 0 && !reform && !fixed ? { ...att, angle: bearing(ca, cd) } : att;
                 const probe = facing === att ? s : { ...s, units: s.units.map(u => (u.id === att.id ? facing : u)) };
                 const cover = clearShot(s, probe, att, facing, def, cache);
                 if (cover !== false) g.shoot = high - cover;
@@ -276,8 +286,11 @@ const SeizeAI = (() => {
 
         // Facings worth considering: as it stands, at each enemy (centre and both sides), and directly away.
         const turns = [0];
-        const pivotOK = u.mobility > 0 && here.pivot.remaining > 0;
-        const reformOK = Boolean(here.reform && here.reform.remaining > 0), maxTurn = reformOK ? 180 : 90 * u.mobility;
+        // V4: a unit that doesn't move gets one extra pivot (so Mobility 0 can turn in place). Turns that need it
+        // leave no move; the engine rejects those follow-ups, so only the facing plan survives.
+        const pivots = u.mobility + (E.v4Only(start) ? 1 : 0);
+        const pivotOK = pivots > 0 && here.pivot.remaining > 0;
+        const reformOK = Boolean(here.reform && here.reform.remaining > 0), maxTurn = reformOK ? 180 : 90 * pivots;
         const consider = angle => { const d = norm180(angle - u.angle); if (Math.abs(d) > 2 && Math.abs(d) <= maxTurn && !turns.some(t => Math.abs(t - d) < 6)) turns.push(d); };
         if (pivotOK || reformOK) {
             const byRange = enemies.slice().sort((a, b) => dist(cu, centre(a)) - dist(cu, centre(b)));
@@ -286,6 +299,12 @@ const SeizeAI = (() => {
                 consider(bearing(cu, ce));
                 for (const sign of [-1, 1]) consider(bearing(cu, { x: ce.x + right.x * sign * e.w * 0.45, y: ce.y + right.y * sign * e.w * 0.45 }));
                 consider(bearing(cu, { x: ce.x - f.x * e.h * 0.45, y: ce.y - f.y * e.h * 0.45 }));
+            }
+            // V5: only one edge of each enemy may be charged (chargeEdges, from here): aim along it.
+            if (planW.v5Aim && E.v5Rules(start) && u.melee > 0 && u.mobility > 0) for (const e of byRange.slice(0, 4)) {
+                if (dist(cu, centre(e)) > u.pace * PX + G.reach(u) + G.reach(e)) continue;
+                const t = G.rect(e);
+                for (const i of E.chargeEdges(u, e)) for (const k of [0.2, 0.5, 0.8]) consider(bearing(cu, { x: t[i].x + (t[(i + 1) % 4].x - t[i].x) * k, y: t[i].y + (t[(i + 1) % 4].y - t[i].y) * k }));
             }
             if (byRange.length) consider(bearing(centre(byRange[0]), cu));
             for (const d of [-90, -45, 45, 90]) consider(u.angle + d);
@@ -306,13 +325,18 @@ const SeizeAI = (() => {
             }
             let st = start, acts = first.slice(), ok = true;
             for (const step of pivotChunks(turn)) { const next = tryApply(st, { type: 'pivot', degrees: step }); if (!next) { ok = false; break; } st = next; acts.push({ type: 'pivot', degrees: step }); }
+            if (!ok && reformOK && E.v5Rules(start)) {
+                // V5: where a pivot would touch something, a Reform (only the end is checked) may still turn the unit.
+                const step = { type: 'pivot', degrees: turn, reform: true }, next = tryApply(start, step);
+                if (next) add('reform', [...first, step], next);
+            }
             if (!ok || !st.activation) continue;
             const o = E.unitOptions(st, u.id);
             if (!o.canAct) continue;
             if (turn !== 0) add('face', acts, st);
             for (const t of o.shoot) if (t.ok) add('shoot', acts, st, { type: 'shoot', targetId: t.id, dist: t.preview.dist, flank: flankOf(t) });
             // In Reform games a pivot starts a Move that can still be continued.
-            const moveStarted = o.reform && o.activation.action === 'move' && o.activation.moved === 0;
+            const moveStarted = (o.reform || (planW.pivotMove && E.v4Rules(st))) && o.activation.action === 'move' && o.activation.moved === 0;
             if (!o.actionFree && !moveStarted) continue;
             const moves = [];
             if (o.forward.max > 0.3 || (planW.closeCharge && o.forward.charge)) for (const f of attacksOnly ? (o.forward.charge ? [1] : []) : o.forward.charge ? [1, 0.6, 0.3] : [1, 0.75, 0.5, 0.25]) moves.push({ inches: f === 1 ? o.forward.max : o.forward.max * f, backwards: false, charge: f === 1 && Boolean(o.forward.charge) });
@@ -327,7 +351,7 @@ const SeizeAI = (() => {
                 }
                 add(m.backwards ? 'withdraw' : 'advance', acts2, moved);
                 // V4: a pivot partway through a Move keeps the charge, so advance, turn onto a flank or rear, then charge.
-                if (planW.midCharge && !m.backwards && moved.activation && E.v4Rules(moved)) midMoveCharges(moved, acts2, add, flankOf, enemies);
+                if (planW.midCharge && !m.backwards && moved.activation && E.v4Only(moved)) midMoveCharges(moved, acts2, add, flankOf, enemies);
                 // Optionally finish by turning to face the nearest enemy.
                 if (moved.activation) {
                     const d = nearestBearing(moved);
@@ -335,6 +359,18 @@ const SeizeAI = (() => {
                         const step = Math.max(-90, Math.min(90, d)), turned = tryApply(moved, { type: 'pivot', degrees: step });
                         if (turned && (!turned.activation || turned.activation.action === 'move')) add('advance+face', [...acts2, { type: 'pivot', degrees: step }], turned);
                     }
+                }
+            }
+        }
+        // V5 Withdraw: an engaged unit of the Master Tactician may face about (perhaps to face a flanker), then March away.
+        if (planW.v5Aim && here.faceAbout && !attacksOnly) {
+            const about = tryApply(start, { type: 'faceAbout' }), acts = [...first, { type: 'faceAbout' }];
+            if (about) {
+                add('about', acts, about);
+                const o = about.activation && E.unitOptions(about, u.id);
+                if (o && o.canAct) for (const f of [1, 0.5]) if (o.forward.max > 0.3) {
+                    const action = { type: 'move', inches: o.forward.max * f, backwards: false }, moved = tryApply(about, action);
+                    if (moved) add('withdraw', [...acts, action], moved);
                 }
             }
         }

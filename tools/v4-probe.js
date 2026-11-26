@@ -27,10 +27,11 @@ function makePlayer(spec, seed) {
     };
 }
 
-function stats() { return { charges: 0, flankCharges: 0, pivotCharges: 0, strikes: 0, shots: 0, shakenTurns: 0, enemyShakenTurns: 0, activations: 0 }; }
+function stats() { return { charges: 0, flankCharges: 0, pivotCharges: 0, strikes: 0, shots: 0, shakenTurns: 0, enemyShakenTurns: 0, activations: 0, reforms: 0, faceAbouts: 0 }; }
+const RULES = (process.argv.find(x => x.startsWith('--rules=')) || '--rules=v4').split('=')[1];   // v4 | v5
 
 function play(seed, specs, roster) {
-    let s = newGame(seed, roster, 'v4'), n = 0;
+    let s = newGame(seed, roster, RULES), n = 0;
     const players = { p1: makePlayer(specs.p1, seed + 11), p2: makePlayer(specs.p2, seed + 23) }, st = { p1: stats(), p2: stats() };
     while (s.phase !== 'finished' && s.round <= 30 && n++ < 4000) {
         const p = toMove(s), before = s;
@@ -38,6 +39,9 @@ function play(seed, specs, roster) {
         const events = [];
         s = players[p](s, p, events);
         if (before.phase !== 'command') continue;
+        const newLines = s.log.slice(0, Math.max(0, s.log.indexOf(before.log[0])));
+        st[p].reforms += newLines.filter(l => l.includes(' reforms, ')).length;
+        st[p].faceAbouts += newLines.filter(l => l.includes(' faces about')).length;
         for (const e of events) {
             if (e.type === 'charge') {
                 const me = st[p]; me.charges += 1;
@@ -68,5 +72,5 @@ for (let g = 0; g < games; g++) {
     rounds.push(r.rounds);
     for (const [k, side] of [['A', aIs], ['B', bIs]]) for (const f in tot[k]) tot[k][f] += r.st[side][f];
 }
-console.log(`${A} v ${B}: ${tally.A}-${tally.B} (${tally.draw} unfinished), mean rounds ${(rounds.reduce((a, b) => a + b, 0) / games).toFixed(1)}`);
+console.log(`[${RULES}] ${A} v ${B}: ${tally.A}-${tally.B} (${tally.draw} unfinished), mean rounds ${(rounds.reduce((a, b) => a + b, 0) / games).toFixed(1)}`);
 for (const k of ['A', 'B']) console.log(k === 'A' ? A : B, JSON.stringify(tot[k]));

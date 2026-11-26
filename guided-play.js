@@ -16,7 +16,8 @@ const GuidedPlay = (() => {
         reform: 'Pivot during a Move. Spend an action to Reform and change facing.',
         'reform-variant': 'Any pivot prevents a charge. Units with a Move asterisk can pass through friendly units if they can clear them.',
         v3: 'Reform, plus Rally (remove one strain, even in contact). Pivot before moving and still charge. Pivots can turn through units, terrain and the edge but must end clear. Shoot if a clear line reaches the centre of a target edge facing the shooter. No dice modifiers; strike only enemies at your front; hills slow units entering them; units with 5+ strain can’t attack.',
-        v4: 'V3 without Reform, Rally, the 5-strain limit or hill slowing. No bonus dice for 6s; a Pace asterisk does nothing. Pivoting doesn’t stop a charge, but a unit with no part behind the target’s front line can only charge its front. Strike any touching enemy, but a unit is Shaken, and can’t strike, while an enemy’s front touches its flank (unless another of its side’s units touches that enemy).'
+        v5: 'Set moves. March: straight forwards up to Pace or back up to half, pivoting only at the start or end, touching nothing. Charge: the line from your front to the target’s centre picks the one edge you may charge; one pivot first, then straight in, hinge flush and strike (3s on a flank). Reform: face any way. Engaged units only Strike, or Withdraw if they are the Master Tactician’s. Hills slow units entering them.',
+        v4: 'V3 without Reform, Rally, the 5-strain limit or hill slowing. No bonus dice for 6s; a Pace asterisk does nothing. A pivot may not touch another unit or impassable terrain; a unit that doesn’t move may pivot once more. If the line from a charger’s front to the target’s centre crosses the target’s front edge, it can only charge that front. Range is measured to the centre of a target edge. A unit touching an enemy’s front can’t Manoeuvre unless it is the Master Tactician’s and moves backwards. Strike any touching enemy, but a unit is Shaken, and can’t strike, while an enemy’s front touches its flank (unless another of its side’s units touches that enemy).'
     };
     let rulesChoice = (() => { try { return E.normalizeRules(localStorage.getItem(RULES_KEY)); } catch (e) { return 'classic'; } })();
     function setRules(v) {
@@ -319,6 +320,7 @@ const GuidedPlay = (() => {
         unitAction(id, { type: kind, targetId });
     }
     function rally() { const id = currentUnitId(); if (id) unitAction(id, { type: 'rally' }); }
+    function faceAbout() { const id = currentUnitId(); if (id) unitAction(id, { type: 'faceAbout' }); }
     const availableTurn = limit => Boolean(limit?.remaining > 0 && (limit.left || limit.right));
     const orderFor = id => chosenOrder?.id === id ? chosenOrder.type : null;
     function attackChoices(options, order) {
@@ -454,7 +456,7 @@ const GuidedPlay = (() => {
         if (blocker) drawObstruction(obstruction, blocker, { ...pose, angle: startAngle + delta });
         if (E.v4Rules(game)) drawChargeFaces(liveOverlay('gp-charge-faces'), { ...pose, angle: startAngle + settled });
         // With pivots to spare, the turn may end overlapping: the next pivot must then finish clear.
-        const passing = !overlap && E.v3Rules(game) && E.overlapAt(game, pose, startAngle + delta);
+        const passing = !overlap && E.pivotThrough(game) && E.overlapAt(game, pose, startAngle + delta);
         const reason = overlap ? `Can’t stop overlapping ${obstacleName(blocker)}` : passing ? `Overlapping ${obstacleName(passing)}: pivot again to finish clear` : blocker ? `Stops at ${obstacleName(blocker)}`
             : spendsAction ? `${settledReform ? 'Reform' : 'Extra Pivot'} · movement next activation` : rotCtx.startsMove ? 'Starts a Move' : '';
         showDragLabel(pose, reason, Boolean(blocker));
@@ -774,7 +776,7 @@ const GuidedPlay = (() => {
         document.getElementById('gp-shot-warning')?.remove();
         let labelAvailable = true;
         for (const v of game.units) {
-            if (!v.owner || v.owner === pose.owner || E.firingArcError(arc, E.geometry.rect(v))) continue;
+            if (!v.owner || v.owner === pose.owner || E.shotArcError(projected, pose, v)) continue;
             const check = E.shotCheck(projected, pose, v);
             targets.set(v.id, check);
             if (check.reason) {
@@ -823,27 +825,34 @@ const GuidedPlay = (() => {
     }
 
     /**
-     * V4: a charger with no part behind the line extending an enemy's front edge can only charge that front.
-     * For each enemy in reach, draw that line; where only the front can be charged, highlight the front edge.
+     * V4: from where the Manoeuvre began, a line from the charger's front-edge centre to each enemy's centre. If it
+     * crosses that enemy's front edge, only the front may be charged: highlight the front edge.
      */
     function drawChargeFaces(group, pose) {
         group.replaceChildren();
         if (!E.v4Rules(game) || !(pose.melee > 0)) return 0;
-        const G = E.geometry, c = G.centre(pose), reach = pose.pace * PX + pose.h / 2;
+        const act = game.activation?.unitId === pose.id ? game.activation : null;
+        const from = act?.startPose ? { ...pose, ...act.startPose } : (unit(pose.id) || pose);
+        const G = E.geometry, c = G.centre(from), reach = from.pace * PX + from.h / 2;
+        const [fa, fb] = G.rect(from), o = { x: (fa.x + fb.x) / 2, y: (fa.y + fb.y) / 2 };
         let frontOnly = 0;
         for (const v of game.units) {
-            if (!v.owner || v.routed || v.owner === pose.owner) continue;
+            if (!v.owner || v.routed || v.owner === from.owner) continue;
             const vc = G.centre(v);
-            if (Math.hypot(vc.x - c.x, vc.y - c.y) > reach + G.reach(pose) + G.reach(v)) continue;
-            const [a, b] = G.rect(v), len = Math.hypot(b.x - a.x, b.y - a.y) || 1;
-            const d = { x: (b.x - a.x) / len, y: (b.y - a.y) / len };
-            // Extend the front line only as far as this unit could reach: where it crosses the charge-reach circle.
-            const ox = a.x - c.x, oy = a.y - c.y, half = d.x * ox + d.y * oy, disc = half * half - (ox * ox + oy * oy - reach * reach);
-            const root = disc > 0 ? Math.sqrt(disc) : 0, from = Math.min(0, -half - root), to = Math.max(len, -half + root);
-            const only = E.chargeFrontOnly(game, pose, v);
-            svgMark(group, 'line', { x1: a.x + d.x * from, y1: a.y + d.y * from, x2: a.x + d.x * to, y2: a.y + d.y * to,
+            if (Math.hypot(vc.x - c.x, vc.y - c.y) > reach + G.reach(from) + G.reach(v)) continue;
+            if (E.v5Rules(game)) {
+                // V5: the line picks the one edge (two at a corner) this unit may charge.
+                svgMark(group, 'line', { x1: o.x, y1: o.y, x2: vc.x, y2: vc.y, class: 'gp-front-line gp-front-line-only' });
+                const t = G.rect(v);
+                for (const i of E.chargeEdges(from, v)) svgMark(group, 'line', { x1: t[i].x, y1: t[i].y, x2: t[(i + 1) % 4].x, y2: t[(i + 1) % 4].y, class: 'gp-front-only-edge' });
+                frontOnly += 1;
+                continue;
+            }
+            const only = E.chargeFrontOnly(game, from, v);
+            svgMark(group, 'line', { x1: o.x, y1: o.y, x2: vc.x, y2: vc.y,
                 class: `gp-front-line ${only ? 'gp-front-line-only' : 'gp-front-line-open'}` });
             if (only) {
+                const [a, b] = G.rect(v);
                 svgMark(group, 'line', { x1: a.x, y1: a.y, x2: b.x, y2: b.y, class: 'gp-front-only-edge' });
                 frontOnly += 1;
             }
@@ -953,7 +962,7 @@ const GuidedPlay = (() => {
                 el.role = 'button';
                 el.classList.add('gp-target'); el.classList.toggle('gp-target-chosen', pendingTarget === t.id);
                 if (pendingTarget === t.id) drawAttackPreview(v, t.preview);
-            } else if (!E.firingArcError(E.firingArc(u), G.rect(v))) el.classList.add('gp-shot-blocked');
+            } else if (!E.shotArcError(game, u, v)) el.classList.add('gp-shot-blocked');
         }
         return o;
     }
@@ -1166,7 +1175,10 @@ const GuidedPlay = (() => {
                         const control = button(name, () => chooseOrder(id, type), false, hint, pressed ? 'btn-blue' : 'btn-grey', orders);
                         control.setAttribute('aria-pressed', String(pressed));
                     };
-                    if (o.forward.charge || o.forward.max > .01 || o.backward.max > .01) order('Move', 'move', 'Drag the unit to advance, withdraw or charge');
+                    const v5 = E.v5Rules(g);
+                    if (o.forward.charge || o.forward.max > .01 || o.backward.max > .01) order(v5 && o.engaged ? 'Withdraw' : 'Move', 'move',
+                        v5 ? (o.engaged ? 'Drag the unit away: a Withdraw is a March with no pivots' : 'Drag the unit to March, or straight into an enemy to charge') : 'Drag the unit to advance, withdraw or charge');
+                    if (o.faceAbout) button('Face about', faceAbout, false, 'Turn to face the opposite way, then Withdraw', 'btn-grey', orders);
                     if (o.pivot.usesAction && availableTurn(o.pivot)) order('Extra Pivot', 'pivot', 'Drag the ↻ handle to use Extra Pivot');
                     if (availableTurn(o.reform)) order('Reform', 'reform', 'Drag the ↻ handle. Reform uses the action.');
                     if (o.shoot.some(t => t.ok)) order('Shoot', 'shoot', 'Select an enemy on the battlefield');
@@ -1175,7 +1187,9 @@ const GuidedPlay = (() => {
                     if (!orders.children.length) orders.remove();
                     if (o.shaken) add('p', 'Shaken: an enemy’s front is touching this unit’s flank, so it can’t strike.', 'gp-sub');
                     if (document.getElementById('gp-next-charge')) add('p', 'Next-turn charge reach', 'gp-next-charge-key');
-                    if (chargeFacesShown) add('p', 'Gold edge: no part of this unit is behind that enemy’s front line (dashed), so it can only charge its front.', 'gp-front-only-key');
+                    if (chargeFacesShown) add('p', E.v5Rules(g) ? 'Gold edge: the only edge of that enemy this unit may charge (the dashed line from its front to the enemy’s centre crosses it). Charge with at most one pivot, before moving.'
+                        : 'Gold edge: the dashed line from this unit’s front to that enemy’s centre crosses its front edge, so it can only charge its front.', 'gp-front-only-key');
+                    if (E.v5Rules(g) && o.engaged && !o.faceAbout && !o.strike.length && !o.activation.action) add('p', 'Engaged: only the Master Tactician’s units can Withdraw.', 'gp-sub');
                     if (o.activation.overlap) add('p', 'Keep pivoting: the unit can’t finish overlapping another unit, impassable terrain or the edge.');
                     if (o.activated) button('End activation', endActivation, Boolean(o.activation.overlap), o.activation.overlap ? 'Pivot clear first' : '', 'btn-blue gp-end');
                 } else if (o?.reason) add('p', o.reason);

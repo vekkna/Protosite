@@ -5,7 +5,7 @@ Read this first if you are picking the project up. `GUIDED-PLAY.md` has the
 architecture and the rules interpretations; this file has the current state,
 how to measure things, what has been tried, and what to do next.
 
-Last updated: 2026-11-21 (V4 rules added; see "Rules variant: V4"). Branch `codex/rules-guided-play`. The rules-engine /
+Last updated: 2026-11-26 (V5 rules added; see "Rules variant: V5"). Branch `codex/rules-guided-play`. The rules-engine /
 AI / guided-play work is committed; the card-maker and PDF work is not.
 
 What exists
@@ -77,6 +77,8 @@ change can be measured against it:
     tools/baselines/ai-v8.js   the V3-tuned AI as committed (ad3886b); the AI before V4 support
     tools/baselines/ai-v9.js   v8 + reading V4 correctly (c66fefb/c953539); the AI before V4 tuning
     tools/baselines/ai-v10.js  v9 + closeCharge + midCharge (V4 tuning, 2026-11-21)
+    tools/baselines/ai-v11.js  v10 + V4 extra-pivot turns in plansFor (2026-11-25); the AI before pivotMove/fixedShots
+    tools/baselines/ai-v12.js  v11 + pivotMove + fixedShots (2026-11-25 work, frozen 2026-11-26); the AI before V5 support
 
 Rules:
 
@@ -429,9 +431,25 @@ its own helper in engine.js, all exported: `v4Rules`, `reformAction`, `rallyAllo
   `resolveAttack` pass `explodingSixes(s)`.
 - A Pace asterisk does nothing (designer, 2026-11-21). The sheet dropped Light Infantry's
   asterisk the same day.
-- Pivots never rule out a charge, but a charger with no part behind the line extending the
-  target's front edge can only charge its front (designer, 2026-11-21, later). `behindFrontLine`,
-  `chargeFrontOnly`; judged where the charging move starts. Guided play draws the lines.
+- Pivots never rule out a charge. Charge facing (rules doc, 2026-11-25, replacing the front-line test): at the very
+  start of the Manoeuvre, a line from the charger's front-edge centre to the target's centre; if it crosses the
+  target's front edge (corners included) only the front may be contacted. `lineThroughFront`, `chargeFrontOnly`;
+  the start pose is `act.startPose`, set by the first pivot or move (BattleUX `facing` sets it for previews).
+  Guided play draws that line to each enemy in reach and a gold front edge where only the front is open.
+- Pivots may not touch another unit or blocking terrain (rules doc, 2026-11-25; V3 still sweeps through).
+  `pivotThrough(s)` is true for V3 only. Read as: impassable terrain and the edge stop a turn too. Something
+  already touching may be turned away from but not into (designer, 2026-11-25): in V4 such obstacles are tested for
+  overlap (`limitOf` in `pivotScan`) instead of the 0.5 px clearance, so flush units can't turn either way but a
+  corner touch blocks one way only.
+- Moving in contact (rules doc, 2026-11-25): a unit touching an enemy's front (corners included) can't Manoeuvre
+  unless it belongs to the Master Tactician and moves backwards (`frontHeld`). Touching only flanks or rears holds
+  nothing. The MT unit may pivot first where it has room (designer); `act.heldBack`, set when the Manoeuvre starts,
+  keeps the whole Manoeuvre backwards even if the pivot took it out of contact.
+- No firing arc in V4 (designer, 2026-11-25): only the sight line counts, and the shooter's own card blocks it, so
+  no line goes backwards. `shotArcError(s, u, v)` is the cheap pre-check (range only in V4). `pivotScan` now has soft
+  obstacles (passed through, can't stop on: all of them in V3) and hard ones (stop the turn).
+- Range (rules doc, 2026-11-25): measured along the sight line, from the shooter's front-edge centre to the centre
+  of a target edge it can see; that edge centre must be within Range (`shotCheck`).
 - Strike, and a charge's contact, may be against any touching enemy (designer,
   2026-11-21). `canStrikeAt` keeps the front-only test for `'v3'` only.
 - Shaken: a unit can't strike (not even a charge's free strike) while an enemy's front edge
@@ -439,10 +457,14 @@ its own helper in engine.js, all exported: `v4Rules`, `reformAction`, `rallyAllo
   contact; designer, 2026-11-21, replacing "unless that enemy is Shaken itself"). The flank
   test is `touchesFront(enemy, unit) && touchesFlank(unit, enemy)`. `unitOptions` returns
   `shaken`, and the orders panel shows a note. The AI measured as v10 used the old rule.
-- "Turn to face" (an MT unit pivoting out of and back into contact) is not modelled
-  (designer, 2026-11-21).
-- Kept from earlier versions although the V4 text doesn't say it: the target must be
-  wholly in front of the shooter.
+- "Turn to face" has been removed from the doc (2026-11-25); not modelled. A paragraph saying it counted as a
+  charge was briefly in the doc that day.
+- A unit that doesn't move forwards or backwards may pivot one additional time (rules doc,
+  2026-11-25), so a Drill 0 unit can turn in place, including an MT unit turning to face a
+  flanker. `pivotsAllowed` (Mobility + 1 until the unit has moved) and `extraPivotUsed` (no move
+  after that extra pivot) in engine.js; the AI's `plansFor` considers turns of 90 x (Mobility + 1).
+- In the doc but with no effect: Obscuring terrain (no sample terrain has it) and "higher" units (the doc points to a
+  Height section it doesn't have; no dice).
 
 AI: v8 frozen first, then small changes so the AI reads V4 correctly. `pairGeometry` counts
 no contact strike by a Shaken unit. Shooter facing estimates use `reformAction`, not
@@ -468,8 +490,71 @@ ever (V4 has no round limit and no bonus dice). Two causes, both fixed in `ai.js
 strikes, shots and Shaken units per side (it steps through each decision's actions because
 the engine keeps only the last action's events).
 
+Rules variant: V5 (2026-11-26)
+------------------------------
+
+`rules: 'v5'`, from the V5 Google Doc (first line of `rules url.txt`; a text copy is in
+`docs/rules-v5-2026-11-26.txt`). Rules page `game-rules-v5.html`; landing-page button "V5". The designer's working
+title for the doc was "Seize 11 Set Moves"; the rule set is called V5 (designer, 2026-11-26). Details of the engine
+readings are in GUIDED-PLAY.md. In short: V4's shooting, Shaken, dice and terrain (`v4Rules` is true for V5;
+V4-only movement now tests `v4Only`), hills slow units entering them again, and new movement (`v5Rules`): March
+(pivots only at the start or end, no contact with anything), Charge (edge picked by the start line, at most one
+pivot before moving, hinge flush, free strike at the target), Reform (any facing, only the end checked), Withdraw
+(Master Tactician's engaged units: `faceAbout`, then a March without pivots), engaged units otherwise only Strike,
+and a strike on a flank needs 3s. Tests: `tests/v5-rules.test.js`.
+
+Open questions for the designer (sent with the V5 review, 2026-11-26): see the run log entry of that day.
+
+AI for V5 (2026-11-26): v12 frozen first. New weights, both on: `v5Aim` (plansFor aims charges at points along each
+enemy's one chargeable edge, offers a Reform where a pivot would touch something, and plans Withdraws: face about,
+then March away, or just face about) and `v5Threat` (pairGeometry: a charge allows one pivot whatever the Mobility,
+and a charge or strike on a flank uses a target number of 3). `midCharge` and the extra-pivot turns are V4-only now.
+`tools/v4-probe.js` takes `--rules=v5` and also counts Reforms and face-abouts.
+
 Run log
 -------
+
+- 2026-11-26: V5 rules added (see "Rules variant: V5"). Stats sheet synced: Heavy Infantry Melee 8, Light Infantry
+  Drill 4, Light Cavalry 3/3/3/12 (now shoots), Crossbows 2*/18, Mounted Archers Quantity 0 (out of the pool);
+  `FALLBACK_DEFAULT_UNITS` copied. `tools/selfplay.js` and `tools/balance/study.js` read Quantity 0 as 0 (it was 1).
+  AI: v12 frozen, then `v5Aim` and `v5Threat`. NOT measured: the designer stopped the measurement (rules likely to
+  change soon; playtesting by hand). Only checked: tests, the classic positions suite (same 2 known failures), and
+  single hard games (new v new, v12 v v12, new v v12 on 6 seeds both ways; all finish in 7-17 rounds, about 1-3 min).
+  Do not freeze v13 until it is measured. Warning: `tools/v4-probe.js 10 hard ...` ran for 6+ hours without finishing
+  under V5 (workers at ~2 GB each, so probably cache growth in a long process); one game per process was fine
+  (scratch script game1.js, not kept). Use fewer games per process.
+  Astra could not be consulted: Codex refused the model in `%USERPROFILE%\.codex\config.toml` (`gpt-6.2-sol`, "not
+  supported when using Codex with a ChatGPT account").
+  Open questions sent to the designer with the V5 review: see the reply of 2026-11-26 (problems list in that chat;
+  the main ones are also boxed notes in game-rules-v5.html).
+
+- 2026-11-25 (later): V4 rules updated to the doc (see "Rules variant: V4"). AI: froze v11 (v10 + extra-pivot
+  turns), then `pivotMove` (V4 plans move or charge after an opening pivot; before, `moveStarted` only allowed that
+  where Reform existed, so the V4 AI never pivoted and then moved) and `fixedShots` (V4 threat counts only shots
+  from a shooter's current facing). Hard v v11, seeds 50001-50040 (both sides each seed), on the rules before the
+  no-arc, pivot-away and contact changes: 58-22, 0 unfinished, mean 11.1 rounds; with pivotMove=0: 41-34, 5
+  unfinished. Not yet confirmed on the final rules, positions suite not run, not frozen as v12: the designer paused
+  AI work. Re-run `tools/v4-probe.js` hard v v11 on fresh seeds (52000+ were started and abandoned) before freezing.
+- 2026-11-25: V4 unit balance study on the live sheet (not yet synced into `unit-cards-source.csv`:
+  the sheet now has Heavy Infantry Melee 8, Light Infantry Drill 4, Light Cavalry Drill 3).
+  Scripts in `tools/balance/` (`study.js` plays AI v AI V4 games with a fair pool shuffle and
+  per-unit event counts, stat overrides as `"Unit.Stat=value;..."`; `analyse.js` merges runs and
+  fits win ~ unit-count difference; `duel.js` is exact V4 duel maths incl. Shaken and MT
+  turn-to-face; `run.sh` runs workers in parallel). Baseline, 720 normal + 216 hard games (seeds
+  30000+, 40000+): weakest Crossbows (win 41/43%), Mounted Archers (47/44%), Light Cavalry
+  (46/44%); nothing clearly too strong; Heavy Infantry at Melee 8 is average (50%). Flank
+  charges are rare in AI play (~0.2-0.4 per unit per game). Tweak set Light Cavalry Melee 3,
+  Crossbows Drill 1 and 2*/16, Mounted Archers 3/16, 450 normal + 220 hard games: normal win%
+  range 41-56 -> 46-52; hard Crossbows 53%, Light Cavalry 50%, Mounted Archers still 46%.
+  Rules doc v app (unchanged since): the doc's charge-facing test is now a line from the
+  charger's front-edge centre to the target's centre at the very start of the Manoeuvre
+  (engine still uses `behindFrontLine` after pivots, which allows fewer flank charges); the
+  doc drops "only by moving forwards" for charges; Range is now measured along the sight line
+  to an edge centre, not to the nearest point; the doc mentions a Height section that it lacks.
+  Later the same day: the doc gained "a unit that doesn't move may pivot one additional time"
+  (see "Rules variant: V4"). The study above was run before this, so its Drill 0 units (Heavy
+  Infantry, Heavy Cavalry, Crossbows) could never turn, and no unit had the extra pivot. In the duel
+  maths a flanked Heavy Infantry now wins 73% (0% before), Heavy Cavalry 56%. Not re-run in whole games.
 
 - 2026-11-21 (later): V4 Shaken changed by the designer: the flanker only has to be touched
   by another of your units (not itself Shaken) to stop shaking. `shakenSet` removed. The AI

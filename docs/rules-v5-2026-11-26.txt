@@ -1,0 +1,157 @@
+SEIZE THE DAY
+Overview
+Seize the Day is a game of battles for two players. Each player commands an army, moving units across a tabletop battlefield and using dice to resolve shooting and close combat.
+You do not need to collect miniatures or prepare an army beforehand. The units are represented by cards, which act as both playing pieces and reference cards. At the start of the game, you take turns choosing these units and placing terrain, creating your armies and battlefield together.
+During the game, you move and turn your units to outmanoeuvre the enemy. Good positioning and timing matters: you can gain an advantage by attacking from the flank, holding useful terrain, or staying outside an enemy’s reach.
+The game is played over a series of rounds. At the start of each round, both players secretly bid for control of the turn order. A lower bid gives you more control over who acts when, but a higher bid lets you command more units. You must decide which matters more each round.
+You win when half your opponent’s units have routed. The rules are deliberately simple and abstract, focusing on the key decisions of a tabletop battle rather than detailed simulation. 
+Components
+24 unit cards
+12 terrain tiles
+24 strain markers
+12 command markers
+1 measuring stick
+10 six-sided dice
+2 overview cards
+Unit basics
+Fronts and flanks
+A unit’s front is its front edge, including both front corners. Everything else (both side edges, both rear corners and the rear edge) is its flank.
+
+
+ Unit-facing diagram: the front edge and two front corners are the front; both side edges, rear corners and rear edge are the flank. 
+
+Figure 1. A unit's front and flank
+Stats
+* Pace: how far the unit can move forwards, in inches.
+* Mobility: how many pivots the unit can make when moving.
+* Melee: how many dice the unit starts with when it strikes.
+* Shoot: how many dice the unit starts with when it shoots. A unit with no Shoot value can’t shoot.
+* Range: how far the unit can shoot, in inches.
+* Defence: the score each attack die needs to give the unit strain.
+There can be asterisks after certain stats, these will be explained in Attack Rolls,  below.
+Units will be given strain markers when they are hit. Units with 7 or more are routed and removed from play.
+TODO Example card with stats
+Setup
+Prepare the battlefield
+Play on an area 4 feet wide and 3 feet deep, with the players sitting opposite each other at the long edges.
+Each player’s deployment zone is the strip along their edge, 6 inches deep. This leaves 24 inches between the zones. On a different-sized table, make both zones the same depth and keep the gap between them as close to 24 inches as you can.
+TODO Image of board with deployment zones
+First game
+For your first game, you can use the prepared armies and battlefield below instead of drafting. Choose a random player to count as having picked first in the draft. This decides who wins a tied bid in round 1. Otherwise, continue with Prepare the Draft Pool.
+Prepare the draft pool
+1. Randomly decide which player uses the dark side of the unit cards. The other player uses the light side. The two sides differ only in appearance.
+2. Choose 12 unit cards at random. Lay them out in an evenly spaced grid between the deployment zones, 4 cards across and 3 deep. No card may touch a deployment zone.
+3. Shuffle the terrain tiles so that it’s random which side of each tile is up, then stack them. Players may look at the top tile but not the ones beneath it.
+4. Randomly choose who picks first.
+If you have miniatures, you can choose the 12 units to suit your collection instead of drawing them at random, and place the miniatures on the cards.
+TODO Image of board ready for draft
+Draft units and place terrain
+Players take turns to pick, starting with the first player, until all 12 units are deployed. On your pick:
+1. Choose a unit from the draft pool. Leave it where it is for now.
+2. Take the top terrain tile without flipping it over.
+3. Place or discard the tile. If it shows only open ground, or you can’t place it legally, return it to the box. Otherwise, place it so that it:
+   * overlaps the unit you chose, and
+   * doesn’t touch another terrain tile, a deployment zone or the battlefield’s edge.
+4. You may rotate it however you like. If it covers other undrafted units, put them back on top of the tile in the same positions.
+5. Deploy the unit. Place the unit you chose entirely inside your deployment zone, facing any direction, without overlapping another unit.
+TODO: Example with image
+Winning the game
+You win immediately when at least half your opponent’s starting units, rounded up, have routed. For example, with 6 units each, you win when the third enemy unit routs. 
+Round sequence
+Play rounds until someone wins. Each round has three steps:
+1. Bid for Master Tactician
+2. Command units
+3. Clean up
+Bid for Master Tactician
+The Master Tactician controls the timing of the round, but usually commands fewer units.
+1. Each player secretly chooses a bid, from 1 up to the number of units they have on the battlefield. Set a die to your bid and keep it covered with your hand.
+2. Reveal both bids at the same time.
+3. Each player takes as many command markers as they bid.
+4. The player with the lower bid is the Master Tactician for this round. If the bids are equal, last round’s Master Tactician keeps the title. In round 1, the player who picked second in the draft wins a tie.
+Example: Brian secretly sets a die to 4, Irina secretly sets one to 2.  They reveal them at the same time. Brian gets 4 command markers, Irina 2. Irina becomes the Master Tactician.
+Command units
+The command phase has up to three turns:
+1. The Master Tactician’s first turn. The Master Tactician activates units one at a time. After each activation, they choose whether to activate another unit or pass. They may pass without activating any units.
+2. The other player’s turn. The other player activates units in the same way until they pass. This is their only turn this round.
+3. The Master Tactician’s second turn. The Master Tactician may spend any command markers they have left in the same way, then passes.
+A player with no command markers left must pass. Any command markers not spent by the end of the phase are lost. 
+TODO: Example
+Measuring, stating intentions and resolving disputes
+You may measure distances and check lines of sight at any time. When you move a unit, state your intended result so that disagreements can be resolved before the position becomes difficult to reconstruct. For example:
+* I will move my archers here, where they’ll have a clear shot at your spearmen and remain outside your cavalry's charge range.
+* I will pivot my swords to protect their flank from your cavalry.
+* I will leave my fanatics 6 inches from your Heavy Infantry, so I can charge next round but you can’t charge me.
+If you can’t resolve a dispute, roll a die to determine who’s right.
+You can use your overview cards to work out hypothetical moves before making them.
+Activating Units
+1. Choose one of your units that doesn’t have a command marker on it.
+2. Place one of your command markers on it.
+3. If the unit is not engaged, choose one:
+   1. March
+   2. Charge
+   3. Reform
+   4. Shoot (only if the unit has a Shoot value)
+4. If it is engaged, choose one:
+   1. Strike
+   2. Withdraw (only if you are the Master Tactician)
+Because the marker stays on the unit until clean-up, each unit can be activated only once per round.
+Actions
+Movement Basics
+* Engaged: A unit touching any enemy is engaged; otherwise it is unengaged.
+* Pivoting: To pivot, rotate the unit in place around its centre by up to 90°. A unit may not touch another unit, impassable terrain, or the battlefield edge at any point during a pivot.
+* Obstructions: No part of a unit may touch another unit, impassable terrain, or the battlefield edge. Exception: charging units can make contact with enemies.
+March
+Move in a straight line forwards up to Pace, or backwards up to half pace.. You may make up to Mobility pivots, each may be at the start or at the end of the March. You may not make contact with an enemy.
+Charge
+1. Declare a target, then draw a line from the centre of your front edge to the centre of the target. The edge of the target this passes through is the only edge you are allowed to charge. If it passes through a corner, choose either of that corner’s edges.
+2. If Mobility is 1 or more, you may make one pivot. Then move in a straight line forwards up to Pace into contact with the target, then hinge it flush against the edge you are charging. If there isn’t room to do so, you may not charge this target (check before you start moving).
+3. Make a free Strike against the target.
+Reform
+Pick the unit up and place it back down so its centre point is in the same position, facing in any direction. It may not end up touching any units, impassable terrain or the battlefield’s edge.
+Shoot
+Choose a target that’s unengaged, in range and visible.
+* Visible: a straight line can be drawn from the centre of the shooter’s front edge to the centre of any of the target’s edges without first hitting concealing terrain or unit (including shooter or target).
+* Range: that line is no longer than the shooter’s Range.
+Then make an attack roll (see below) using the shooter’s Shoot value.
+TODO Example
+Withdraw
+The unit may optionally be faced in the opposite direction, then Marches. No pivots are allowed.
+Strike
+A unit is shaken while its flank is touching an enemy’s front, and that enemy is not touching another of your units. Shaken units can’t strike.
+Example: Unit A is shaken as B is flanking it. Then C charges B, so A is no longer shaken.
+Make an attack roll against one enemy the unit is touching, using its Melee value. 
+Attack rolls
+Roll dice equal to the attacker’s Shoot value (when shooting) or Melee value (when striking). 
+Each result that equals or beats the target’s Defence deals one strain.
+* Armour-piercing: If the Shoot or Melee value you are using has an asterisk, you need 3s or the target’s Defence, whichever is lower.
+* Loose formation: When shooting at a unit with an asterisk after its Defence, you always need 6s. This overrides Armour-piercing.
+* Flank attack: If you are striking the target’s flank, you need 3s or the target’s Defence, whichever is lower.
+Add a strain marker to the target for each strain dealt. If it now has 7 or more strain, it routs: remove the unit and all its markers from the battlefield.
+Clean up and End of Round
+Remove all command markers from units, then start the next round’s bidding.
+Terrain
+A unit is in a terrain feature if any part of its card overlaps the feature’s printed image. The rest of each tile is open ground and has no effect. 
+Terrain traits
+Impassable
+Units can’t move over impassable terrain. 
+Concealing
+Concealing terrain blocks line of sight.
+
+
+TODO: Several examples
+Slowing
+If a unit is in slowing terrain at any point during its activation, including at the start, it can’t move more than 4 inches. So a unit that has already moved more than 4 inches can’t enter slowing terrain during its activation.
+
+
+TODO: Example
+Elevated
+Concealing between units that are both outside it. A shooter in elevated terrain can see over other units, but not over concealing terrain. Elevated terrain counts as slowing to units entering it.
+Sample terrain
+Hill: Elevated.
+TODO: Example
+Forest: Concealing; Slowing.
+TODO Example of shooing out of forest
+Mountain: Concealing; Impassable.
+Swamp: Impassable.
+Field: Slowing.
+Page

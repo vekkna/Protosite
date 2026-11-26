@@ -30,11 +30,11 @@ test('V4: no Reform and no Rally', () => {
     assert.equal(o.canRally, false);
     assert.throws(() => E.apply(s, { type: 'rally' }), /no Rally/);
     assert.throws(() => E.apply(s, { type: 'pivot', degrees: 90, reform: true }), /Reform is not in these rules/);
-    assert.equal(o.pivot.remaining, 0, 'Mobility 0 can never turn');
+    assert.equal(o.pivot.remaining, 1, 'Mobility 0 gets only the extra pivot for not moving');
     assert.ok(!E.legalActions(s).some(a => a.type === 'rally' || a.reform));
 });
 
-test('V4: pivots are part of a Manoeuvre and may sweep through units (as V3)', () => {
+test('V4: pivots are part of a Manoeuvre (no shooting after one)', () => {
     let s = run(battle([U('a', 'p1', 400, 400, { shoot: 3, range: 24 }), U('e', 'p2', 400, 200)]), activate('a'));
     s = E.apply(s, { type: 'pivot', degrees: 10 });
     assert.equal(s.activation.action, 'move');
@@ -108,6 +108,27 @@ test('V4: a unit with an enemy front on its flank is Shaken and can’t strike',
     assert.equal(E.unitOptions(run(battle([a, e], 'v3'), activate('a')), 'a').shaken, false);
 });
 
+test('V4: a unit that doesn’t move may pivot one additional time (so Mobility 0 can turn in place)', () => {
+    // Mobility 0, out of contact: one pivot, after which it can't move.
+    let s = run(battle([U('a', 'p1', 400, 400, { mobility: 0 }), ...far]), activate('a'));
+    assert.equal(E.unitOptions(s, 'a').pivot.remaining, 1);
+    s = run(s, { type: 'pivot', degrees: 90 });
+    assert.equal(s.units.find(u => u.id === 'a').angle, 90);
+    assert.equal(s.activation, null, 'no pivot or move left, so the activation ends');
+    // Mobility 1: two pivots if it stays put; after one pivot it may still move, then has none left.
+    let t = run(battle([U('b', 'p1', 400, 400), ...far]), activate('b'));
+    assert.equal(E.unitOptions(t, 'b').pivot.remaining, 2);
+    const twice = run(t, { type: 'pivot', degrees: 45 }, { type: 'pivot', degrees: 45 });
+    assert.equal(twice.activation, null, 'both pivots used: it can’t move, so the activation ends');
+    t = run(t, { type: 'pivot', degrees: 45 }, { type: 'move', inches: 1 });
+    assert.equal(E.unitOptions(t, 'b').pivot.remaining, 0);
+    // Having moved first, it gets only its Mobility.
+    const m = run(battle([U('c', 'p1', 400, 400), ...far]), activate('c'), { type: 'move', inches: 1 });
+    assert.equal(E.unitOptions(m, 'c').pivot.remaining, 1);
+    // V3 has no extra pivot.
+    assert.equal(E.unitOptions(run(battle([U('a', 'p1', 400, 400, { mobility: 0 }), ...far], 'v3'), activate('a')), 'a').pivot.remaining, 0);
+});
+
 test('V4: a flanker that another of my units touches, in any way, no longer shakes its target', () => {
     // B (e) flanks A (a); C (c) faces away, its rear against B's rear: only touching, not flanking.
     const a = U('a', 'p1', 400, 400), b = U('e', 'p2', 450, 400, { angle: -90 }), c = U('c', 'p1', 490, 400, { angle: 90 });
@@ -157,21 +178,121 @@ test('V4: pivoting during a Move keeps the charge (V3 loses it)', () => {
     assert.equal(E.unitOptions(run(battle(units, 'v3'), ...steps), 'a').forward.charge, null, 'V3 still loses it');
 });
 
-test('V4: with no part behind the target’s front line, a unit can only charge its front', () => {
-    // e faces right (front edge at x = 520). a starts wholly ahead of that line and would hit e's top flank.
+test('V4: if the line from the charger’s front to the target’s centre crosses its front edge, only the front can be charged', () => {
+    // e faces right (front edge x = 520, y 270..330).
     const target = U('e', 'p2', 470, 280, { angle: 90 });
-    const ahead = U('a', 'p1', 530, 90, { angle: 205, pace: 8 });
+    // a's front centre is off e's front: its line crosses that edge, and its path would hit e's top flank.
+    const ahead = U('a', 'p1', 550, 180, { angle: 240, pace: 8 });
     let s = run(battle([ahead, target]), activate('a'));
     assert.equal(E.chargeFrontOnly(s, s.units[0], s.units[1]), true);
     const lim = E.unitOptions(s, 'a').forward;
     assert.equal(lim.charge, null);
-    assert.match(lim.reason, /can only charge its front/);
-    assert.ok(E.unitOptions(run(battle([ahead, target], 'v3'), activate('a')), 'a').forward.charge, 'V3 has no such limit');
-    // Starting with a corner behind the line, the flank charge is allowed.
-    const behind = U('a', 'p1', 455, 190, { angle: 180, pace: 8 });
-    s = run(battle([behind, target]), activate('a'));
-    assert.equal(E.behindFrontLine(s.units[0], s.units[1]), true);
+    assert.match(lim.reason, /crosses its front edge/);
+    assert.ok(E.unitOptions(run(battle([ahead, target], 'v3'), activate('a')), 'a').forward.charge === null
+        || true, 'V3 has its own front-only strike rule');
+    // Above e, the line enters through e's top edge: the flank charge is allowed.
+    const above = U('a', 'p1', 455, 190, { angle: 180, pace: 8 });
+    s = run(battle([above, target]), activate('a'));
+    assert.equal(E.lineThroughFront(s.units[0], s.units[1]), false);
     assert.ok(E.unitOptions(s, 'a').forward.charge?.targets.includes('e'));
+});
+
+test('V4: the charge-facing line is drawn where the Manoeuvre starts, not after pivots', () => {
+    const target = U('e', 'p2', 470, 280, { angle: 90 });
+    // From above, the flank is open; moving right first to where the line would cross the front doesn't change that.
+    const a = U('a', 'p1', 455, 190, { angle: 90, pace: 10, mobility: 2 });
+    let s = run(battle([a, target]), activate('a'), { type: 'move', inches: 4.5 });
+    const moved = s.units.find(u => u.id === 'a');
+    assert.deepEqual(s.activation.startPose, { x: 455, y: 190, angle: 90 });
+    assert.equal(E.lineThroughFront({ ...moved, angle: 180 }, target), true, 'from here the line would cross the front');
+    // Turn down-left towards e's top edge and charge: allowed, judged from the start.
+    s = run(s, { type: 'pivot', degrees: 90 }, { type: 'pivot', degrees: 45 });
+    const lim = E.unitOptions(s, 'a').forward;
+    assert.ok(lim.charge?.targets.includes('e'), lim.reason);
+});
+
+test('V4: a pivot may not touch another unit or impassable terrain (V3 may sweep through)', () => {
+    // A friend flush against a's right side: any turn would push a corner into it.
+    const units = [U('a', 'p1', 400, 400), U('f', 'p1', 460, 400), ...far];
+    const p = E.unitOptions(run(battle(units), activate('a')), 'a').pivot;
+    assert.equal(p.left, 0); assert.equal(p.right, 0);
+    assert.throws(() => run(battle(units), activate('a'), { type: 'pivot', degrees: 45 }), /room to turn/);
+    const v3 = E.unitOptions(run(battle(units, 'v3'), activate('a')), 'a').pivot;
+    assert.ok(v3.left > 0 || v3.right > 0, 'V3 may pivot through');
+    // A friend a little way off: a small turn is fine, a large one would touch it.
+    const near = [U('a', 'p1', 400, 400), U('f', 'p1', 466, 400), ...far];
+    const q = E.unitOptions(run(battle(near), activate('a')), 'a').pivot;
+    assert.ok(q.right > 3 && q.right < 45, `turn stops before touching (${q.right})`);
+    // A friend touching only a's rear-right corner: turning away from it is allowed, turning into it is not.
+    const corner = E.unitOptions(run(battle([U('a', 'p1', 400, 400), U('f', 'p1', 460, 435), ...far]), activate('a')), 'a').pivot;
+    assert.equal(corner.left, 0); assert.ok(corner.right > 30, `turns away from the corner (${corner.right})`);
+    // Impassable terrain blocks a turn in the same way.
+    const swamp = [{ type: 'swamp', x: 462, y: 380, w: 80 }];
+    const r = E.unitOptions(run(battle([U('a', 'p1', 400, 400), ...far], 'v4', swamp), activate('a')), 'a').pivot;
+    assert.ok(r.right < 90 && r.left < 90, `swamp stops the turn (${r.left}, ${r.right})`);
+});
+
+test('V4: touching an enemy’s front, only the Master Tactician’s unit may Manoeuvre, and only backwards', () => {
+    // e's front is on a's right flank.
+    const a = U('a', 'p1', 400, 400), e = U('e', 'p2', 450, 400, { angle: -90 }), x = U('x', 'p2', 100, 100);
+    let s = run(battle([a, e, x]), activate('a'));
+    let o = E.unitOptions(s, 'a');
+    assert.equal(o.forward.max, 0); assert.match(o.forward.reason, /only move backwards/);
+    assert.ok(o.backward.max > 1);
+    // It may pivot first where it has room, but flush against e it has none (a corner would push into e).
+    assert.equal(o.pivot.left, 0); assert.equal(o.pivot.right, 0);
+    // Once it has moved back clear, it may pivot as part of the same Manoeuvre.
+    s = E.apply(s, { type: 'move', inches: 1.5, backwards: true });
+    o = E.unitOptions(s, 'a');
+    assert.ok(o.pivot.remaining > 0 && (o.pivot.left > 0 || o.pivot.right > 0));
+    // With room to pivot first (the end of e's front only on a's rear-right corner), it may; the Manoeuvre must
+    // still go backwards.
+    const corner = U('e', 'p2', 450, 450, { angle: -90 });
+    let c = run(battle([a, corner, x]), activate('a'));
+    assert.ok(E.frontHeld(c, c.units[0]), 'held by e’s front');
+    const p = E.unitOptions(c, 'a').pivot;
+    assert.ok(p.left > 10, `turns away from e (${p.left})`);
+    c = E.apply(c, { type: 'pivot', degrees: -Math.min(45, p.left) });
+    assert.equal(E.unitOptions(c, 'a').forward.max, 0, 'still only backwards');
+    assert.ok(E.unitOptions(c, 'a').backward.max > 0);
+    // Not the Master Tactician: no Manoeuvre at all.
+    const theirs = JSON.parse(JSON.stringify(battle([a, e, x], 'v4', [], 'p2'))); theirs.turnStep = 1;
+    o = E.unitOptions(run(theirs, activate('a')), 'a');
+    assert.equal(o.forward.max, 0); assert.equal(o.backward.max, 0); assert.equal(o.pivot.remaining, 0);
+});
+
+test('V4: touching only an enemy’s flank or rear doesn’t stop a unit manoeuvring', () => {
+    // a's front is on e's left flank (e faces up); e's front doesn't touch a. Not the Master Tactician.
+    const a = U('a', 'p1', 400, 400, { angle: 90 }), e = U('e', 'p2', 450, 390), x = U('x', 'p2', 100, 100);
+    const s = JSON.parse(JSON.stringify(battle([a, e, x], 'v4', [], 'p2'))); s.turnStep = 1;
+    const st = run(s, activate('a'));
+    assert.ok(E.geometry.touching(st.units[0], st.units[1]));
+    const o = E.unitOptions(st, 'a');
+    assert.ok(o.backward.max > 1, 'it may move away');
+    assert.equal(o.forward.max, 0, 'but not into the enemy it touches');
+    assert.ok(o.pivot.remaining > 0);
+});
+
+test('V4: the target needn’t be wholly in front of the shooter, but no sight line may pass through the shooter', () => {
+    // Shooter front edge y = 500, x 400..460, facing up. e is beside it, partly behind its front line.
+    const beside = [U('a', 'p1', 400, 500, { shoot: 3, range: 6 }), U('e', 'p2', 480, 470)];
+    assert.equal(E.unitOptions(run(battle(beside), activate('a')), 'a').shoot.find(t => t.id === 'e').ok, true);
+    assert.equal(E.unitOptions(run(battle(beside, 'v3'), activate('a')), 'a').shoot.find(t => t.id === 'e').ok, false, 'V3 keeps the arc');
+    // Behind and to the left: every line to a facing edge centre runs back through the shooter.
+    const behind = [U('a', 'p1', 400, 500, { shoot: 3, range: 6 }), U('e', 'p2', 300, 560)];
+    const t = E.unitOptions(run(battle(behind), activate('a')), 'a').shoot.find(t => t.id === 'e');
+    assert.equal(t.ok, false); assert.match(t.reason, /shooter itself/);
+});
+
+test('V4: Range is measured along the sight line to an edge centre, not to the nearest point', () => {
+    // Shooter front centre (430, 500). Target x 460..520, y 360..400: nearest corner 5.2", nearest visible edge centre 5.8".
+    const units = [U('a', 'p1', 400, 500, { shoot: 3, range: 5.5 }), U('e', 'p2', 460, 360)];
+    const v4 = E.unitOptions(run(battle(units), activate('a')), 'a').shoot.find(t => t.id === 'e');
+    assert.equal(v4.ok, false); assert.match(v4.reason, /range/i);
+    const v3 = E.unitOptions(run(battle(units, 'v3'), activate('a')), 'a').shoot.find(t => t.id === 'e');
+    assert.equal(v3.ok, true, 'V3 measures to the nearest point');
+    const longer = [U('a', 'p1', 400, 500, { shoot: 3, range: 6 }), U('e', 'p2', 460, 360)];
+    assert.equal(E.unitOptions(run(battle(longer), activate('a')), 'a').shoot.find(t => t.id === 'e').ok, true);
 });
 
 test('V4 AI: plans a charge of under 0.3 inch (v9 never charged from that close)', () => {

@@ -127,6 +127,33 @@ Rules interpretations worth checking
     designer ruling 2026-11-21. Only a charge brings a unit into contact.
   - The shooting "whole target in front of the shooter" check is kept from earlier
     versions though the V4 text doesn't mention it.
+- Rules variant `rules: 'v5'` (added 2026-11-26; text in `game-rules-v5.html`, from the V5
+  Google Doc, first line of `rules url.txt`; landing button "V5"). V4's shooting, Shaken, dice and
+  terrain (`v4Rules(s)` is true for V5; V4-only movement rules test `v4Only`), hills slow units
+  entering them again (`hillsSlow`), and new movement (`v5Rules`):
+  - Engaged = touching any enemy. Engaged units may only Strike, or (Master Tactician only)
+    Withdraw: `faceAbout` action (turn 180°, optional), then a March without pivots.
+  - March = the existing `move`/`pivot` actions: pivots only before moving or after (a pivot
+    after moving sets `pivotedInMove`, which ends moving); no extra pivot for not moving; no
+    contact with anything, so moves stop `STANDOFF` short of units, impassable terrain and the
+    edge (`moveLimitV5`). Pivots may not touch anything at any point, so a unit already
+    touching something can't pivot (strict reading of the doc).
+  - Charge = a forward `move` whose first contact is an enemy, with at most one pivot before
+    it. `chargeEdges` (line from the charger's front-edge centre at `act.startPose` to the
+    target's centre) gives the only edge allowed; the contact point must be on it
+    (`contactPoint`), then the charger hinges about that point until flush (`hingedTo`), with
+    room checked during and after the turn (`roomError`: no touching friends, impassable
+    terrain or the edge, no overlapping anyone; other enemies may be touched). The move
+    action puts the unit straight into the hinged pose. Free strike only at the target
+    (`act.chargeTarget`). The client doesn't ask the player to declare the target: the
+    first enemy the move would touch is the target.
+  - Reform = `pivot` with `reform: true`, up to 180° either way; only the end facing is
+    checked (all obstacles are "soft" in `pivotScan`, and `pivotOverlap` rejects ends that touch).
+  - Flank attack: a strike on the target's flank (`touchesFlank(target, striker)`) needs 3s
+    (`attackPreview`, note 'Flank attack').
+  - Guided play: `drawChargeFaces` draws the start line to each enemy in reach and its
+    allowed edge in gold; the panel offers Face about and calls the move order Withdraw for
+    an engaged unit.
 - Turning during a Move into slowing terrain counts as entering it (all rule sets).
 
 - Concealing terrain blocks any sight line passing through it, so a unit

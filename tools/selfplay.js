@@ -19,7 +19,7 @@ function loadRoster() {
     const head = rows.shift(), col = n => head.indexOf(n), roster = [];
     for (const r of rows) {
         if (!r[col('Unit')]) continue;
-        for (let i = 0; i < (parseInt(r[col('Quantity')], 10) || 1); i++) roster.push({ name: r[col('Unit')], footprint: r[col('Footprint')] || 'SW',
+        for (let i = 0; i < (r[col('Quantity')] === undefined || r[col('Quantity')].trim() === '' ? 1 : parseInt(r[col('Quantity')], 10)); i++) roster.push({ name: r[col('Unit')], footprint: r[col('Footprint')] || 'SW',
             stats: { Speed: r[col('Speed')], Drill: r[col('Drill')], Melee: r[col('Melee')], Ranged: r[col('Ranged')], Def: r[col('Def')] } });
     }
     return roster;

@@ -8,6 +8,7 @@ const BattleUX = (() => {
     }
     function facing(s, u, act, degrees) {
         let pose = { ...u }, activation = { ...act }, left = degrees;
+        if (E.v4Rules(s) && !activation.startPose) activation.startPose = { x: u.x, y: u.y, angle: u.angle };
         const steps = [];
         while (Math.abs(left) > 0.001) {
             const limit = E.pivotLimit(s, pose, activation);
@@ -18,7 +19,7 @@ const BattleUX = (() => {
             const last = Math.abs(left - turn) <= 0.001;
             if (last ? E.pivotEndError(s, pose, { ...limit, remaining: 1 }, turn) : E.pivotEndError(s, pose, limit, turn)) return null;
             pose = { ...pose, angle: pose.angle + turn };
-            activation.overlap = E.v3Rules(s) && Boolean(E.overlapAt(s, pose, pose.angle));
+            activation.overlap = E.pivotThrough(s) && Boolean(E.overlapAt(s, pose, pose.angle));
             activation.pivots++;
             // Classic: any pivot once a Move is under way forbids a charge. Reform rules: only once the unit has moved.
             if (activation.action === 'move' && (!E.reformRules(s) || activation.moved > 0)) activation.pivotedInMove = true;

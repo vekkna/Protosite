@@ -10,7 +10,7 @@ li{margin:4px 0}
 .app-note{border-left:3px solid #6b7f5a;padding:2px 10px;background:rgba(107,127,90,.08);font-size:15px}
 </style>
 <h1>Seize the Day — V4</h1>
-<p>Rules as enforced by this app, from the V4 rules document (copied 2026-11-21). The outlined circular terrain tile is the terrain feature. Boxed notes say how the app reads points the document leaves open.</p>
+<p>Rules as enforced by this app, from the V4 rules document (copied 2026-11-21, updated 2026-11-25). The outlined circular terrain tile is the terrain feature. Boxed notes say how the app reads points the document leaves open.</p>
 <h2>Overview</h2>
 <p>Seize the Day is a game of battles for two players. Each player commands an army, moving units across a tabletop battlefield and using dice to resolve shooting and close combat.</p>
 <p>You do not need to collect miniatures or prepare an army beforehand. The units are represented by cards, which act as both playing pieces and reference cards. At the start of the game, you take turns choosing these units and placing terrain, creating your armies and battlefield together.</p>
@@ -98,34 +98,35 @@ li{margin:4px 0}
 <p>Because the marker stays on the unit until clean-up, each unit can be activated only once per round.</p>
 <h2>Actions</h2>
 <h3>Manoeuvre</h3>
-<p>A unit touching an enemy can’t Manoeuvre, unless it belongs to the Master Tactician.</p>
+<p>A unit touching an enemy’s front can’t Manoeuvre, unless it belongs to the Master Tactician and is moving backwards.</p>
+<p class="app-note">The enemy’s front edge includes its front corners. A unit touching only enemies’ flanks or rears may Manoeuvre as usual, but can’t move into an enemy it touches. The Master Tactician’s unit may pivot first if it has room, but its Manoeuvre must then be a move backwards, even if the pivot took it out of contact.</p>
 <p>Choose a direction, then move the unit either forwards up to its Pace or backwards up to half its Pace. It can’t switch between forwards and backwards during the Manoeuvre.</p>
 <p>Units can’t move over units, impassable terrain, or the battlefield’s edge.</p>
 <h4>Pivoting</h4>
 <p>A unit pivots by rotating by up to 90 degrees through its centre.</p>
 <p>During its Manoeuvre, the unit may pivot as many times as its Mobility. Each pivot may be at the start, end or during the Manoeuvre. If during the Manoeuvre, it carries on afterwards in the same direction chosen above (forwards or backwards) relative to its new facing.</p>
-<p>A unit may pivot through other units, impassable terrain and the battlefield’s edge, but cannot end a pivot, or a sequence of consecutive pivots, overlapping any of them.</p>
+<p>If the unit doesn’t move forward or backwards, it may pivot one additional time (this lets Drill 0 units pivot if they don’t move).</p>
+<p class="app-note">Once a unit has used that additional pivot it can’t move for the rest of its activation.</p>
+<p>A unit may not make contact with another unit or blocking terrain when pivoting.</p>
+<p class="app-note">The app reads blocking terrain as impassable terrain, and also stops a pivot at the battlefield’s edge. A unit already touching something may turn away from it, but not into it. Flush against another unit’s edge it can’t turn either way, since a corner would push into it; touching only at or near a corner, it can usually turn one way.</p>
 <h4>Charging</h4>
-<p>A unit can only move into contact with an enemy by moving forwards. Such a Manoeuvre is called a charge. A charging unit may pivot normally during its Manoeuvre.</p>
-<p>If no part of the charging unit is behind the line extending its target’s front edge, it can only charge that target’s front.</p>
-<p class="app-note">The app judges this where the charging move starts (after any pivots). A corner exactly on the line isn’t behind it. When you select a unit, a dashed line extends each nearby enemy’s front edge; a gold front edge means this unit can only charge that enemy’s front from where it stands.</p>
-<p>When a charging unit touches one or more enemies:</p>
+<p>A unit may only make contact with an enemy while moving forwards. When it does:</p>
 <ol><li>its Manoeuvre ends immediately (you do not line it up with its target), and</li><li>it may Strike as a free extra action.</li></ol>
-<p>Turn to face: a unit that is in contact with an enemy may pivot out of contact and back into contact (if it belongs to the Master Tactician), perhaps to face the enemy. However, this does not grant it a free strike, as it isn’t a charge.</p>
-<p class="app-note">The app doesn’t model turning back into contact. A Master Tactician’s unit in contact may start its Manoeuvre with a pivot and move away, but only a charge can bring it into contact.</p>
+<p>At the very start of the charging unit’s Manoeuvre, draw a line from the centre of its front edge to the centre of the target. If this line passes through the target’s front edge, you are only allowed to make contact with its front edge. Otherwise, you may make contact with any part you can reach.</p>
+<p class="app-note">The target’s front corners count as part of its front edge. When you select a unit, a dashed line runs from its front to each enemy it could reach; a gold front edge means this unit may only charge that enemy’s front this activation. Pivots and moves made during the Manoeuvre don’t change this.</p>
 <h3>Shoot</h3>
 <p>Choose one of your unengaged missile units.</p>
 <ul><li>Unengaged: it isn’t touching an enemy.</li><li>Missile unit: it has a Shoot value.</li></ul>
 <p>Choose a target that’s unengaged, in range and visible.</p>
 <ul>
-<li>Range: a straight line from the centre of the shooter’s front edge to the nearest point of the target is no longer than the shooter’s Range.</li>
 <li>Visible: a straight line can be drawn from the centre of the shooter’s front edge to the centre of any of the target’s edges without first hitting concealing terrain or a unit (including the shooter and the target).</li>
+<li>Range: that line is no longer than the shooter’s Range.</li>
 </ul>
 <p>Then make an attack roll using the shooter’s Shoot value.</p>
-<p class="app-note">As in earlier versions, the app also requires the whole target to be in front of the line of the shooter’s front edge.</p>
+<p class="app-note">The shooter’s own card blocks lines too, so a line can’t go backwards through it. The target doesn’t need to be wholly in front of the shooter.</p>
 <h3>Strike</h3>
 <p>A unit is shaken while an enemy’s front edge is touching its flank and that enemy is not touching another of your units. Shaken units can’t strike.</p>
-<p>Example: if unit A is shaken as B is flanking it, and then C touches B (front, flank or rear), A is no longer shaken.</p>
+<p>Example: if unit A is shaken as B is flanking it, and then C charges B, A is no longer shaken.</p>
 <p>Make an attack roll against one enemy the unit is touching, using its Melee value.</p>
 <p class="app-note">The enemy may be touching the striker’s front or flank.</p>
 <h2>Attack rolls</h2>
@@ -143,11 +144,15 @@ li{margin:4px 0}
 <h4>Impassable</h4>
 <p>Units can’t move over impassable terrain.</p>
 <h4>Concealing</h4>
-<p>Concealing terrain blocks line of sight (see Shoot).</p>
+<p>Concealing terrain blocks line of sight.</p>
+<h4>Obscuring</h4>
+<p>More than 2 inches of obscuring terrain blocks line of sight.</p>
+<p class="app-note">None of the terrain in this set is obscuring, so this has no effect in the app.</p>
 <h4>Slowing</h4>
 <p>If a unit is in slowing terrain at any point during its activation, including at the start, it can’t move more than 4 inches. So a unit that has already moved more than 4 inches can’t enter slowing terrain during its activation.</p>
 <h4>Elevated</h4>
-<p>Concealing between units that are both outside it. A shooter in elevated terrain can see over other units, but not over concealing terrain. Being higher gives no dice.</p>
+<p>Concealing between units that are both outside it. A shooter in elevated terrain can see over other units, but not over concealing terrain. Units in elevated terrain are higher than units outside it (see Height).</p>
+<p class="app-note">The document has no Height section yet. In the app, being higher gives no dice.</p>
 <h3>Sample terrain</h3>
 <ul>
 <li>Hill: Elevated.</li>

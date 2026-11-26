@@ -849,7 +849,7 @@ function openRulebook() {
     closeMatchupAnalysis();
     const frame = document.getElementById('rulebook-frame');
     const rules = GuidedPlay.activeRules();
-    const source = rules === 'v4' ? 'game-rules-v4.html' : ['reform-variant', 'v3'].includes(rules) ? `game-rules.html?rules=${rules}` : 'game-rules.html';
+    const source = rules === 'v5' ? 'game-rules-v5.html' : rules === 'v4' ? 'game-rules-v4.html' : ['reform-variant', 'v3'].includes(rules) ? `game-rules.html?rules=${rules}` : 'game-rules.html';
     if (frame.getAttribute('src') !== source) frame.setAttribute('src', source);
     setModalVisibility('rulebook-modal', true);
 }
@@ -1007,7 +1007,7 @@ const STATS_SNAPSHOT_URL = 'unit-cards-source.csv';
 // Last resort if neither the sheet, the browser cache nor the snapshot loads. Keep in step with
 // unit-cards-source.csv (tests/roles-stats.test.js checks this).
 const FALLBACK_DEFAULT_UNITS = [
-    { Unit: "Heavy Infantry", Speed: "6", Drill: "0", Melee: "6", Ranged: "-", Def: "5", Footprint: "SW", Quantity: "2" },
+    { Unit: "Heavy Infantry", Speed: "6", Drill: "0", Melee: "8", Ranged: "-", Def: "5", Footprint: "SW", Quantity: "2" },
     { Unit: "Fanatics", Speed: "5", Drill: "1", Melee: "5", Ranged: "-", Def: "3", Footprint: "SW", Quantity: "2" },
     { Unit: "Heavy Cavalry", Speed: "10", Drill: "0", Melee: "4", Ranged: "-", Def: "5", Footprint: "SN", Quantity: "2" },
     { Unit: "Infantry", Speed: "6", Drill: "2", Melee: "3", Ranged: "-", Def: "5", Footprint: "SW", Quantity: "3" },
@@ -1015,11 +1015,11 @@ const FALLBACK_DEFAULT_UNITS = [
     { Unit: "Spears", Speed: "6", Drill: "1", Melee: "1", Ranged: "-", Def: "6", Footprint: "SW", Quantity: "2" },
     { Unit: "Cavalry", Speed: "12", Drill: "1", Melee: "3", Ranged: "-", Def: "4", Footprint: "SN", Quantity: "2" },
     { Unit: "Lancers", Speed: "11", Drill: "2", Melee: "2*", Ranged: "-", Def: "4", Footprint: "SN", Quantity: "1" },
-    { Unit: "Light Infantry", Speed: "7", Drill: "6", Melee: "3", Ranged: "-", Def: "4*", Footprint: "SW", Quantity: "3" },
-    { Unit: "Light Cavalry", Speed: "14", Drill: "4", Melee: "2", Ranged: "-", Def: "3*", Footprint: "SN", Quantity: "2" },
+    { Unit: "Light Infantry", Speed: "7", Drill: "4", Melee: "3", Ranged: "-", Def: "4*", Footprint: "SW", Quantity: "3" },
+    { Unit: "Light Cavalry", Speed: "14", Drill: "3", Melee: "3", Ranged: "3/12", Def: "3*", Footprint: "SN", Quantity: "2" },
     { Unit: "Archers", Speed: "6", Drill: "1", Melee: "1", Ranged: "3/18", Def: "3", Footprint: "SW", Quantity: "3" },
-    { Unit: "Crossbows", Speed: "5", Drill: "0", Melee: "1", Ranged: "2*/14", Def: "3", Footprint: "SW", Quantity: "1" },
-    { Unit: "Mounted Archers", Speed: "12", Drill: "3", Melee: "1", Ranged: "3/12", Def: "3*", Footprint: "SN", Quantity: "2" }
+    { Unit: "Crossbows", Speed: "5", Drill: "0", Melee: "1", Ranged: "2*/18", Def: "3", Footprint: "SW", Quantity: "1" },
+    { Unit: "Mounted Archers", Speed: "12", Drill: "3", Melee: "1", Ranged: "3/12", Def: "3*", Footprint: "SN", Quantity: "0" }
 ];
 
 // Initialize with cached stats if present, or fallback default units immediately
@@ -1236,13 +1236,16 @@ function showTerrainTooltip(terrain) {
     // V3: hills also slow, and height gives no dice.
     // V4: no height dice, hills don't slow, and a Pace asterisk does nothing.
     const active = typeof GuidedPlay !== 'undefined' && GuidedPlay.activeRules ? GuidedPlay.activeRules() : 'classic';
-    const v3 = active === 'v3', v4 = active === 'v4';
+    // V5: like V4, but hills slow units entering them again.
+    const v3 = active === 'v3', v4 = active === 'v4' || active === 'v5', v5 = active === 'v5';
     const traits = base;
     const rules = [];
     if (traits.impassable) rules.push('Impassable: units cannot overlap, move or pivot through this feature.');
     if (traits.concealing) rules.push('Concealing: blocks shooting line of sight.');
     if (traits.slowing) rules.push(`Slowing: a Move that enters or starts here is limited to 4″ in total.${v4 ? '' : ' Units with a Pace asterisk ignore this.'}`);
     if (traits.elevated) rules.push(`Elevated: blocks sight between units outside it. Shooters here see over units, but not terrain.${v3 || v4 ? '' : ' Higher ground gives +1 attack die; attacking uphill gives −1 die.'}`);
+    if (v5 && traits.elevated) rules.push('Slowing to units entering it: a Move that enters a hill is limited to 4″ in total. A unit that starts its Move on the hill isn’t slowed by it.');
+    if (traits.impassable && v5) rules.push('No unit may touch it, while moving or pivoting.');
     if (v3 && traits.elevated) rules.push('Slowing to units entering it: a Move that enters a hill is limited to 4″ in total. A unit that starts its Move on the hill isn’t slowed by it. Units with a Pace asterisk ignore this.');
     tooltip.replaceChildren();
     const title = document.createElement('strong'); title.textContent = getTerrainCardLabel(terrain.dataset.subType); tooltip.appendChild(title);
@@ -4628,8 +4631,8 @@ function setupSidebarResize() {
     });
 }
 
-restoreBattleLogVisibility();
 window.addEventListener('resize', fitTableToScreen);
+restoreBattleLogVisibility();
 // Fullscreen and panel changes can settle after the window resize event.
 if (typeof ResizeObserver !== 'undefined') {
     const layoutObserver = new ResizeObserver(fitTableToScreen);
