@@ -27,6 +27,14 @@ const GuidedPlay = (() => {
         const description = typeof document !== 'undefined' && document.getElementById('rules-description');
         if (description) description.textContent = rulesDescriptions[rulesChoice];
     }
+    // Number of units in the draft pool for new games (12 or 16), remembered like the rules choice.
+    const ARMY_KEY = 'seize-the-day-army-size';
+    let armyChoice = (() => { try { return Number(localStorage.getItem(ARMY_KEY)) === 16 ? 16 : 12; } catch (e) { return 12; } })();
+    function setArmySize(n) {
+        armyChoice = Number(n) === 16 ? 16 : 12;
+        try { localStorage.setItem(ARMY_KEY, String(armyChoice)); } catch (e) { /* private mode */ }
+        if (typeof document !== 'undefined' && document.querySelectorAll) document.querySelectorAll('[data-army-choice]').forEach(b => b.setAttribute('aria-pressed', String(Number(b.dataset.armyChoice) === armyChoice)));
+    }
     const reformGame = () => game && E.reformRules(game);
     let aiAction = '', chosenOrder = null;
     const previewsByState = new WeakMap();
@@ -67,7 +75,7 @@ const GuidedPlay = (() => {
         if (shownSeq === null) shownSeq = game.seq;
         return game;
     }
-    function reset() { aiRun += 1; aiBusy = false; aiAction = ''; chosenOrder = null; game = null; darkPlayer = null; privateBids = {}; bidChoices = {}; revealSent = false; message = ''; pendingTarget = null; shownSeq = 0; tokenSig = ''; deckSig = ''; }
+    function reset() { aiRun += 1; aiBusy = false; aiAction = ''; chosenOrder = null; game = null; darkPlayer = null; privateBids = {}; bidChoices = {}; revealSent = false; message = ''; endDismissed = false; document.getElementById('gp-end-screen')?.remove(); pendingTarget = null; shownSeq = 0; tokenSig = ''; deckSig = ''; }
     function snapshot() {
         const g = ensure();
         return JSON.parse(JSON.stringify({ version: 2, game: g, darkPlayer, ai: aiPlayer, aiLevel, stage: g.phase === 'draft' ? g.draft.step : g.phase, drafting: g.phase === 'draft' }));
@@ -585,7 +593,7 @@ const GuidedPlay = (() => {
             el.classList.toggle('guided-used', Boolean(u.activated) && g.activation?.unitId !== u.id);
             const deploying = isDeployPiece(el);
             el.classList.toggle('guided-draft-option', Boolean(choosingUnit && !u.owner));
-            el.classList.toggle('guided-picked', deploying);
+            el.classList.toggle('guided-picked', deploying || (g.draft?.step === 'terrain' && g.draft.picked === u.id));
             const pose = deploying && g.draft.position;
             el.classList.toggle('gp-deploy-rotate', Boolean(pose));
             if (pose) {
@@ -647,6 +655,7 @@ const GuidedPlay = (() => {
         const deck = JSON.stringify(g.terrainDeck);
         if (deck !== deckSig) { deckSig = deck; terrainDeck = [...g.terrainDeck]; renderTerrainCard(); }
         table.classList.toggle('is-deploying', !inBattle);
+        table.classList.toggle('gp-has-pick', g.phase === 'draft' && Boolean(g.draft.picked) && g.draft.step !== 'pick');
     }
 
     function overlay() {
@@ -1076,6 +1085,39 @@ const GuidedPlay = (() => {
         b.onclick = () => undo();
         if (show && typeof positionBoardUndo === 'function') positionBoardUndo();
     }
+    // ---------- end of battle ----------
+    let endDismissed = false;
+    function renderEndScreen(g) {
+        let box = document.getElementById('gp-end-screen');
+        if (g.phase !== 'finished') { endDismissed = false; box?.remove(); return; }
+        if (endDismissed || box) return;
+        const winner = who(g.winner), loser = other(g.winner);
+        const local = aiPlayer || onlineTable() ? (winner === 'You' ? 'win' : 'loss') : 'shared';
+        const title = local === 'win' ? 'Victory' : local === 'loss' ? 'Defeat' : `${winner} is victorious`;
+        const line = local === 'win' ? 'The enemy line has broken. The day is yours.'
+            : local === 'loss' ? 'Your army has broken and fled the field.' : `${who(loser)}’s army has broken and fled the field.`;
+        box = document.createElement('div'); box.id = 'gp-end-screen'; box.className = `gp-end gp-end-${local}`;
+        box.setAttribute('role', 'dialog'); box.setAttribute('aria-modal', 'true'); box.setAttribute('aria-labelledby', 'gp-end-title');
+        const card = document.createElement('div'); card.className = 'gp-end-card'; box.appendChild(card);
+        const el = (tag, text, cls, parent = card) => { const e = document.createElement(tag); if (text !== undefined) e.textContent = text; if (cls) e.className = cls; parent.appendChild(e); return e; };
+        el('div', local === 'loss' ? '✠' : '⚜', 'gp-end-crest');
+        el('p', `Battle complete · Round ${g.round}`, 'gp-end-kicker');
+        el('h2', title).id = 'gp-end-title';
+        el('p', line, 'gp-end-line');
+        const stats = el('dl', undefined, 'gp-end-stats');
+        for (const p of who(loser) === 'You' ? [loser, g.winner] : [g.winner, loser]) {
+            const s = el('div', undefined, '', stats);
+            el('dt', who(p) === 'You' ? 'Your losses' : `${who(p)} losses`, '', s);
+            el('dd', `${g.routed[p]} / ${g.starting[p]} routed`, '', s);
+        }
+        const actions = el('div', undefined, 'gp-end-actions');
+        const btn = (text, cls, fn) => { const b = el('button', text, cls, actions); b.type = 'button'; b.onclick = fn; return b; };
+        const menu = btn('Main menu', 'gp-end-primary', () => { box.remove(); endDismissed = true; if (typeof exitToLanding === 'function') exitToLanding(); });
+        btn('View battlefield', 'gp-end-secondary', () => { box.remove(); endDismissed = true; });
+        document.body.appendChild(box);
+        setTimeout(() => menu.focus(), 50);
+    }
+
     function render() {
         const panel = document.getElementById('guided-play'); if (!panel) return;
         const previousFocus = panel.contains?.(document.activeElement) ? document.activeElement : null;
@@ -1093,7 +1135,7 @@ const GuidedPlay = (() => {
             return;
         }
         if (chosenOrder && (selectedPiece?.dataset.unitId !== chosenOrder.id || chosenOrder.id !== currentUnitId())) chosenOrder = null;
-        syncBoard(); showEvents(); renderField(g);
+        syncBoard(); showEvents(); renderField(g); renderEndScreen(g);
         if (typeof refreshPinnedRulers === 'function') refreshPinnedRulers();
         document.getElementById('container').classList.toggle('is-ai-game', Boolean(aiPlayer));
         document.getElementById('container').classList.toggle('is-shared-game', typeof sessionMode !== 'undefined' && sessionMode === 'shared');
@@ -1309,7 +1351,7 @@ const GuidedPlay = (() => {
         render, ensure, reset, snapshot, restore, note, incoming, canDrag, drawsReach, constrainDrag, dropPiece, constrainRotation, dropRotation, rotate, tap,
         canUndo, isDeployPiece, aiPlayer: () => aiPlayer,
         deploy, positionForDeployment, pass, bid, reveal, attack, endActivation, nextReady, movePieceTo, visiblePose,
-        setAI, aiNote: () => aiNote, setRules, rules: () => rulesChoice, activeRules: () => game ? E.normalizeRules(game.rules) : rulesChoice,
+        setAI, aiNote: () => aiNote, setRules, rules: () => rulesChoice, setArmySize, armySize: () => armyChoice, activeRules: () => game ? E.normalizeRules(game.rules) : rulesChoice,
         act: a => act(a), state: () => ensure(), counts: () => ({ p1: army('p1').length, p2: army('p2').length }),
         terrainAllowed, terrainDropError,
         terrainDrop({ x, y }, type) {
@@ -1324,6 +1366,6 @@ function playVsAI(level) {
 }
 // Show the remembered rules choice on the landing page.
 if (typeof document !== 'undefined') {
-    const syncRules = () => GuidedPlay.setRules(GuidedPlay.rules());
+    const syncRules = () => { GuidedPlay.setRules(GuidedPlay.rules()); GuidedPlay.setArmySize(GuidedPlay.armySize()); };
     if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', syncRules); else syncRules();
 }

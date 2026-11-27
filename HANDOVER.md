@@ -516,6 +516,12 @@ and a charge or strike on a flank rerolls misses). `midCharge` and the extra-piv
 Run log
 -------
 
+- 2026-11-27: End-of-battle popup (`renderEndScreen` in guided-play.js, `.gp-end` styles in guided-play.css): Victory / Defeat
+  (or "Player N is victorious" on a shared screen), both sides' routed counts, Main menu (`exitToLanding`) and View battlefield.
+  Deployment: the picked unit stays outlined and glows, the rest of the undrafted pool fades (`gp-has-pick`); the playable terrain tile pulses
+  (glow only under prefers-reduced-motion, which this machine's browser reports).
+  Landing page "Units" choice, 12 or 16 (`GuidedPlay.setArmySize` / `armySize()`, localStorage `seize-the-day-army-size`): sets the
+  draft pool in `createDefaultUnits` and the terrain deck length in `createShuffledTerrainDeck` (app.js). Headless tools still use 12.
 - 2026-11-26: V5 rules added (see "Rules variant: V5"). Stats sheet synced: Heavy Infantry Melee 8, Light Infantry
   Drill 4, Light Cavalry 3/3/3/12 (now shoots), Crossbows 2*/18, Mounted Archers Quantity 0 (out of the pool);
   `FALLBACK_DEFAULT_UNITS` copied. `tools/selfplay.js` and `tools/balance/study.js` read Quantity 0 as 0 (it was 1).

@@ -181,3 +181,47 @@
     .gp-impact { animation: none; opacity: .75; }
     .unit.gp-struck { animation: none; outline: 4px solid #fff0b1; }
 }
+
+/* End of battle popup */
+.gp-end { position: fixed; inset: 0; z-index: 5000; display: grid; place-items: center; padding: 20px;
+    background: radial-gradient(circle at center, rgba(10,18,19,.55), rgba(6,10,11,.88)); animation: gp-end-fade .45s ease-out; }
+.gp-end-card { width: min(440px, 100%); padding: 34px 32px 26px; text-align: center; color: #f6f2e7;
+    background: linear-gradient(180deg, #24393b, #172627); border: 1px solid #e4bf77; border-radius: 6px;
+    box-shadow: 0 0 0 4px rgba(228,191,119,.12), 0 24px 60px rgba(0,0,0,.6); animation: gp-end-rise .55s cubic-bezier(.2,.9,.3,1.2); }
+.gp-end-crest { font-size: 46px; line-height: 1; color: #e4bf77; text-shadow: 0 0 22px rgba(228,191,119,.55); }
+.gp-end-loss .gp-end-card { border-color: #b06a5b; background: linear-gradient(180deg, #33292a, #1b1718); }
+.gp-end-loss .gp-end-crest { color: #c9796a; text-shadow: 0 0 22px rgba(201,121,106,.45); }
+.gp-end-kicker { margin: 12px 0 2px; font: 600 12px 'Segoe UI', sans-serif; letter-spacing: .16em; text-transform: uppercase; color: #a9b2a7; }
+.gp-end h2 { margin: 0; font: small-caps 600 40px Georgia, serif; letter-spacing: .05em; color: #f6e9cf; }
+.gp-end-line { margin: 8px 0 20px; font: italic 16px Georgia, serif; color: #d9d4c4; }
+.gp-end-stats { display: flex; justify-content: center; gap: 12px; margin: 0 0 24px; }
+.gp-end-stats div { flex: 1; padding: 10px; border: 1px solid #4b5953; border-radius: 4px; background: rgba(0,0,0,.18); }
+.gp-end-stats dt { font: 600 11px 'Segoe UI', sans-serif; letter-spacing: .1em; text-transform: uppercase; color: #a9b2a7; }
+.gp-end-stats dd { margin: 4px 0 0; font: 600 18px Georgia, serif; }
+.gp-end-actions { display: flex; flex-direction: column; gap: 8px; }
+.gp-end-actions button { padding: 12px; border-radius: 3px; font: 650 15px 'Segoe UI', sans-serif; cursor: pointer; }
+.gp-end-primary { background: #e4bf77; color: #1a2526; border: 1px solid #e4bf77; }
+.gp-end-primary:hover { background: #f0d08f; }
+.gp-end-secondary { background: transparent; color: #e0dfd1; border: 1px solid #66746b; }
+.gp-end-secondary:hover { border-color: #a9b2a7; }
+@keyframes gp-end-fade { from { opacity: 0; } }
+@keyframes gp-end-rise { from { opacity: 0; transform: translateY(24px) scale(.94); } }
+
+/* Terrain tile waiting to be placed: pulse to draw the eye */
+#left-sidebar.sidebar #terrain-card.is-playable { animation: gp-terrain-call 1.6s ease-in-out infinite; }
+@keyframes gp-terrain-call {
+    0%, 100% { transform: scale(1); box-shadow: 0 0 0 3px #92672c, 0 0 0 0 rgba(255, 224, 146, .75); }
+    50% { transform: scale(1.07) rotate(-3deg); box-shadow: 0 0 0 3px #92672c, 0 0 0 12px rgba(255, 224, 146, 0); }
+}
+/* Reduced motion: no movement, just a glow that brightens and fades (the site-wide rule would otherwise stop it). */
+@keyframes gp-terrain-glow {
+    0%, 100% { box-shadow: 0 0 0 3px #92672c, 0 0 4px 2px rgba(255, 224, 146, .35); }
+    50% { box-shadow: 0 0 0 3px #f5d354, 0 0 18px 8px rgba(255, 224, 146, .9); }
+}
+@media (prefers-reduced-motion: reduce) {
+    #left-sidebar.sidebar #terrain-card.is-playable { animation: gp-terrain-glow 1.6s ease-in-out infinite !important; }
+}
+
+/* Deployment: once a unit is picked, fade the rest of the pool so the pick stands out */
+.guided-board.gp-has-pick .unit[data-army-skin="undrafted"]:not(.guided-picked):not(.ghost) { opacity: .3; filter: grayscale(.7); transition: opacity .25s, filter .25s; }
+.guided-board.is-deploying .unit.guided-picked:not(.ghost) { outline-color: #fff3b0; box-shadow: 0 0 16px 4px rgba(255, 224, 146, .75); z-index: 5; }

@@ -1466,7 +1466,7 @@ function hostGameFromLanding(mode = 'online', difficulty = 'normal') {
     clearPieceSelection();
     removeRangeRing();
 
-    // Spawn 12 random units from spreadsheet (or fallback) in central draft grid
+    // Spawn 12 or 16 (GuidedPlay.armySize()) random units from spreadsheet (or fallback) in central draft grid
     createDefaultUnits();
 
     // Shuffled terrain deck
@@ -3193,7 +3193,7 @@ function createRandomUnitPool(count) {
 }
 
 function createDefaultUnits() {
-    const draftPool = createRandomUnitPool(typeof GuidedPlay !== 'undefined' ? 12 : normalizeStartingPoolCount(false));
+    const draftPool = createRandomUnitPool(typeof GuidedPlay !== 'undefined' ? GuidedPlay.armySize() : normalizeStartingPoolCount(false));
     if (draftPool.length === 0) {
         console.warn("No units were available in the spreadsheet, so no draft pool was created.");
         return;
@@ -3329,7 +3329,7 @@ function createShuffledTerrainDeck() {
         [deck[i], deck[swapIndex]] = [deck[swapIndex], deck[i]];
     }
 
-    return typeof GuidedPlay !== 'undefined' ? deck.slice(0, 12) : deck;
+    return typeof GuidedPlay !== 'undefined' ? deck.slice(0, GuidedPlay.armySize()) : deck;
 }
 
 function getTerrainCardLabel(cardType) {
