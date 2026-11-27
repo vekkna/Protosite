@@ -78,7 +78,7 @@ const SeizeAI = (() => {
     /** What the side that owns `u` loses if `u` takes `extra` strain now. */
     function lossFrom(s, u, extra, W) {
         if (u.strain + extra < ROUT) return strainScore(u.strain + extra, W) - strainScore(u.strain, W);
-        const need = Math.ceil(s.starting[u.owner] / 2), k = s.routed[u.owner];
+        const need = E.routsToLose(s, u.owner), k = s.routed[u.owner];
         return W.strain + W.routed - strainScore(u.strain, W) + routProgress(k + 1, need, W) - routProgress(k, need, W) + (k + 1 >= need ? W.winBonus : 0);
     }
     function attackValue(s, target, pool, tn, W, reroll = false) {
@@ -219,7 +219,7 @@ const SeizeAI = (() => {
     function assess(s, me, W) {
         if (s.phase === 'finished') return { total: s.winner === me ? 1000 : -1000, theirs: 0 };
         const en = other(me), mine = army(s, me), theirs = army(s, en), cache = makeCache(s);
-        const side = p => army(s, p).reduce((n, u) => n + strainScore(u.strain, W), 0) + s.routed[p] * (W.strain + W.routed) + routProgress(s.routed[p], Math.ceil(s.starting[p] / 2), W);
+        const side = p => army(s, p).reduce((n, u) => n + strainScore(u.strain, W), 0) + s.routed[p] * (W.strain + W.routed) + routProgress(s.routed[p], E.routsToLose(s, p), W);
         const keep = 1 - (urgency[me] || 0);
         let v = side(en) - keep * side(me), theirNow = 0, myNow = 0;
         // Attacks that can still be made this round.

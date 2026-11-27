@@ -522,6 +522,9 @@ Run log
   (glow only under prefers-reduced-motion, which this machine's browser reports).
   Landing page "Units" choice, 12 or 16 (`GuidedPlay.setArmySize` / `armySize()`, localStorage `seize-the-day-army-size`): sets the
   draft pool in `createDefaultUnits` and the terrain deck length in `createShuffledTerrainDeck` (app.js). Headless tools still use 12.
+  Defeat rule (all variants): a side loses when down to 3 units or half its starting size, whichever is lower
+  (`E.routsToLose`; 6 a side: 3 routs, as before; 8 a side: 5 routs). AI and the "routed x / y" display use it; rules pages updated.
+  Bid buttons: a grid, fewest rows of at most 7, as even as possible.
 - 2026-11-26: V5 rules added (see "Rules variant: V5"). Stats sheet synced: Heavy Infantry Melee 8, Light Infantry
   Drill 4, Light Cavalry 3/3/3/12 (now shoots), Crossbows 2*/18, Mounted Archers Quantity 0 (out of the pool);
   `FALLBACK_DEFAULT_UNITS` copied. `tools/selfplay.js` and `tools/balance/study.js` read Quantity 0 as 0 (it was 1).

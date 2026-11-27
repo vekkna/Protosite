@@ -1119,13 +1119,15 @@ const SeizeEngine = (() => {
     }
 
     // ---------- command phase ----------
+    /** Routs that lose the battle: a side loses when it is down to 3 units or half its starting size, whichever is lower. */
+    function routsToLose(s, p) { const n = s.starting[p]; return n - Math.min(3, Math.floor(n / 2)); }
     function applyStrain(s, target, amount) {
         target.strain += amount;
         if (target.strain < ROUT_STRAIN) return;
         const p = target.owner;
         s.units = s.units.filter(u => u.id !== target.id); s.routed[p] += 1;
         log(s, `${target.name} routs!`); emit(s, { type: 'rout', unitId: target.id, name: target.name, owner: p, x: target.x + target.w / 2, y: target.y + target.h / 2 });
-        if (s.routed[p] >= Math.ceil(s.starting[p] / 2)) {
+        if (s.routed[p] >= routsToLose(s, p)) {
             s.winner = other(p); s.phase = 'finished'; s.activation = null;
             log(s, `${label(s.winner)} wins the battle!`); emit(s, { type: 'victory', winner: s.winner });
         }
@@ -1379,7 +1381,7 @@ const SeizeEngine = (() => {
     }
 
     return {
-        PX, TERRAIN, ROUT_STRAIN, FLANK_DICE, SPENT_STRAIN, createGame, normalizeRules, rulesName, RULES_NAMES, reformRules, v3Rules, v4Rules, v4Only, v5Rules, chargeEdges, chargeAt, withdrawPlan, withdrawUnfinished, EDGE_NAMES, reformAction, rallyAllowed, hillsSlow, explodingSixes, ignoresSlowing, spent, shaken, unmarkedStrikeDice, pivotThrough, frontHeld, pivotAllowed, nearestPivot, pivotOverlap, pivotEndError, overlapAt, apply, legalActions, unitOptions, attackPreview, activePlayer, parseStats,
+        PX, TERRAIN, ROUT_STRAIN, FLANK_DICE, routsToLose, SPENT_STRAIN, createGame, normalizeRules, rulesName, RULES_NAMES, reformRules, v3Rules, v4Rules, v4Only, v5Rules, chargeEdges, chargeAt, withdrawPlan, withdrawUnfinished, EDGE_NAMES, reformAction, rallyAllowed, hillsSlow, explodingSixes, ignoresSlowing, spent, shaken, unmarkedStrikeDice, pivotThrough, frontHeld, pivotAllowed, nearestPivot, pivotOverlap, pivotEndError, overlapAt, apply, legalActions, unitOptions, attackPreview, activePlayer, parseStats,
         observe, optionsAsIf, strainDist, clone, inTrait, enemiesTouching: (s, u) => enemiesTouching(s, u),
         terrainSpots, terrainPlacementError, deployError, tileAt, outflanked, touchesFront, touchesFlank, canStrikeAt, lineThroughFront, chargeFrontOnly, shotError, shotCheck, shotArcError, firingArc, firingArcError, moveLimit, crossingAt, pivotLimit, movementAfterPivot,
         geometry: { rect, disc, satGap, polyDist, sweep, forwardOf, centre, touching, inFeature, reach },

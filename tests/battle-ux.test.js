@@ -148,7 +148,7 @@ test('connected deployment keeps legal changes reversible until its single confi
     assert.equal(h.gp.tap(unit), true);
     assert.equal(h.gp.terrainAllowed(), true);
     assert.deepEqual(highlighted('guided-draft-option'), []);
-    assert.deepEqual(highlighted('guided-picked'), []);
+    assert.deepEqual(highlighted('guided-picked'), ['A']);   // the pick stays outlined while its terrain is placed
     assert.equal(h.get('terrain-card').classList.contains('is-playable'), true);
     h.gp.terrainDrop({ x: 430, y: 340 }, 'forest');
     assert.deepEqual(highlighted('guided-picked'), ['A']);
@@ -186,7 +186,7 @@ test('connected deployment keeps legal changes reversible until its single confi
     button('Undo').onclick();
     assert.equal(h.gp.state().terrain.length, 0);
     assert.deepEqual([...h.gp.state().terrainDeck], ['forest', 'hills']);
-    assert.deepEqual(highlighted('guided-picked'), []);
+    assert.deepEqual(highlighted('guided-picked'), ['A']);
     assert.equal(h.get('terrain-card').classList.contains('is-playable'), true);
     button('Undo').onclick();
     assert.equal(h.gp.state().draft.step, 'pick');

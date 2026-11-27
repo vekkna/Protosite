@@ -1055,7 +1055,7 @@ const GuidedPlay = (() => {
         set('field-phase', actor ? `${phase} · ${actor === 'You' ? 'Your turn' : actor}` : phase);
         set('field-turn', fieldInstruction(g));
         set('deployment-terrain-notice', hasNoTerrainThisTurn(g) ? 'No terrain to place this turn.' : '');
-        set('field-objective', draft ? '' : `${who(other(local))} routed · ${g.routed[other(local)]} / ${Math.ceil(g.starting[other(local)] / 2)}`);
+        set('field-objective', draft ? '' : `${who(other(local))} routed · ${g.routed[other(local)]} / ${E.routsToLose(g, other(local))}`);
         if (draft) for (const p of ['p1', 'p2']) {
             const zone = document.getElementById(p === 'p1' ? 'deployment-zone-bottom' : 'deployment-zone-top');
             zone.dataset.label = who(p) === 'You' ? 'Your deployment zone' : `${who(p)} deployment zone`;
@@ -1193,6 +1193,7 @@ const GuidedPlay = (() => {
                         lock.textContent = bidChoices[p] ? `Lock bid · ${bidChoices[p]} command${bidChoices[p] === 1 ? '' : 's'}` : 'Lock bid';
                     };
                     for (let n = 1; n <= army(p).length; n++) choices.push(button(String(n), () => { bidChoices[p] = n; refresh(); }, false, `Bid ${n}`, 'btn-grey gp-bid', r));
+                    { const n = army(p).length, rows = Math.ceil(n / 7); r.style.gridTemplateColumns = `repeat(${Math.ceil(n / rows)}, minmax(30px, 1fr))`; }   // rows as even as possible
                     const lock = button('Lock bid', () => { const value = bidChoices[p]; delete bidChoices[p]; bid(p, value); });
                     refresh();
                 }
