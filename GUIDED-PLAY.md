@@ -127,42 +127,31 @@ Rules interpretations worth checking
     designer ruling 2026-11-21. Only a charge brings a unit into contact.
   - The shooting "whole target in front of the shooter" check is kept from earlier
     versions though the V4 text doesn't mention it.
-- Rules variant `rules: 'v5'` (added 2026-11-26; text in `game-rules-v5.html`, from the V5
-  Google Doc, first line of `rules url.txt`; landing button "V5"). V4's shooting, Shaken, dice and
-  terrain (`v4Rules(s)` is true for V5; V4-only movement rules test `v4Only`), hills slow units
-  entering them again (`hillsSlow`), and new movement (`v5Rules`):
-  - Engaged = touching any enemy. Engaged units may only Strike, or (Master Tactician only)
-    Withdraw: the `withdraw` action (`targetId`: the enemy to face) turns the unit in place so
-    its edge touching that enemy becomes its front (0/90/180°; `withdrawPlan`, which also
-    refuses it without room to turn or to back out of contact), then a backwards March
-    without pivots that must end out of contact (`moveLimit(...).min`; `withdrawUnfinished` blocks
-    `endActivation` until it is). `unitOptions(...).withdrawWhy` gives the panel the reason when
-    an engaged Master Tactician unit can't Withdraw. Rules doc updated
-    2026-11-26; it replaced "optionally face the opposite direction, then March".
-  - March = the existing `move`/`pivot` actions: pivots only before moving or after (a pivot
-    after moving sets `pivotedInMove`, which ends moving); no extra pivot for not moving; no
-    contact with anything, so moves stop `STANDOFF` short of units, impassable terrain and the
-    edge (`moveLimitV5`). Pivots may not touch anything at any point, so a unit already
-    touching something can't pivot (strict reading of the doc).
-  - Charge = a forward `move` whose first contact is an enemy, with at most one pivot before
-    it. `chargeEdges` (line from the charger's front-edge centre at `act.startPose` to the
-    target's centre) gives the only edge allowed; the contact point must be on it
-    (`contactPoint`), then the charger hinges about that point until flush (`hingedTo`), with
-    room checked during and after the turn (`roomError`: no touching friends, impassable
-    terrain or the edge, no overlapping anyone; other enemies may be touched). Then, if its
-    front edge doesn't reach the centre of the target edge, it slides along the edge until it
-    touches it, or as far as it has room (`slideToCentre`; designer, 2026-11-26; not movement,
-    so slowing doesn't limit it). The move
-    action puts the unit straight into the hinged pose. Free strike only at the target
-    (`act.chargeTarget`). The client doesn't ask the player to declare the target: the
-    first enemy the move would touch is the target.
-  - Reform = `pivot` with `reform: true`, up to 180° either way; only the end facing is
-    checked (all obstacles are "soft" in `pivotScan`, and `pivotOverlap` rejects ends that touch).
-  - Flank attack: a strike on the target's flank (`touchesFlank(target, striker)`) needs 3s
-    (`attackPreview`, note 'Flank attack').
-  - Guided play: `drawChargeFaces` draws the start line to each enemy in reach and its
-    allowed edge in gold; the panel offers a Withdraw button per enemy it could face and
-    calls the move order Withdraw once it has turned.
+- Rules variant `rules: 'v5'`, shown to players as V5.1 (V5 added 2026-11-26, replaced by V5.1 on 2026-11-27;
+  text in `game-rules-v5.html`, from the V5 Google Doc plus `docs/rules-v5.1-2026-11-27.txt`; landing button "V5.1";
+  the internal name stays 'v5' so saved games still load). V4's shooting, Shaken, dice and terrain (`v4Rules(s)` is true
+  for it; V4-only movement rules test `v4Only`), hills slow units entering them again (`hillsSlow`), and new movement
+  (`v5Rules`):
+  - Engaged = touching any enemy. Engaged units may only Strike, or Withdraw (Master Tactician, touching just one
+    enemy): one `withdraw` action turns the unit square onto the enemy's edge it touches, then marches it straight
+    back as far as it can (`withdrawPlan`; refused if the turned unit would touch anything but that enemy, overlap
+    that enemy, or not end out of contact). Afterwards it may still pivot as a March allows.
+    `unitOptions(...).withdrawWhy` gives the panel the reason when it can't.
+  - March = the existing `move`/`pivot` actions: up to Mobility pivots at any point (after one it carries on relative
+    to its new facing); one more pivot if it doesn't move (`pivotsAllowed`; using it ends moving, `extraPivotUsed`).
+    No contact with anything, so moves stop `STANDOFF` short of units, impassable terrain and the edge
+    (`moveLimitV5`). Pivots may not touch anything, so a unit already touching something can't pivot.
+  - Charge = a forward `move` whose first contact is an enemy (its target), after any pivots and moves.
+    `chargeEdges` (line from the charger's front-edge centre at `act.startPose` to the target's centre) gives the only
+    edge allowed; the contact point must be on it (`contactPoint`), then the charger hinges about that point until
+    flush (`hingedTo`) and slides along the edge towards its centre (`slideToCentre`). Room (`roomError`): no touching
+    any unit but the target, impassable terrain or the edge, and no overlapping the target. Free strike only at the
+    target (`act.chargeTarget`).
+  - No Reform (`reformAction` is false).
+  - Flank attack: a strike on the target's flank (`touchesFlank(target, striker)`) rerolls each miss once
+    (`attackPreview` `reroll`/`rerollNote`, `strainDist(pool, tn, explode, reroll)`, `rerolls` in the attack event).
+  - Guided play: `drawChargeFaces` draws the start line to each enemy in reach and its allowed edge in gold; the panel
+    offers a Withdraw button.
 - Turning during a Move into slowing terrain counts as entering it (all rule sets).
 
 - Concealing terrain blocks any sight line passing through it, so a unit

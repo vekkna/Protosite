@@ -209,7 +209,7 @@ const SeizeEngine = (() => {
     // 'skirmishers' was V3's name for its first day.
     const normalizeRules = rules => rules === 'skirmishers' ? 'v3' : ['reform', 'reform-variant', 'v3', 'v4', 'v5'].includes(rules) ? rules : 'classic';
     /** Name players see for each rule set. */
-    const RULES_NAMES = { classic: 'Classic', reform: 'Reform', 'reform-variant': 'Reform Variant', v3: 'V3', v4: 'V4', v5: 'V5' };
+    const RULES_NAMES = { classic: 'Classic', reform: 'Reform', 'reform-variant': 'Reform Variant', v3: 'V3', v4: 'V4', v5: 'V5.1' };
     const rulesName = rules => RULES_NAMES[normalizeRules(rules)];
 
     /**
@@ -409,8 +409,8 @@ const SeizeEngine = (() => {
      * backwards may pivot one additional time, so a Mobility 0 unit can pivot once if it stays put. Using that extra
      * pivot rules out moving (see `extraPivotUsed` in moveLimit).
      */
-    const pivotsAllowed = (s, u, act) => u.mobility + (v4Only(s) && !(act.moved > 0) ? 1 : 0);
-    const extraPivotUsed = (s, u, act) => v4Only(s) && act.pivots > u.mobility;
+    const pivotsAllowed = (s, u, act) => u.mobility + ((v4Only(s) || v5Rules(s)) && !(act.moved > 0) ? 1 : 0);   // V5.1: 'if you choose not to move, add 1 to your Mobility'
+    const extraPivotUsed = (s, u, act) => (v4Only(s) || v5Rules(s)) && act.pivots > u.mobility;
     // Reform and everything after it: pivots belong to a Move.
     const reformRules = s => s.rules === 'reform' || s.rules === 'reform-variant' || s.rules === 'v3' || s.rules === 'v4' || s.rules === 'v5';
     // V3 (built on Reform): pivots may sweep through units, impassable terrain and the edge, but
@@ -427,7 +427,7 @@ const SeizeEngine = (() => {
     // V3 only: a pivot may sweep through units, impassable terrain and the edge. V4 (rules doc, 2026-11-25): a unit may
     // not make contact with another unit or blocking terrain (read as impassable terrain, and the edge) while pivoting.
     const pivotThrough = s => s.rules === 'v3';
-    const reformAction = s => reformRules(s) && (!v4Rules(s) || v5Rules(s));
+    const reformAction = s => reformRules(s) && !v4Rules(s);   // V5.1 dropped Reform (2026-11-27)
     const rallyAllowed = s => !reformRules(s) || s.rules === 'v3';
     const hillsSlow = s => s.rules === 'v3' || s.rules === 'v5';
     const explodingSixes = s => !v4Rules(s);
@@ -558,26 +558,25 @@ const SeizeEngine = (() => {
     }
 
     /**
-     * V5 (rules doc 2026-11-26). A Move is a March, a Charge or a Withdraw:
-     * - March: straight forwards up to Pace or backwards up to half Pace, with up to Mobility pivots, each at the start
-     *   or the end (so after a pivot that follows moving, the unit can't move on). No part of it may touch another unit,
-     *   impassable terrain or the edge, so it stops STANDOFF short of them.
-     * - Charge: a forward move straight into an enemy, with at most one pivot, made before it moves. Only the edge that
-     *   the line from the charger's front-edge centre to the target's centre crosses (where the Manoeuvre began) may be
-     *   met; the charger then hinges flush against it (chargeAt). If it can't, the move stops short.
-     * - Withdraw (rules doc as updated 2026-11-26): an engaged unit of the Master Tactician is turned in place to face
-     *   the enemy (the 'withdraw' action, withdrawPlan), then marches backwards, without pivots, out of contact.
-     * Engaged units of the other player can't move at all.
+     * V5.1 (rules 2026-11-27; internal name still 'v5'). A Move is a March, a Charge or a Withdraw:
+     * - March: straight forwards up to Pace or backwards up to half Pace, with up to Mobility pivots at any point (after
+     *   a pivot it carries on relative to its new facing); a unit that doesn't move gets one more pivot. No part of it
+     *   may touch another unit, impassable terrain or the edge, so it stops STANDOFF short of them.
+     * - Charge: a forward March whose first contact is an enemy (its target). Only the edge that the line from the
+     *   charger's front-edge centre to the target's centre crosses (where the Manoeuvre began) may be met; the charger
+     *   then hinges flush and slides towards the edge's centre (chargeAt). If it can't, the move stops short.
+     * - Withdraw: an engaged unit of the Master Tactician touching just one enemy turns to face that enemy's edge, then
+     *   marches backwards as far as it can, out of contact (withdrawPlan; one 'withdraw' action does both).
+     * Engaged units can't move otherwise.
      */
     function moveLimitV5(s, u, act, backwards) {
         const dir = backwards ? 'back' : 'fwd', none = why => ({ max: 0, reason: why, charge: null, stop: 'rule' });
         if (act.action && act.action !== 'move') return none('This unit has already used its action.');
         if (act.charged) return none('A charge stops on contact.');
         if (act.dir && act.dir !== dir) return none('A March can’t switch between forwards and backwards.');
-        if (act.pivotedInMove) return none('Pivots come at the start or the end of a March: after pivoting at the end, the unit can’t move on.');
+        if (extraPivotUsed(s, u, act)) return none('This unit used the extra pivot for not moving, so it can’t move this activation.');
         const stuck = enemiesTouching(s, u), withdrawing = Boolean(act.withdraw) || stuck.length > 0;
-        if (withdrawing && u.owner !== s.master) return none('Engaged: this unit can only Strike. Only the Master Tactician’s units can Withdraw.');
-        if (withdrawing && !act.withdraw) return none('Engaged: this unit can Strike, or Withdraw (turn to face the enemy, then March backwards out of contact).');
+        if (stuck.length && !act.withdraw) return none(u.owner === s.master ? 'Engaged: this unit can Strike, or Withdraw if it touches just one enemy.' : 'Engaged: this unit can only Strike.');
         if (act.withdraw && !backwards) return none('A Withdraw marches backwards.');
         const f = forwardOf(u), sign = backwards ? -1 : 1, me = rect(u);
         let { budget, stop, blocker, slowAt } = slowBudget(s, u, act, backwards);
@@ -598,7 +597,7 @@ const SeizeEngine = (() => {
             if (d !== null) hits.push({ d, why: o.owner === u.owner || stuck.includes(o) ? 'unit' : 'enemy', o, touching: stuck.includes(o) });
         }
         hits.sort((a, b) => a.d - b.d);
-        const canCharge = !backwards && !withdrawing && act.pivots <= 1;
+        const canCharge = !backwards && !withdrawing;
         const first = hits.find(h => h.d <= full + 1e-7);
         let px = full, charge = null, reason = '';
         if (first) {
@@ -610,7 +609,7 @@ const SeizeEngine = (() => {
             if (!charge) {
                 px = first.touching ? Math.max(0, first.d) : Math.max(0, first.d - STANDOFF); stop = first.why; blocker = first.o;
                 if (!reason && first.why === 'enemy') reason = backwards ? 'Only a forward move can charge; a March can’t touch an enemy.'
-                    : withdrawing ? 'A Withdraw can’t touch an enemy.' : act.pivots > 1 ? 'A charge allows only one pivot, made before it moves.' : '';
+                    : withdrawing ? 'A Withdraw can’t touch an enemy.' : '';
                 if (!reason && first.touching) reason = `Already touching ${first.o.name}.`;
             }
         }
@@ -657,14 +656,17 @@ const SeizeEngine = (() => {
         const cx = P.x + dir.x * (at.w / 2 - along) - fwd.x * at.h / 2, cy = P.y + dir.y * (at.w / 2 - along) - fwd.y * at.h / 2;
         return { x: cx - at.w / 2, y: cy - at.h / 2, angle };
     }
-    /** Why a unit at this pose has no room ('' if it has): touching a friend, impassable terrain or the edge, or overlapping an enemy. */
-    function roomError(s, u, pose) {
+    /**
+     * Why a unit at this pose has no room ('' if it has). V5.1: it may touch no unit, impassable terrain or the edge,
+     * except the target of its charge (`targetId`), which it may touch but not overlap.
+     */
+    function roomError(s, u, pose, targetId) {
         const poly = rect({ ...u, ...pose });
         if (poly.some(q => q.x <= TOUCH || q.y <= TOUCH || q.x >= s.width - TOUCH || q.y >= s.height - TOUCH)) return 'it would touch the battlefield’s edge';
         for (const t of s.terrain) if (trait(t, 'impassable') && satGap(poly, disc(t)) <= TOUCH) return `it would touch the ${t.type}`;
         for (const o of live(s)) {
             if (o.id === u.id) continue;
-            if (o.owner === u.owner ? polyDist(poly, rect(o)) <= TOUCH : overlapping(poly, rect(o))) return `it would ${o.owner === u.owner ? 'touch' : 'overlap'} ${o.name}`;
+            if (o.id === targetId ? overlapping(poly, rect(o)) : polyDist(poly, rect(o)) <= TOUCH) return `it would ${o.id === targetId ? 'overlap' : 'touch'} ${o.name}`;
         }
         return '';
     }
@@ -689,8 +691,8 @@ const SeizeEngine = (() => {
         }).sort((p, q) => Math.abs(p.turn) - Math.abs(q.turn));
         for (const { edge, turn } of poses) {
             const pose = hingedTo(at, P, at.angle + turn);
-            why = roomError(s, u, pose);
-            for (let k = 1; k < 12 && !why && Math.abs(turn) > 1e-6; k++) why = roomError(s, u, hingedTo(at, P, at.angle + turn * k / 12));
+            why = roomError(s, u, pose, target.id);
+            for (let k = 1; k < 12 && !why && Math.abs(turn) > 1e-6; k++) why = roomError(s, u, hingedTo(at, P, at.angle + turn * k / 12), target.id);
             if (!why) return { ok: true, pose: slideToCentre(s, u, target, edge, pose), edge, turn, edges };
         }
         return { ok: false, edges, reason: `No room to line up flush against ${target.name}’s ${allowed}: ${why}.` };
@@ -706,25 +708,24 @@ const SeizeEngine = (() => {
         const along = dot(sub(m, f0), dir), need = along < 0 ? along : along > w ? along - w : 0;
         if (Math.abs(need) < 1e-6) return pose;
         const at = d => ({ ...pose, x: pose.x + dir.x * d, y: pose.y + dir.y * d });
-        if (!roomError(s, u, at(need))) {
+        if (!roomError(s, u, at(need), target.id)) {
             // Clear at the end: check the way there too (small steps, so nothing thin is slid through).
             let ok = true;
-            for (let k = 1; k < 40 && ok; k++) ok = !roomError(s, u, at(need * k / 40));
+            for (let k = 1; k < 40 && ok; k++) ok = !roomError(s, u, at(need * k / 40), target.id);
             if (ok) return at(need);
         }
         // Blocked: go as far as there is room, to within 0.05 px.
         let lo = 0, hi = Math.abs(need), sign = Math.sign(need);
-        for (let d = 0.5; d < hi; d += 0.5) if (roomError(s, u, at(sign * d))) { hi = d; break; } else lo = d;
-        while (hi - lo > 0.05) { const mid = (lo + hi) / 2; if (roomError(s, u, at(sign * mid))) hi = mid; else lo = mid; }
+        for (let d = 0.5; d < hi; d += 0.5) if (roomError(s, u, at(sign * d), target.id)) { hi = d; break; } else lo = d;
+        while (hi - lo > 0.05) { const mid = (lo + hi) / 2; if (roomError(s, u, at(sign * mid), target.id)) hi = mid; else lo = mid; }
         return at(sign * lo);
     }
     /**
-     * V5 Withdraw (rules doc as updated 2026-11-26): pick the unit up and put it down with its centre in the same place,
-     * facing the enemy; if there isn't room, it can't Withdraw. Then it marches backwards out of contact.
-     * Facing the enemy is read as: the unit's own edge that touches that enemy (the one facing its centre most
-     * squarely) becomes its front, so it turns 0, 90 or 180 degrees. Room: the turned card may not overlap any unit or
-     * impassable terrain or cross the edge (it still touches the enemy). It must also be able to march backwards far
-     * enough to touch no enemy. Returns { angle, reason } (reason '' if it may).
+     * V5.1 Withdraw (2026-11-27): only the Master Tactician's unit, touching just one enemy. Turn in place to face
+     * directly towards the enemy's edge it is touching (read as: facing square onto that edge); if it would then touch
+     * anything but that enemy, or overlap it, it can't Withdraw. Then March backwards as far as it can (the app's
+     * reading: straight back, and it must end out of contact, else it can't Withdraw). Returns
+     * { angle, distance, enemyId, reason } (reason '' if it may).
      */
     function withdrawPlan(s, u, act, enemyId) {
         const no = reason => ({ angle: null, reason });
@@ -733,24 +734,31 @@ const SeizeEngine = (() => {
         const contact = enemiesTouching(s, u);
         if (!contact.length) return no('Only an engaged unit can Withdraw.');
         if (u.owner !== s.master) return no('Only the Master Tactician’s units can Withdraw.');
-        const e = enemyId ? contact.find(o => o.id === enemyId) : contact[0];
-        if (!e) return no('Withdraw from an enemy this unit is touching.');
-        const p = rect(u), c = centre(u), ec = centre(e), toward = sub(ec, c), er = rect(e);
-        let best = null, bestDot = -Infinity;
+        if (contact.length > 1) return no('A unit touching more than one enemy can’t Withdraw.');
+        const e = contact[0];
+        if (enemyId && enemyId !== e.id) return no('Withdraw from the enemy this unit is touching.');
+        // The enemy's edge it touches; at a corner, the edge facing it most squarely.
+        const er = rect(e), me = rect(u), ec = centre(e), away = sub(centre(u), ec);
+        let n = null, best = -Infinity;
         for (let i = 0; i < 4; i++) {
-            const a = p[i], b = p[(i + 1) % 4];
-            if (!touchingPolys([a, b], er)) continue;
-            const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }, n = sub(mid, c), d = dot(n, toward) / (Math.hypot(n.x, n.y) || 1);
-            if (d > bestDot) { bestDot = d; best = i; }
+            const a = er[i], b = er[(i + 1) % 4];
+            if (!touchingPolys([a, b], me)) continue;
+            const out = sub({ x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }, ec), l = Math.hypot(out.x, out.y) || 1, d = dot(out, away) / l;
+            if (d > best) { best = d; n = { x: out.x / l, y: out.y / l }; }
         }
-        if (best === null) return no(`Can’t tell which edge touches ${e.name}.`);
-        const angle = u.angle + [0, 90, 180, -90][best], turned = { ...u, angle }, poly = rect(turned);
-        if (poly.some(q => q.x < -TOUCH || q.y < -TOUCH || q.x > s.width + TOUCH || q.y > s.height + TOUCH)) return no('No room to turn to face the enemy: it would cross the battlefield’s edge.');
-        for (const t of s.terrain) if (trait(t, 'impassable') && overlapping(poly, disc(t))) return no(`No room to turn to face the enemy: it would overlap the ${t.type}.`);
-        for (const o of live(s)) if (o.id !== u.id && overlapping(poly, rect(o))) return no(`No room to turn to face the enemy: it would overlap ${o.name}.`);
-        const lim = moveLimitV5(s, turned, { ...act, action: 'move', withdraw: true }, true);
-        if (!(lim.max > 0) || lim.min === null || lim.min === undefined || lim.min > lim.max + 1e-6) return no('There isn’t room to march backwards out of contact.');
-        return { angle, reason: '', enemyId: e.id };
+        if (!n) return no(`Can’t tell which edge of ${e.name} it touches.`);
+        const want = Math.atan2(-n.x, n.y) * 180 / Math.PI, angle = u.angle + (((want - u.angle) % 360 + 540) % 360 - 180);
+        const turned = { ...u, angle }, poly = rect(turned);
+        if (poly.some(q => q.x <= TOUCH || q.y <= TOUCH || q.x >= s.width - TOUCH || q.y >= s.height - TOUCH)) return no('No room to turn to face the enemy: it would touch the battlefield’s edge.');
+        for (const t of s.terrain) if (trait(t, 'impassable') && satGap(poly, disc(t)) <= TOUCH) return no(`No room to turn to face the enemy: it would touch the ${t.type}.`);
+        for (const o of live(s)) {
+            if (o.id === u.id) continue;
+            if (o.id === e.id ? overlapping(poly, rect(o)) : polyDist(poly, rect(o)) <= TOUCH) return no(`No room to turn to face the enemy: it would ${o.id === e.id ? 'overlap' : 'touch'} ${o.name}.`);
+        }
+        const lim = moveLimitV5(s, turned, { ...act, action: 'move', withdraw: true }, true), f = forwardOf(turned);
+        const end = { ...turned, x: turned.x - f.x * lim.max * PX, y: turned.y - f.y * lim.max * PX };
+        if (!(lim.max > 0) || enemiesTouching(s, end).length) return no('There isn’t room to march backwards out of contact.');
+        return { angle, distance: lim.max, enemyId: e.id, reason: '' };
     }
 
     const pivotCache = new Map();
@@ -782,9 +790,8 @@ const SeizeEngine = (() => {
         const canStartInContact = s.rules === 'v3' && !reform && u.owner === s.master;
         const contact = enemiesTouching(s, u);
         if (v5Rules(s)) {
-            // V5: an engaged unit (touching any enemy) can only Strike, or Withdraw without pivots.
-            if (act.withdraw || contact.length) return none(reform ? 'An engaged unit can’t Reform.' : u.owner === s.master
-                ? 'Engaged: this unit can Strike, or Withdraw (turn to face the enemy, then March backwards out of contact).' : 'Engaged: this unit can only Strike.');
+            // V5.1: an engaged unit (touching any enemy) can only Strike, or Withdraw.
+            if (contact.length) return none(u.owner === s.master ? 'Engaged: this unit can Strike, or Withdraw if it touches just one enemy.' : 'Engaged: this unit can only Strike.');
         } else if (v4Rules(s)) {
             // Held by an enemy's front: no Manoeuvre, except the Master Tactician's moving backwards, which may pivot as
             // usual where it has room (designer, 2026-11-25). Contact with flanks or rears doesn't stop a pivot (turning
@@ -1024,11 +1031,15 @@ const SeizeEngine = (() => {
     }
 
     const distCache = new Map();
-    /** Exact probabilities of causing 0, 1, 2... strain with `pool` dice needing `tn`+ (with `explode`, each 6 rolls a bonus die; not in V4). */
-    function strainDist(pool, tn, explode = true) {
-        const key = (pool * 10 + tn) * (explode ? 1 : -1);
+    /**
+     * Exact probabilities of causing 0, 1, 2... strain with `pool` dice needing `tn`+ (with `explode`, each 6 rolls a bonus
+     * die; not in V4). With `reroll` (V5 flank strikes, no bonus dice), each miss is rolled once more.
+     */
+    function strainDist(pool, tn, explode = true, reroll = false) {
+        const key = `${pool},${tn},${explode ? 1 : 0},${reroll ? 1 : 0}`;
         if (distCache.has(key)) return distCache.get(key);
-        const hit = (7 - tn) / 6, one = explode ? [(tn - 1) / 6, (6 - tn) / 6 + (1 - hit) / 6, hit / 6] : [1 - hit, hit];
+        const p = (7 - tn) / 6, hit = reroll ? p + (1 - p) * p : p;
+        const one = explode ? [(tn - 1) / 6, (6 - tn) / 6 + (1 - p) / 6, p / 6] : [1 - hit, hit];
         let dist = [1];
         for (let i = 0; i < pool; i++) { const next = Array(dist.length + one.length - 1).fill(0); dist.forEach((p, k) => one.forEach((q, j) => { next[k + j] += p * q; })); dist = next; }
         distCache.set(key, dist);
@@ -1050,14 +1061,15 @@ const SeizeEngine = (() => {
         const base = shooting ? u.shoot : u.melee, pool = Math.max(1, base + mods.reduce((n, m) => n + m.dice, 0));
         let tn = v.defence, tnNote = '';
         if (shooting ? u.shootAP : u.meleeAP) { if (tn > 3) { tn = 3; tnNote = 'Armour-piercing'; } }
-        // V5: striking the target's flank (anything but its front edge and front corners) needs 3s, like Armour-piercing.
-        if (!shooting && v5Rules(s) && tn > 3 && touchesFlank(v, u)) { tn = 3; tnNote = 'Flank attack'; }
+        // V5 (designer, 2026-11-26, replacing "needs 3s"): striking the target's flank (anything but its front edge and
+        // front corners) rerolls each miss once.
+        const reroll = !shooting && v5Rules(s) && touchesFlank(v, u);
         if (shooting && v.defenceStar) { tn = 6; tnNote = 'Loose formation'; }
         tn = Math.max(2, Math.min(6, tn));
         // Exact strain distribution: each die scores 0, 1, or (on a 6) 1 plus a bonus die.
-        const dist = strainDist(pool, tn, explodingSixes(s));
+        const dist = strainDist(pool, tn, explodingSixes(s), reroll);
         const need = ROUT_STRAIN - v.strain;
-        return { kind, base, pool, mods, tn, tnNote, dist, expected: dist.reduce((n, p, k) => n + p * k, 0),
+        return { kind, base, pool, mods, tn, tnNote, reroll, rerollNote: reroll ? 'Flank attack: misses rerolled once' : '', dist, expected: dist.reduce((n, p, k) => n + p * k, 0),
             routChance: dist.reduce((n, p, k) => n + (k >= need ? p : 0), 0), need };
     }
 
@@ -1121,10 +1133,11 @@ const SeizeEngine = (() => {
     function resolveAttack(s, u, v, kind, act, forced) {
         const pre = attackPreview(s, u.id, v.id, kind, kind === 'strike' && act.freeStrike ? act.startHigh : null);
         const rolls = forced === undefined ? Array.from({ length: pre.pool }, () => rollDie(s)) : [], bonus = explodingSixes(s) ? rolls.filter(n => n === 6).map(() => rollDie(s)) : [];
-        const strain = forced === undefined ? [...rolls, ...bonus].filter(n => n >= pre.tn).length : forced;
+        const rerolls = pre.reroll ? rolls.filter(n => n < pre.tn).map(() => rollDie(s)) : [];
+        const strain = forced === undefined ? [...rolls, ...bonus, ...rerolls].filter(n => n >= pre.tn).length : forced;
         const mods = pre.mods.map(m => `${m.dice > 0 ? '+' : '−'}1 ${m.label.toLowerCase()}`).join(', ');
-        log(s, `${u.name} ${kind === 'shoot' ? 'shoots' : 'strikes'} ${v.name}: ${pre.pool} dice${mods ? ` (${mods})` : ''}, needing ${pre.tn}+${pre.tnNote ? ` (${pre.tnNote})` : ''}. Rolled ${rolls.join(' ')}${bonus.length ? ` + bonus ${bonus.join(' ')}` : ''} → ${strain} strain.`);
-        emit(s, { type: 'attack', kind, attackerId: u.id, targetId: v.id, attacker: u.name, target: v.name, owner: u.owner, rolls, bonus, tn: pre.tn, strain,
+        log(s, `${u.name} ${kind === 'shoot' ? 'shoots' : 'strikes'} ${v.name}: ${pre.pool} dice${mods ? ` (${mods})` : ''}, needing ${pre.tn}+${pre.tnNote ? ` (${pre.tnNote})` : ''}${pre.reroll ? ', rerolling misses (flank attack)' : ''}. Rolled ${rolls.join(' ')}${bonus.length ? ` + bonus ${bonus.join(' ')}` : ''}${rerolls.length ? `, rerolled ${rerolls.join(' ')}` : ''} → ${strain} strain.`);
+        emit(s, { type: 'attack', kind, attackerId: u.id, targetId: v.id, attacker: u.name, target: v.name, owner: u.owner, rolls, bonus, rerolls, tn: pre.tn, strain,
             x: v.x + v.w / 2, y: v.y + v.h / 2 });
         applyStrain(s, v, strain);
     }
@@ -1254,9 +1267,12 @@ const SeizeEngine = (() => {
             const plan = withdrawPlan(s, u, act, a.targetId); if (plan.reason) fail(plan.reason);
             if (!act.startHills) act.startHills = hillsOf(s, u);
             if (!act.startPose) act.startPose = { x: u.x, y: u.y, angle: u.angle };
-            const turn = plan.angle - u.angle;
-            u.angle = plan.angle; act.action = 'move'; act.withdraw = true;
-            log(s, `${label(u.owner)} · ${u.name} withdraws from ${unitById(s, plan.enemyId).name}${turn ? `, turning ${Math.abs(turn)}° to face it` : ''}.`);
+            const turn = plan.angle - u.angle, enemy = unitById(s, plan.enemyId);
+            u.angle = plan.angle; act.action = 'move'; act.withdraw = true; act.dir = 'back';
+            const f = forwardOf(u);
+            u.x -= f.x * plan.distance * PX; u.y -= f.y * plan.distance * PX; act.moved += plan.distance;
+            if (!ignoresSlowing(s, u) && inSlowing(s, u, startHills(s, u, act))) act.slowed = true;
+            log(s, `${label(u.owner)} · ${u.name} withdraws from ${enemy.name}${Math.abs(turn) > 0.01 ? `, turning ${Math.round(Math.abs(turn))}° to face it,` : ''} and marches back ${plan.distance.toFixed(2)}″.`);
             emit(s, { type: 'pivot', unitId: u.id });
         } else if (a.type === 'shoot') {
             if (act.action) fail('This unit has already used its action.');

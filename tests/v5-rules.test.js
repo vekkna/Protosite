@@ -1,7 +1,8 @@
-// V5 rules (rules doc 2026-11-26): V4's shooting, Shaken, dice and terrain, with hills slowing units that enter them,
-// and new movement: March (pivots only at the start or end, no contact), Charge (declared edge from the start line,
-// at most one pivot before moving, hinge flush, free strike at the target), Reform (any facing, only the end must be
-// clear), Withdraw (Master Tactician's engaged units: turn to face the enemy, then March backwards out of contact), and flank attacks need 3s.
+// V5.1 rules (2026-11-27; the rule set is still 'v5' internally): V4's shooting, Shaken, dice and terrain, with hills
+// slowing units that enter them, and new movement: March (Mobility pivots at any point, one more if it doesn't move, no
+// contact), Charge (edge from the start line, hinge flush, slide to the edge's centre, free strike at the target; it
+// may touch no other unit), no Reform, Withdraw (Master Tactician's unit touching one enemy: face its edge, then march
+// back as far as it can, out of contact), and a strike on a flank rerolls its misses once.
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const E = require('../engine');
@@ -20,44 +21,37 @@ const unit = (s, id) => s.units.find(u => u.id === id);
 const gap = (s, a, b) => E.geometry.polyDist(E.geometry.rect(unit(s, a)), E.geometry.rect(unit(s, b)));
 const norm = a => ((a % 360) + 360) % 360;
 
-test('V5: is its own rule set, called V5, built on V4', () => {
+test('V5.1: is its own rule set, called V5.1 (internally v5), built on V4', () => {
     assert.equal(E.normalizeRules('v5'), 'v5');
-    assert.equal(E.rulesName('v5'), 'V5');
+    assert.equal(E.rulesName('v5'), 'V5.1');
     const s = battle([U('a', 'p1', 400, 400), ...far]);
     assert.equal(s.rules, 'v5');
-    assert.ok(E.v5Rules(s) && E.v4Rules(s) && !E.v4Only(s) && E.reformAction(s) && !E.rallyAllowed(s) && E.hillsSlow(s));
+    assert.ok(E.v5Rules(s) && E.v4Rules(s) && !E.v4Only(s) && !E.reformAction(s) && !E.rallyAllowed(s) && E.hillsSlow(s));
     assert.ok(!E.v5Rules(battle([U('a', 'p1', 400, 400), ...far], 'v4')));
 });
 
-test('V5: a March may pivot at the start and at the end, but not move on after an end pivot', () => {
-    let s = run(battle([U('a', 'p1', 400, 400, { mobility: 3 }), ...far]), activate('a'), { type: 'pivot', degrees: 30 }, { type: 'move', inches: 2 });
-    assert.ok(E.unitOptions(s, 'a').forward.max > 3, 'can keep marching straight after a start pivot');
-    s = E.apply(s, { type: 'pivot', degrees: -30 });
+test('V5.1: a March may pivot at any point, carrying on relative to its new facing', () => {
+    let s = run(battle([U('a', 'p1', 400, 400, { mobility: 2 }), ...far]), activate('a'), { type: 'move', inches: 2 }, { type: 'pivot', degrees: 90 });
     const o = E.unitOptions(s, 'a');
-    assert.equal(o.forward.max, 0); assert.match(o.forward.reason, /start or the end/);
-    assert.throws(() => E.apply(s, { type: 'move', inches: 1 }), /start or the end/);
+    assert.ok(Math.abs(o.forward.max - 4) < 1e-6, `4 inches of Pace left after the pivot (${o.forward.max})`);
+    s = E.apply(s, { type: 'move', inches: 4 });
+    assert.equal(unit(s, 'a').x, 480, 'carried on to the right, its new forwards');
+    assert.equal(unit(s, 'a').y, 360);
 });
 
-test('V5: no extra pivot for staying put; Mobility 0 turns only by Reform', () => {
+test('V5.1: no Reform; a unit that doesn’t move gets one more pivot (so Mobility 0 can turn)', () => {
     const s = run(battle([U('a', 'p1', 400, 400, { mobility: 0 }), ...far]), activate('a'));
     const o = E.unitOptions(s, 'a');
-    assert.equal(o.pivot.remaining, 0);
-    assert.ok(o.reform && o.reform.remaining === 1);
-    const r = E.apply(s, { type: 'pivot', degrees: 150, reform: true });
-    assert.equal(unit(r, 'a').angle, 150);
-    assert.equal(r.activation, null, 'a Reform is the whole action');
-});
-
-test('V5: Reform checks only where it ends; it may not end touching anything', () => {
-    // A friend 6 px off a's right side: a sweeping pivot hits it before 45°, a Reform is put down at the new facing.
-    const units = [U('a', 'p1', 400, 400), U('f', 'p1', 466, 400), ...far];
-    const s = run(battle(units), activate('a'));
-    const o = E.unitOptions(s, 'a');
-    assert.ok(o.pivot.right < 45, `pivot stops early (${o.pivot.right})`);
-    assert.equal(unit(E.apply(s, { type: 'pivot', degrees: 90, reform: true }), 'a').angle, 90);
-    assert.equal(unit(E.apply(s, { type: 'pivot', degrees: 180, reform: true }), 'a').angle, 180);
-    assert.throws(() => E.apply(s, { type: 'pivot', degrees: 35, reform: true }), /can’t end touching f/);
-    assert.ok(E.legalActions(s).some(a => a.reform && a.degrees === 90));
+    assert.equal(o.reform, null);
+    assert.equal(o.pivot.remaining, 1);
+    assert.throws(() => E.apply(s, { type: 'pivot', degrees: 90, reform: true }), /Reform is not in these rules/);
+    const turned = E.apply(s, { type: 'pivot', degrees: 90 });
+    assert.equal(unit(turned, 'a').angle, 90);
+    assert.equal(turned.activation, null, 'it used the extra pivot, so it can’t move: the activation ends');
+    // Mobility 1: two pivots if it stays put, but only one once it has moved.
+    const m1 = run(battle([U('a', 'p1', 400, 400, { mobility: 1 }), ...far]), activate('a'));
+    assert.equal(E.unitOptions(m1, 'a').pivot.remaining, 2);
+    assert.equal(E.unitOptions(E.apply(m1, { type: 'move', inches: 1 }), 'a').pivot.remaining, 1);
 });
 
 test('V5: a March stops short of friends, impassable terrain and enemies it can’t charge', () => {
@@ -71,8 +65,8 @@ test('V5: a March stops short of friends, impassable terrain and enemies it can�
     assert.ok(gap(E.apply(back, { type: 'move', inches: b.max, backwards: true }), 'a', 'e') > 0.5, 'a backward March doesn’t touch the enemy');
 });
 
-test('V5: a straight charge meets the front, ends flush and strikes only the target', () => {
-    const units = [U('a', 'p1', 400, 400), U('e', 'p2', 400, 300, { angle: 180 }), U('g', 'p2', 460, 345, { angle: 180 })];
+test('V5.1: a straight charge meets the front, ends flush and strikes only the target', () => {
+    const units = [U('a', 'p1', 400, 400), U('e', 'p2', 400, 300, { angle: 180 }), U('g', 'p2', 600, 300, { angle: 180 })];
     let s = run(battle(units), activate('a'));
     const lim = E.unitOptions(s, 'a').forward;
     assert.ok(lim.charge?.targets.includes('e'), lim.reason);
@@ -81,7 +75,14 @@ test('V5: a straight charge meets the front, ends flush and strikes only the tar
     assert.equal(unit(s, 'a').y, 340); assert.equal(norm(unit(s, 'a').angle), 0);
     assert.ok(s.activation.charged);
     assert.deepEqual(E.unitOptions(s, 'a').strike.map(t => t.id), ['e'], 'free strike only at the target');
-    assert.throws(() => E.apply(s, { type: 'strike', targetId: 'g' }), /charged|touching/);
+});
+
+test('V5.1: a charge may not end touching any unit but its target', () => {
+    // g stands just right of where a would end up, flush against e's front: a would touch it.
+    const units = [U('a', 'p1', 400, 400), U('e', 'p2', 400, 300, { angle: 180 }), U('g', 'p2', 460, 345, { angle: 180 })];
+    const lim = E.unitOptions(run(battle(units), activate('a')), 'a').forward;
+    assert.equal(lim.charge, null);
+    assert.match(lim.reason, /No room to line up flush against e’s front: it would touch g/);
 });
 
 test('V5: an angled charge hinges about the contact point until flush with the edge', () => {
@@ -120,18 +121,26 @@ test('V5: the slide to the centre stops where a friend is in the way', () => {
     assert.ok(gap(s, 'a', 'f') > 0.02 && gap(s, 'a', 'f') < 0.1, 'stops just short of the friend');
 });
 
-test('V5: a flank charge strikes needing 3s', () => {
-    // e faces right; a comes down onto its left flank.
+test('V5: a flank strike rerolls its misses once (and keeps the target’s Defence)', () => {
+    // e faces right; a (3 dice) comes down onto its left flank.
     let s = run(battle([U('a', 'p1', 400, 180, { angle: 180 }), U('e', 'p2', 400, 260, { angle: 90, defence: 5 })]), activate('a'));
     const lim = E.unitOptions(s, 'a').forward;
     assert.equal(lim.charge?.edge, 3, lim.reason);
     s = E.apply(s, { type: 'move', inches: lim.max });
-    const t = E.unitOptions(s, 'a').strike[0];
-    assert.equal(t.preview.tn, 3); assert.equal(t.preview.tnNote, 'Flank attack');
-    // The same strike from the front needs e's Defence.
+    const t = E.unitOptions(s, 'a').strike[0].preview;
+    assert.equal(t.tn, 5); assert.equal(t.reroll, true); assert.match(t.rerollNote, /misses rerolled once/);
+    // Each die hits 5+ with 1/3, or 1/3 + 2/3 x 1/3 = 5/9 with the reroll: 3 dice expect 5/3 strain.
+    assert.ok(Math.abs(t.expected - 5 / 3) < 1e-9, `expected ${t.expected}`);
+    // Rolled for real: every miss is rolled once more, and the log says so.
+    const struck = E.apply(s, { type: 'strike', targetId: 'e' }), ev = struck.events.find(x => x.type === 'attack');
+    assert.equal(ev.rerolls.length, ev.rolls.filter(n => n < 5).length);
+    assert.equal(ev.strain, [...ev.rolls, ...ev.rerolls].filter(n => n >= 5).length);
+    assert.match(struck.log.find(l => / strikes /.test(l)), /rerolling misses \(flank attack\)/);
+    // The same strike from the front: no reroll.
     const front = run(battle([U('a', 'p1', 400, 400), U('e', 'p2', 400, 300, { angle: 180, defence: 5 })]), activate('a'));
     const charged = E.apply(front, { type: 'move', inches: E.unitOptions(front, 'a').forward.max });
-    assert.equal(E.unitOptions(charged, 'a').strike[0].preview.tn, 5);
+    const f = E.unitOptions(charged, 'a').strike[0].preview;
+    assert.equal(f.tn, 5); assert.equal(f.reroll, false); assert.ok(Math.abs(f.expected - 1) < 1e-9);
 });
 
 test('V5: only the edge the start line crosses may be charged', () => {
@@ -144,13 +153,14 @@ test('V5: only the edge the start line crosses may be charged', () => {
     assert.ok(gap(E.apply(s, { type: 'move', inches: lim.max }), 'a', 'e') > 0.5, 'stops short without contact');
 });
 
-test('V5: a charge allows one pivot, before it moves', () => {
-    const units = [U('a', 'p1', 400, 400, { mobility: 2 }), U('e', 'p2', 400, 300, { angle: 180 })];
-    const one = run(battle(units), activate('a'), { type: 'pivot', degrees: 5 });
-    assert.ok(E.unitOptions(one, 'a').forward.charge, 'one pivot keeps the charge');
-    const two = run(battle(units), activate('a'), { type: 'pivot', degrees: 5 }, { type: 'pivot', degrees: -5 });
-    const lim = E.unitOptions(two, 'a').forward;
-    assert.equal(lim.charge, null); assert.match(lim.reason, /only one pivot/);
+test('V5.1: a charge may use all its Mobility pivots, at any point', () => {
+    // e is off to the right: a moves up, pivots right, moves on, pivots back up, then charges e’s front.
+    const units = [U('a', 'p1', 300, 500, { mobility: 2, pace: 16 }), U('e', 'p2', 420, 300, { angle: 180 })];
+    let s = run(battle(units), activate('a'), { type: 'move', inches: 2 }, { type: 'pivot', degrees: 90 }, { type: 'move', inches: 6 }, { type: 'pivot', degrees: -90 });
+    const lim = E.unitOptions(s, 'a').forward;
+    assert.ok(lim.charge?.targets.includes('e'), lim.reason);
+    s = E.apply(s, { type: 'move', inches: lim.max });
+    assert.ok(s.activation.charged);
 });
 
 test('V5: no charge where there is no room to hinge flush', () => {
@@ -162,56 +172,53 @@ test('V5: no charge where there is no room to hinge flush', () => {
     assert.match(lim.reason, /No room to line up flush/);
 });
 
-test('V5: engaged units can only Strike; the Master Tactician’s may Withdraw instead', () => {
+test('V5.1: engaged units can only Strike; the Master Tactician’s may Withdraw instead', () => {
     // a and e front to front.
     const units = [U('a', 'p1', 400, 400), U('e', 'p2', 400, 360, { angle: 180 }), U('x', 'p2', 100, 100, { shoot: 3, range: 30 })];
     const other = battle(units, 'v5', [], 'p2'); other.turnStep = 1;
     const theirs = run(other, activate('a'));
     let o = E.unitOptions(theirs, 'a');
-    assert.equal(o.forward.max, 0); assert.equal(o.backward.max, 0);
-    assert.equal(o.pivot.remaining, 0); assert.equal(o.reform.remaining, 0);
+    assert.equal(o.forward.max, 0); assert.equal(o.backward.max, 0); assert.equal(o.pivot.remaining, 0);
     assert.deepEqual(o.withdraw, []); assert.equal(o.strike.length, 1); assert.equal(o.engaged, true);
+    assert.match(o.withdrawWhy, /Master Tactician/);
     assert.throws(() => E.apply(theirs, { type: 'withdraw', targetId: 'e' }), /Master Tactician/);
-    // As the Master Tactician: no move until it chooses Withdraw; then only backwards, without pivots, out of contact.
+    // As the Master Tactician: one Withdraw action turns it to face e (already does) and marches back as far as it can.
     let s = run(battle(units), activate('a'));
     o = E.unitOptions(s, 'a');
     assert.deepEqual(o.withdraw, ['e']); assert.equal(o.backward.max, 0, 'no March while engaged');
     s = E.apply(s, { type: 'withdraw', targetId: 'e' });
-    assert.equal(unit(s, 'a').angle, 0, 'already facing e');
-    o = E.unitOptions(s, 'a');
-    assert.equal(o.strike.length, 0, 'withdrawing, so no strike');
-    assert.equal(o.pivot.remaining, 0, 'no pivots in a Withdraw');
-    assert.equal(o.forward.max, 0, 'only backwards');
-    assert.ok(Math.abs(o.backward.max - 3) < 1e-6 && o.backward.min > 0 && o.backward.min < 0.05, `half Pace back, at least out of contact (${o.backward.min})`);
-    assert.throws(() => E.apply(s, { type: 'move', inches: o.backward.min / 2, backwards: true }), /out of contact/);
-    assert.throws(() => E.apply(s, { type: 'endActivation' }), /Finish the Withdraw/);
-    assert.ok(!E.legalActions(s).some(a => a.type === 'endActivation'));
-    s = E.apply(s, { type: 'move', inches: 3, backwards: true });
-    assert.equal(unit(s, 'a').y, 460);
-    assert.equal(s.activation, null);
+    assert.equal(unit(s, 'a').angle, 0);
+    assert.equal(unit(s, 'a').y, 460, 'marched back its full half Pace');
+    assert.match(s.log[0], /withdraws from e and marches back 3\.00″/);
 });
 
-test('V5: a Withdraw first turns the unit to face the enemy, its touching edge becoming its front', () => {
+test('V5.1: a Withdraw faces the enemy’s edge it touches, then marches back; it may pivot afterwards', () => {
     // e's front is on a's right flank: a turns 90° clockwise to face it, then backs away to the left.
-    const flank = [U('a', 'p1', 400, 400), U('e', 'p2', 450, 400, { angle: -90 }), U('x', 'p2', 100, 100)];
+    const flank = [U('a', 'p1', 400, 400, { mobility: 1 }), U('e', 'p2', 450, 400, { angle: -90 }), U('x', 'p2', 100, 100)];
     let s = run(battle(flank), activate('a'), { type: 'withdraw', targetId: 'e' });
     assert.equal(unit(s, 'a').angle, 90);
     assert.match(s.log[0], /turning 90° to face it/);
-    s = E.apply(s, { type: 'move', inches: E.unitOptions(s, 'a').backward.max, backwards: true });
     assert.ok(unit(s, 'a').x < 360, 'moved left, away from e');
+    assert.equal(E.unitOptions(s, 'a').pivot.remaining, 1, 'a March may still pivot');
     // An enemy on a's rear: a turns right round.
     const rear = run(battle([U('a', 'p1', 400, 400), U('e', 'p2', 400, 440), U('x', 'p2', 100, 100)]), activate('a'), { type: 'withdraw', targetId: 'e' });
     assert.equal(norm(unit(rear, 'a').angle), 180);
 });
 
-test('V5: no Withdraw without room to turn or to back out of contact', () => {
-    // A friend just above a: turned 90° to face e (on a's right), a is taller and would overlap it.
+test('V5.1: only a unit touching just one enemy can Withdraw', () => {
+    const two = run(battle([U('a', 'p1', 400, 400), U('e', 'p2', 400, 360, { angle: 180 }), U('g', 'p2', 450, 400, { angle: -90 })]), activate('a'));
+    const o = E.unitOptions(two, 'a');
+    assert.deepEqual(o.withdraw, []); assert.match(o.withdrawWhy, /more than one enemy/);
+});
+
+test('V5.1: no Withdraw without room to turn or to march back out of contact', () => {
+    // A friend just above a: turned 90° to face e (on a's right), a is taller and would touch it.
     const noTurn = run(battle([U('a', 'p1', 400, 400), U('e', 'p2', 450, 400, { angle: -90 }), U('f', 'p1', 400, 339, { w: 60, h: 60 }), U('x', 'p2', 100, 100)]), activate('a'));
     assert.deepEqual(E.unitOptions(noTurn, 'a').withdraw, []);
-    assert.match(E.unitOptions(noTurn, 'a').withdrawWhy, /No room to turn to face the enemy: it would overlap f/);
+    assert.match(E.unitOptions(noTurn, 'a').withdrawWhy, /No room to turn to face the enemy: it would touch f/);
     assert.throws(() => E.apply(noTurn, { type: 'withdraw', targetId: 'e' }), /No room to turn/);
     // Its back against the battlefield's edge: it can turn but can't back away.
-    const s = battle([U('a', 'p1', 400, 680), U('e', 'p2', 400, 640, { angle: 180 }), U('x', 'p2', 100, 100)]);
+    const s = battle([U('a', 'p1', 400, 679.5), U('e', 'p2', 400, 639.5, { angle: 180 }), U('x', 'p2', 100, 100)]);
     assert.throws(() => E.apply(run(s, activate('a')), { type: 'withdraw', targetId: 'e' }), /out of contact/);
 });
 

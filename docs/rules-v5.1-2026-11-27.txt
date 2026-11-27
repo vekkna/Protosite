@@ -1,0 +1,37 @@
+V5.1 movement rules, as pasted by the designer in chat on 2026-11-27 (they replace the matching sections of
+docs/rules-v5-2026-11-26.txt; everything else, plus the 2026-11-26 changes in game-rules-v5.html, still applies).
+
+Activating Units
+
+1. Choose one of your units that doesn't have a command marker on it.
+2. Place one of your command markers on it.
+3. If the unit is not engaged, choose one:
+   1. March
+   2. Charge
+   3. Shoot (only if the unit has a Shoot value)
+4. If it is engaged, choose one:
+   1. Strike
+   2. Reform (only if you are the Master Tactician and touching just one enemy)
+
+Because the marker stays on the unit until clean-up, each unit can be activated only once per round.
+Actions
+Movement Basics
+
+* Engaged: A unit touching any enemy is engaged; otherwise it is unengaged.
+* Pivoting: To pivot, rotate the unit in place around its centre by up to 90 degrees.
+* Obstacles: Units may not make contact with other units, impassable terrain or the battlefield edge. Exception: a charging unit can make contact with its declared target.
+
+March
+Move in a straight line forwards up to Pace, or backwards up to half Pace. You may make up to Mobility pivots, each may be at any point during the March.
+If you choose not to move, add 1 to your Mobility this turn.
+Charge
+
+1. Declare a target, then draw a line from the centre of your front edge to the centre of the target. The edge of the target this passes through is the only edge you are allowed to charge. If it passes through a corner, choose either of that corner's edges.
+2. Move, as described in March above, into contact with the allowed edge only.
+   1. Then hinge flush with the target edge. If an obstacle prevents this, the charge is not allowed, so check before moving.
+   2. If your unit is not touching the centre of that edge, slide sideways (free of charge) till it is as close as possible.
+3. Make a free Strike against the target.
+
+Withdraw
+Turn in place to face directly towards the enemy's edge you are touching. If your unit would touch an obstacle in this final position (other than the enemy you are engaged with), you may not choose this action.
+Then March backwards, as above, as far as you can.

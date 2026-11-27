@@ -16,7 +16,7 @@ const GuidedPlay = (() => {
         reform: 'Pivot during a Move. Spend an action to Reform and change facing.',
         'reform-variant': 'Any pivot prevents a charge. Units with a Move asterisk can pass through friendly units if they can clear them.',
         v3: 'Reform, plus Rally (remove one strain, even in contact). Pivot before moving and still charge. Pivots can turn through units, terrain and the edge but must end clear. Shoot if a clear line reaches the centre of a target edge facing the shooter. No dice modifiers; strike only enemies at your front; hills slow units entering them; units with 5+ strain can’t attack.',
-        v5: 'Set moves. March: straight forwards up to Pace or back up to half, pivoting only at the start or end, touching nothing. Charge: the line from your front to the target’s centre picks the one edge you may charge; one pivot first, then straight in, hinge flush and strike (3s on a flank). Reform: face any way. Engaged units only Strike, or Withdraw if they are the Master Tactician’s. Hills slow units entering them.',
+        v5: 'V5.1. March: forwards up to Pace or back up to half, with Mobility pivots at any point (one more if it doesn’t move), touching nothing. Charge: the line from your front to the target’s centre picks the one edge you may charge; march in, hinge flush, slide to the edge’s centre and strike (on a flank, misses are rerolled once). No Reform. Engaged units only Strike, or Withdraw if they are the Master Tactician’s and touch one enemy: face it, then march back as far as possible. Hills slow units entering them.',
         v4: 'V3 without Reform, Rally, the 5-strain limit or hill slowing. No bonus dice for 6s; a Pace asterisk does nothing. A pivot may not touch another unit or impassable terrain; a unit that doesn’t move may pivot once more. If the line from a charger’s front to the target’s centre crosses the target’s front edge, it can only charge that front. Range is measured to the centre of a target edge. A unit touching an enemy’s front can’t Manoeuvre unless it is the Master Tactician’s and moves backwards. Strike any touching enemy, but a unit is Shaken, and can’t strike, while an enemy’s front touches its flank (unless another of its side’s units touches that enemy).'
     };
     let rulesChoice = (() => { try { return E.normalizeRules(localStorage.getItem(RULES_KEY)); } catch (e) { return 'classic'; } })();
@@ -714,7 +714,7 @@ const GuidedPlay = (() => {
         el.style.left = `${Math.max(edgePadding, Math.min(tableWidthPx - edgePadding, x))}px`; el.style.top = `${Math.max(21, Math.min(tableHeightPx - 21, y))}px`;
         table.appendChild(el); return el;
     }
-    function drawAttackPreview(target, { base, pool, mods, tn, tnNote }) {
+    function drawAttackPreview(target, { base, pool, mods, tn, tnNote, rerollNote }) {
         const label = document.createElement('div');
         label.className = 'gp-label gp-hot gp-attack-preview';
         const dice = count => `${count} ${count === 1 ? 'die' : 'dice'}`;
@@ -728,6 +728,7 @@ const GuidedPlay = (() => {
             if (base + mods.reduce((sum, mod) => sum + mod.dice, 0) < pool) line('div', 'Minimum 1 die');
         }
         if (tnNote) line('div', tnNote);
+        if (rerollNote) line('div', rerollNote);
         line('small', 'Click again to attack');
         table.appendChild(label);
 
@@ -947,7 +948,7 @@ const GuidedPlay = (() => {
         }
         if (!order || order === 'move') {
             const canMove = o.forward.charge || o.forward.max > .01 || availableTurn(o.pivot);
-            chargeFacesShown = canMove && !o.activation.charged ? drawChargeFaces(liveOverlay('gp-charge-faces', svg), u) : 0;
+            chargeFacesShown = canMove && !o.activation.charged && !o.activation.withdraw ? drawChargeFaces(liveOverlay('gp-charge-faces', svg), u) : 0;
         } else chargeFacesShown = 0;
         if (dragging) return o;
         const G = E.geometry;
@@ -1176,10 +1177,9 @@ const GuidedPlay = (() => {
                         control.setAttribute('aria-pressed', String(pressed));
                     };
                     const v5 = E.v5Rules(g);
-                    const withdrawing = v5 && o.activation.withdraw;
-                    if (o.forward.charge || o.forward.max > .01 || o.backward.max > .01) order(withdrawing ? 'Withdraw' : 'Move', 'move',
-                        v5 ? (withdrawing ? `Drag the unit backwards out of contact (at least ${(Math.ceil((o.backward.min || 0) * 100) / 100).toFixed(2)}″)` : 'Drag the unit to March, or straight into an enemy to charge') : 'Drag the unit to advance, withdraw or charge');
-                    for (const id of o.withdraw || []) button(o.withdraw.length > 1 ? `Withdraw from ${unit(id).name}` : 'Withdraw', () => withdraw(id), false, 'Turn to face the enemy, then drag the unit backwards out of contact', 'btn-grey', orders);
+                    if (o.forward.charge || o.forward.max > .01 || o.backward.max > .01) order('Move', 'move',
+                        v5 ? 'Drag the unit to March, or straight into an enemy to charge' : 'Drag the unit to advance, withdraw or charge');
+                    for (const id of o.withdraw || []) button('Withdraw', () => withdraw(id), false, `Turn to face ${unit(id).name}, then march back as far as possible`, 'btn-grey', orders);
                     if (o.pivot.usesAction && availableTurn(o.pivot)) order('Extra Pivot', 'pivot', 'Drag the ↻ handle to use Extra Pivot');
                     if (availableTurn(o.reform)) order('Reform', 'reform', 'Drag the ↻ handle. Reform uses the action.');
                     if (o.shoot.some(t => t.ok)) order('Shoot', 'shoot', 'Select an enemy on the battlefield');
@@ -1188,10 +1188,9 @@ const GuidedPlay = (() => {
                     if (!orders.children.length) orders.remove();
                     if (o.shaken) add('p', 'Shaken: an enemy’s front is touching this unit’s flank, so it can’t strike.', 'gp-sub');
                     if (document.getElementById('gp-next-charge')) add('p', 'Next-turn charge reach', 'gp-next-charge-key');
-                    if (chargeFacesShown) add('p', E.v5Rules(g) ? 'Gold edge: the only edge of that enemy this unit may charge (the dashed line from its front to the enemy’s centre crosses it). Charge with at most one pivot, before moving.'
+                    if (chargeFacesShown) add('p', E.v5Rules(g) ? 'Gold edge: the only edge of that enemy this unit may charge (the dashed line from its front to the enemy’s centre crosses it). The line is drawn from where this activation began.'
                         : 'Gold edge: the dashed line from this unit’s front to that enemy’s centre crosses its front edge, so it can only charge its front.', 'gp-front-only-key');
                     if (E.v5Rules(g) && o.withdrawWhy) add('p', `Can’t Withdraw: ${o.withdrawWhy}`, 'gp-sub');
-                    if (withdrawing) add('p', o.backward.min > 0 ? `Withdrawing: drag the unit backwards at least ${(Math.ceil(o.backward.min * 100) / 100).toFixed(2)}″, out of contact.` : 'Withdrawing: turning to face the enemy took this unit out of contact. Drag it backwards if you like, or end the activation.', 'gp-sub');
                     if (o.activation.overlap) add('p', 'Keep pivoting: the unit can’t finish overlapping another unit, impassable terrain or the edge.');
                     if (o.activated) { const unfinished = E.withdrawUnfinished(g); button('End activation', endActivation, Boolean(o.activation.overlap) || unfinished, o.activation.overlap ? 'Pivot clear first' : unfinished ? 'March backwards out of contact first' : '', 'btn-blue gp-end'); }
                 } else if (o?.reason) add('p', o.reason);

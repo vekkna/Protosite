@@ -1,4 +1,4 @@
-<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Seize the Day — V5</title><style>
+<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Seize the Day — V5.1</title><style>
 body{max-width:760px;margin:24px auto;padding:0 20px;font:16px/1.6 system-ui;background:#faf5e8;color:#252923}
 h1{font-size:26px}
 h2{font-size:21px;margin:36px 0 8px;padding-bottom:4px;border-bottom:1px solid rgba(37,41,35,.2)}
@@ -9,8 +9,8 @@ ul,ol{padding-left:24px}
 li{margin:4px 0}
 .app-note{border-left:3px solid #6b7f5a;padding:2px 10px;background:rgba(107,127,90,.08);font-size:15px}
 </style>
-<h1>Seize the Day — V5</h1>
-<p>Rules as enforced by this app, from the V5 rules document (copied 2026-11-26). The outlined circular terrain tile is the terrain feature. Boxed notes say how the app reads points the document leaves open.</p>
+<h1>Seize the Day — V5.1</h1>
+<p>Rules as enforced by this app, from the V5 rules document (copied 2026-11-26), with the designer’s V5.1 movement rules (2026-11-27). The outlined circular terrain tile is the terrain feature. Boxed notes say how the app reads points the document leaves open.</p>
 <h2>Overview</h2>
 <p>Seize the Day is a game of battles for two players. Each player commands an army, moving units across a tabletop battlefield and using dice to resolve shooting and close combat.</p>
 <p>You do not need to collect miniatures or prepare an army beforehand. The units are represented by cards, which act as both playing pieces and reference cards. At the start of the game, you take turns choosing these units and placing terrain, creating your armies and battlefield together.</p>
@@ -95,33 +95,32 @@ li{margin:4px 0}
 <ol>
 <li>Choose one of your units that doesn’t have a command marker on it.</li>
 <li>Place one of your command markers on it.</li>
-<li>If the unit is not engaged, choose one: March, Charge, Reform, or Shoot (only if the unit has a Shoot value).</li>
-<li>If it is engaged, choose one: Strike, or Withdraw (only if you are the Master Tactician).</li>
+<li>If the unit is not engaged, choose one: March, Charge, or Shoot (only if the unit has a Shoot value).</li>
+<li>If it is engaged, choose one: Strike, or Withdraw (only if you are the Master Tactician and touching just one enemy).</li>
 </ol>
 <p>Because the marker stays on the unit until clean-up, each unit can be activated only once per round.</p>
-<p class="app-note">In the app you don’t name March or Charge first. Drag the unit: a forward move into an enemy that meets the rules for a charge is a Charge, and any other move is a March. Drag the ↻ handle to pivot, or turn it further to Reform.</p>
+<p class="app-note">The V5.1 text names the engaged option “Reform” in this list; its rules are those of Withdraw, below. In the app you don’t name March or Charge first. Drag the unit, and drag the ↻ handle to pivot: a forward move into an enemy that meets the rules for a charge is a Charge, and any other move is a March.</p>
 <h2>Actions</h2>
 <h3>Movement basics</h3>
 <ul>
 <li>Engaged: a unit touching any enemy is engaged; otherwise it is unengaged.</li>
-<li>Pivoting: to pivot, rotate the unit in place around its centre by up to 90°. A unit may not touch another unit, impassable terrain, or the battlefield edge at any point during a pivot.</li>
-<li>Obstructions: no part of a unit may touch another unit, impassable terrain, or the battlefield edge. Exception: charging units can make contact with enemies.</li>
+<li>Pivoting: to pivot, rotate the unit in place around its centre by up to 90°.</li>
+<li>Obstacles: units may not make contact with other units, impassable terrain or the battlefield edge. Exception: a charging unit can make contact with its declared target.</li>
 </ul>
-<p class="app-note">A unit already touching something can’t pivot at all, as it would touch it at the start of the pivot. Moving units stop just short (0.05″) of anything they may not touch.</p>
+<p class="app-note">This applies while pivoting too, so a unit already touching something can’t pivot. Moving units stop just short (0.05″) of anything they may not touch.</p>
 <h3>March</h3>
-<p>Move in a straight line forwards up to Pace, or backwards up to half Pace. You may make up to Mobility pivots, each at the start or at the end of the March. You may not make contact with an enemy.</p>
-<p class="app-note">Once a unit has moved and then pivoted, it can’t move again in that activation. A March of 0″ is allowed, so a unit can just pivot.</p>
+<p>Move in a straight line forwards up to Pace, or backwards up to half Pace. You may make up to Mobility pivots, each at any point during the March.</p>
+<p>If you choose not to move, add 1 to your Mobility this turn.</p>
+<p class="app-note">After a pivot partway through, the unit carries on forwards (or backwards) relative to its new facing; it can’t switch between forwards and backwards. “This turn” is read as this activation: once a unit has used the extra pivot, it can’t move.</p>
 <h3>Charge</h3>
 <ol>
 <li>Declare a target, then draw a line from the centre of your front edge to the centre of the target. The edge of the target this passes through is the only edge you are allowed to charge. If it passes through a corner, choose either of that corner’s edges.</li>
-<li>If Mobility is 1 or more, you may make one pivot. Then move in a straight line forwards up to Pace into contact with the target, then hinge it flush against the edge you are charging. If there isn’t room to do so, you may not charge this target (check before you start moving).</li>
+<li>Move, as described in March above, into contact with the allowed edge only.<ol>
+<li>Then hinge flush with the target edge. If an obstacle prevents this, the charge is not allowed, so check before moving.</li>
+<li>If your unit is not touching the centre of that edge, slide sideways (free of charge) till it is as close as possible.</li></ol></li>
 <li>Make a free Strike against the target.</li>
 </ol>
-<p class="app-note">Designer’s addition (2026-11-26): once flush, if the charger isn’t touching the centre point of the target’s edge, it slides along the edge towards it until it is, or as close as it can get without touching a friendly unit, impassable terrain or the edge, or overlapping any unit. The slide isn’t movement, so slowing terrain doesn’t limit it.</p>
-<p class="app-note">The target is the first enemy the move would touch. The point where the charger first touches it must be on the allowed edge (its end corners count). The charger then turns about that point until its front edge lies flush along the edge. There is no room if, during or after that turn, the charger would touch a friendly unit, impassable terrain or the edge, or overlap any unit; it may touch other enemies. Slowing terrain limits a charge as it does a March. When you select a unit, a dashed line runs from its front to each enemy it could reach, and that enemy’s allowed edge is drawn in gold.</p>
-<h3>Reform</h3>
-<p>Pick the unit up and place it back down so its centre point is in the same position, facing in any direction. It may not end up touching any units, impassable terrain or the battlefield’s edge.</p>
-<p class="app-note">A Reform is the unit’s whole action. Only where it ends is checked, so it can turn where a pivot can’t.</p>
+<p class="app-note">A charge moves forwards. The target is the first enemy the move would touch, and the line is drawn where the activation began. The point where the charger first touches it must be on the allowed edge (its end corners count). The charger then turns about that point until its front edge lies flush, and slides along the edge towards its centre. Neither the turn nor the slide may touch any unit except the target, impassable terrain or the edge, nor overlap the target. The slide isn’t movement, so slowing terrain doesn’t limit it. When you select a unit, a dashed line runs from its front to each enemy it could reach, and that enemy’s allowed edge is drawn in gold.</p>
 <h3>Shoot</h3>
 <p>Choose a target that’s unengaged, in range and visible.</p>
 <ul>
@@ -131,8 +130,8 @@ li{margin:4px 0}
 <p>Then make an attack roll (see below) using the shooter’s Shoot value.</p>
 <p class="app-note">The shooter’s own card blocks lines too, so a line can’t go backwards through it. The target doesn’t need to be wholly in front of the shooter.</p>
 <h3>Withdraw</h3>
-<p>Pick your unit up and place it down with its centre point in the same position, facing the enemy. If there is not room to do this, you can’t choose this action. Then march backwards out of contact, as above.</p>
-<p class="app-note">Updated by the designer, 2026-11-26. Facing the enemy: the unit’s edge that touches that enemy becomes its front, so it turns 0°, 90° or 180°. If several enemies touch it, you choose which to face. There isn’t room if the turned card would overlap a unit or impassable terrain, or cross the battlefield’s edge; it may still touch the enemy it faces. It then marches backwards, up to half its Pace and without pivots, and must end out of contact (its activation can’t end until it is); if it can’t, it can’t Withdraw. If turning took it out of contact already, it needn’t move. Press Withdraw, then drag the unit backwards; if Withdraw isn’t offered, the orders panel says why. Reform is unchanged.</p>
+<p>Turn in place to face directly towards the enemy’s edge you are touching. If your unit would touch an obstacle in this final position (other than the enemy you are engaged with), you may not choose this action. Then March backwards, as above, as far as you can.</p>
+<p class="app-note">Facing the edge means facing square onto it (at a corner, the edge facing the unit most squarely). The turned unit may not overlap that enemy either. It then marches straight back as far as it can, and must end out of contact: if it can’t, it can’t Withdraw. The Withdraw button does the turn and the march in one go; afterwards the unit may still pivot, as a March allows. If Withdraw isn’t offered, the orders panel says why.</p>
 <h3>Strike</h3>
 <p>A unit is shaken while its flank is touching an enemy’s front, and that enemy is not touching another of your units. Shaken units can’t strike.</p>
 <p>Example: Unit A is shaken as B is flanking it. Then C charges B, so A is no longer shaken.</p>
@@ -143,9 +142,9 @@ li{margin:4px 0}
 <ul>
 <li>Armour-piercing: if the Shoot or Melee value you are using has an asterisk, you need 3s or the target’s Defence, whichever is lower.</li>
 <li>Loose formation: when shooting at a unit with an asterisk after its Defence, you always need 6s. This overrides Armour-piercing.</li>
-<li>Flank attack: if you are striking the target’s flank, you need 3s or the target’s Defence, whichever is lower.</li>
+<li>Flank attack: when you strike an enemy’s flank, reroll any misses once.</li>
 </ul>
-<p class="app-note">A striker is on the target’s flank if it touches any part of it other than the front edge and front corners. A unit flush along a side edge also touches the front corner at its end, but that still counts as the flank.</p>
+<p class="app-note">Changed by the designer, 2026-11-26: this replaces “you need 3s or the target’s Defence, whichever is lower”. It doesn’t apply to shooting. A striker is on the target’s flank if it touches any part of it other than the front edge and front corners. A unit flush along a side edge also touches the front corner at its end, but that still counts as the flank.</p>
 <p>Add a strain marker to the target for each strain dealt. If it now has 7 or more strain, it routs: remove the unit and all its markers from the battlefield.</p>
 <h2>Clean up and end of round</h2>
 <p>Remove all command markers from units, then start the next round’s bidding.</p>

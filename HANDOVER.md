@@ -5,7 +5,7 @@ Read this first if you are picking the project up. `GUIDED-PLAY.md` has the
 architecture and the rules interpretations; this file has the current state,
 how to measure things, what has been tried, and what to do next.
 
-Last updated: 2026-11-26 (V5 rules added; see "Rules variant: V5"). Branch `codex/rules-guided-play`. The rules-engine /
+Last updated: 2026-11-27 (V5 replaced by V5.1; see "Rules variant: V5"). Branch `codex/rules-guided-play`. The rules-engine /
 AI / guided-play work is committed; the card-maker and PDF work is not.
 
 What exists
@@ -490,27 +490,27 @@ ever (V4 has no round limit and no bonus dice). Two causes, both fixed in `ai.js
 strikes, shots and Shaken units per side (it steps through each decision's actions because
 the engine keeps only the last action's events).
 
-Rules variant: V5 (2026-11-26)
-------------------------------
+Rules variant: V5 (2026-11-26), now V5.1 (2026-11-27)
+-----------------------------------------------------
 
-`rules: 'v5'`, from the V5 Google Doc (first line of `rules url.txt`; a text copy is in
-`docs/rules-v5-2026-11-26.txt`). Rules page `game-rules-v5.html`; landing-page button "V5". The designer's working
-title for the doc was "Seize 11 Set Moves"; the rule set is called V5 (designer, 2026-11-26). Details of the engine
-readings are in GUIDED-PLAY.md. In short: V4's shooting, Shaken, dice and terrain (`v4Rules` is true for V5;
-V4-only movement now tests `v4Only`), hills slow units entering them again, and new movement (`v5Rules`): March
-(pivots only at the start or end, no contact with anything), Charge (edge picked by the start line, at most one
-pivot before moving, hinge flush, slide along the edge until touching its centre (designer's addition, same day),
-free strike at the target), Reform (any facing, only the end checked), Withdraw
-(Master Tactician's engaged units: turn in place to face the enemy, then March backwards out of contact; doc
-updated the same day, replacing an optional face-about), engaged units otherwise only Strike,
-and a strike on a flank needs 3s. Tests: `tests/v5-rules.test.js`.
+`rules: 'v5'`, shown to players as V5.1. Sources: the V5 Google Doc (first line of `rules url.txt`; text copy
+`docs/rules-v5-2026-11-26.txt`) and the V5.1 movement rules the designer pasted in chat (`docs/rules-v5.1-2026-11-27.txt`),
+plus rulings in chat: the charger slides to the centre of the edge, flank strikes reroll misses once. Rules page
+`game-rules-v5.html`; landing-page button "V5.1". The internal name stayed 'v5' so saves still load. Details in
+GUIDED-PLAY.md. In short: V4's shooting, Shaken, dice and terrain (`v4Rules` is true for it; V4-only movement tests
+`v4Only`), hills slow units entering them, and new movement (`v5Rules`): March (Mobility pivots at any point, one more
+if it doesn't move, no contact with anything), Charge (edge picked by the start line, hinge flush, slide to the edge's
+centre, free strike at the target, may touch no other unit), no Reform, Withdraw (Master Tactician's unit touching one
+enemy: face its edge, march back as far as it can, out of contact), engaged units otherwise only Strike, and a strike
+on a flank rerolls its misses once. Tests: `tests/v5-rules.test.js`. All unit cards are now wide (SW) on the sheet.
 
 Open questions for the designer (sent with the V5 review, 2026-11-26): see the run log entry of that day.
 
-AI for V5 (2026-11-26): v12 frozen first. New weights, both on: `v5Aim` (plansFor aims charges at points along each
+AI for V5 (2026-11-26; V5.1 adjustments 2026-11-27: Mobility pivots for charges in `pairGeometry`, `midCharge` and the
+extra pivot on in V5.1, Withdraw plans = withdraw, optionally then face the nearest enemy): v12 frozen first. New weights, both on: `v5Aim` (plansFor aims charges at points along each
 enemy's one chargeable edge, offers a Reform where a pivot would touch something, and plans Withdraws: face the enemy,
 then back out of contact by the least, half or the most it can) and `v5Threat` (pairGeometry: a charge allows one pivot whatever the Mobility,
-and a charge or strike on a flank uses a target number of 3). `midCharge` and the extra-pivot turns are V4-only now.
+and a charge or strike on a flank rerolls misses). `midCharge` and the extra-pivot turns are V4-only now.
 `tools/v4-probe.js` takes `--rules=v5` and also counts Reforms and face-abouts.
 
 Run log

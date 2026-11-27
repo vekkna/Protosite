@@ -1007,19 +1007,19 @@ const STATS_SNAPSHOT_URL = 'unit-cards-source.csv';
 // Last resort if neither the sheet, the browser cache nor the snapshot loads. Keep in step with
 // unit-cards-source.csv (tests/roles-stats.test.js checks this).
 const FALLBACK_DEFAULT_UNITS = [
-    { Unit: "Heavy Infantry", Speed: "6", Drill: "0", Melee: "8", Ranged: "-", Def: "5", Footprint: "SW", Quantity: "2" },
+    { Unit: "Heavy Infantry", Speed: "6", Drill: "0", Melee: "10", Ranged: "-", Def: "5", Footprint: "SW", Quantity: "2" },
     { Unit: "Fanatics", Speed: "5", Drill: "1", Melee: "5", Ranged: "-", Def: "3", Footprint: "SW", Quantity: "2" },
-    { Unit: "Heavy Cavalry", Speed: "10", Drill: "0", Melee: "4", Ranged: "-", Def: "5", Footprint: "SN", Quantity: "2" },
+    { Unit: "Heavy Cavalry", Speed: "10", Drill: "0", Melee: "7", Ranged: "-", Def: "5", Footprint: "SW", Quantity: "2" },
     { Unit: "Infantry", Speed: "6", Drill: "2", Melee: "3", Ranged: "-", Def: "5", Footprint: "SW", Quantity: "3" },
     { Unit: "Halberds", Speed: "6", Drill: "1", Melee: "2*", Ranged: "-", Def: "4", Footprint: "SW", Quantity: "1" },
     { Unit: "Spears", Speed: "6", Drill: "1", Melee: "1", Ranged: "-", Def: "6", Footprint: "SW", Quantity: "2" },
-    { Unit: "Cavalry", Speed: "12", Drill: "1", Melee: "3", Ranged: "-", Def: "4", Footprint: "SN", Quantity: "2" },
-    { Unit: "Lancers", Speed: "11", Drill: "2", Melee: "2*", Ranged: "-", Def: "4", Footprint: "SN", Quantity: "1" },
+    { Unit: "Cavalry", Speed: "12", Drill: "1", Melee: "3", Ranged: "-", Def: "4", Footprint: "SW", Quantity: "2" },
+    { Unit: "Lancers", Speed: "11", Drill: "2", Melee: "2*", Ranged: "-", Def: "4", Footprint: "SW", Quantity: "1" },
     { Unit: "Light Infantry", Speed: "7", Drill: "4", Melee: "3", Ranged: "-", Def: "4*", Footprint: "SW", Quantity: "3" },
-    { Unit: "Light Cavalry", Speed: "14", Drill: "3", Melee: "3", Ranged: "3/12", Def: "3*", Footprint: "SN", Quantity: "2" },
+    { Unit: "Light Cavalry", Speed: "14", Drill: "3", Melee: "3", Ranged: "3/12", Def: "3*", Footprint: "SW", Quantity: "2" },
     { Unit: "Archers", Speed: "6", Drill: "1", Melee: "1", Ranged: "3/18", Def: "3", Footprint: "SW", Quantity: "3" },
-    { Unit: "Crossbows", Speed: "5", Drill: "0", Melee: "1", Ranged: "2*/18", Def: "3", Footprint: "SW", Quantity: "1" },
-    { Unit: "Mounted Archers", Speed: "12", Drill: "3", Melee: "1", Ranged: "3/12", Def: "3*", Footprint: "SN", Quantity: "0" }
+    { Unit: "Crossbows", Speed: "5", Drill: "0", Melee: "1", Ranged: "2*/18", Def: "4", Footprint: "SW", Quantity: "1" },
+    { Unit: "Mounted Archers", Speed: "12", Drill: "3", Melee: "1", Ranged: "3/12", Def: "3*", Footprint: "SW", Quantity: "0" }
 ];
 
 // Initialize with cached stats if present, or fallback default units immediately
